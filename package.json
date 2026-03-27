@@ -1,0 +1,60 @@
+{
+  "name": "baseball-sim-engine",
+  "version": "1.4.0",
+  "description": "A deterministic baseball simulation engine written in TypeScript. The engine runs in both Node.js and browser environments.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "test": "node ./node_modules/mocha/bin/mocha --timeout 9999999999 --require ts-node/register test/**/*.spec.ts",
+    "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
+    "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
+    "build": "npm run build:js && npm run build:types",
+    "build:watch": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/American-Space-Software/baseball-sim-engine.git"
+  },
+  "bugs": {
+    "url": "https://github.com/American-Space-Software/baseball-sim-engine/issues"
+  },
+  "homepage": "https://github.com/American-Space-Software/baseball-sim-engine#readme",
+  "keywords": [
+    "baseball",
+    "simulation",
+    "sim",
+    "typescript",
+    "javascript",
+    "esm"
+  ],
+  "author": "Patrick Toner",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/mocha": "10.0.10",
+    "@types/node": "20.8.2",
+    "mocha": "11.7.5",
+    "ts-loader": "9.5.2",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.2",
+    "webpack": "5.101.3",
+    "webpack-cli": "6.0.1"
+  },
+  "dependencies": {
+    "big.js": "7.0.1"
+  }
+}
