@@ -263,7 +263,7 @@ As long as the RNG produces the same sequence, the simulation will produce the s
 - You control the loop  
 - No persistence included  
 - Player generation is external  
-
+- Unit tests are still in EBL for practical reasons for now
 ---
 
 ## License
