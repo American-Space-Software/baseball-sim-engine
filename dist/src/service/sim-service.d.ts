@@ -10,8 +10,10 @@ declare class SimService {
     private runnerActions;
     private matchup;
     constructor(rollChartService: RollChartService);
+    initGame(game: Game): void;
     startGame(command: StartGameCommand): Game;
     finishGame(game: Game): void;
+    buildLeagueAverages(laRating: number, overrideValues?: Partial<LeagueAverage>): LeagueAverage;
     simPitch(game: Game, rng: any): void;
     buildTeamInfoFromPlayers(leagueAverage: LeagueAverage, name: string, teamId: string, players: Player[], color1: string, color2: string, startingId: number): TeamInfo;
     getThrowResult(gameRNG: any, overallSafeChance: number): ThrowRoll;

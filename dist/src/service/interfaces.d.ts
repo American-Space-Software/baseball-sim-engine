@@ -90,11 +90,9 @@ interface Player {
     readonly displayName: string;
     primaryPosition: Position;
     zodiacSign: string;
-    ownerId?: string;
     throws: Handedness;
     hits: Handedness;
     isRetired: boolean;
-    coverImageCid?: string;
     stamina: number;
     overallRating: number;
     pitchRatings: PitchRatings;
@@ -136,7 +134,6 @@ interface GamePlayerBio {
     _id: string;
     fullName: string;
     age: number;
-    ownerId: string;
     throws: Handedness;
     hits: Handedness;
     hitResult: HitterStatLine;
@@ -359,7 +356,6 @@ interface HittingHandednessRatings {
 }
 interface GamePlayer {
     _id: string;
-    coverImageCid: string;
     fullName: string;
     firstName: string;
     lastName: string;
@@ -369,7 +365,6 @@ interface GamePlayer {
     overallRating: {
         before: number;
     };
-    ownerId: string;
     color1: string;
     color2: string;
     throws: Handedness;

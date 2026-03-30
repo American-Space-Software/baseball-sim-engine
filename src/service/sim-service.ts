@@ -1,5 +1,5 @@
 import { BaseResult, Contact, DefenseCreditType, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchType, PitchZone, PlayResult, Position, ShallowDeep, SwingResult, ThrowResult } from "./enums.js";
-import { DefensiveCredit, Game, GamePlayer, HalfInning, HitResultCount, HitterChange, HittingRatings, InningEndingEvent, LeagueAverage, Lineup, MatchupHandedness, Pitch, PitcherChange, PitchLog, PitchRatings, PitchResultCount, Play, Player, RollChart, RotationPitcher, RunnerEvent, RunnerResult, RunnerThrowCommand, Score, SimPitchCommand, SimPitchResult, StartGameCommand, Team, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
+import { ContactTypeRollInput, DefensiveCredit, FielderChance, Game, GamePlayer, HalfInning, HitResultCount, HitterChange, HittingRatings, InningEndingEvent, LeagueAverage, Lineup, MatchupHandedness, Pitch, PitcherChange, PitchLog, PitchRatings, PitchResultCount, Play, Player, PowerRollInput, RollChart, RotationPitcher, RunnerEvent, RunnerResult, RunnerThrowCommand, Score, ShallowDeepChance, SimPitchCommand, SimPitchResult, StartGameCommand, Team, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
 import { RollChartService } from "./roll-chart-service.js";
 
 
@@ -9,6 +9,66 @@ const STANDARD_INNINGS = 9
 
 const MIN_CHANGE = -.5
 const MAX_CHANGE = .5
+
+const LEAGUE_AVERAGE_FIELDER_CHANCE_R: FielderChance = {
+    first: 8,
+    second: 13,
+    third: 10,
+    catcher: 2,
+    shortstop: 14,
+    leftField: 17,
+    centerField: 18,
+    rightField: 13,
+    pitcher: 5
+}
+
+const LEAGUE_AVERAGE_FIELDER_CHANCE_L: FielderChance = {
+    first: 10,
+    second: 15,
+    third: 8,
+    catcher: 2,
+    shortstop: 12,
+    leftField: 13,
+    centerField: 18,
+    rightField: 17,
+    pitcher: 5
+}
+
+const LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE: ShallowDeepChance = {
+    shallow: 20,
+    normal: 60,
+    deep: 20
+}
+
+const LEAGUE_AVERAGE_IN_ZONE_RATE: number = 49.6
+
+const LEAGUE_AVERAGE_STRIKE_SWING_RATE: number = 67.6
+const LEAGUE_AVERAGE_BALL_SWING_RATE: number = 28.5
+
+
+const LEAGUE_AVERAGE_ZONE_SWING_CONTACT_RATE: number = 82.2
+const LEAGUE_AVERAGE_CHASE_SWING_CONTACT_RATE: number = 56
+
+const LEAGUE_AVERAGE_FOUL_RATE = 50
+
+
+const LEAGUE_AVERAGE_PITCH_QUALITY = 50
+
+const LEAGUE_AVERAGE_POWER_ROLL_INPUT: PowerRollInput = {
+    out: 649,
+    singles: 200,
+    doubles: 75,
+    triples: 8,
+    hr: 68
+}
+
+const LEAGUE_AVERAGE_CONTACT_TYPE_INPUT: ContactTypeRollInput = {
+    groundball: 44,
+    flyBall: 35,
+    lineDrive: 21
+}
+
+
 
 class SimService {
 
@@ -33,7 +93,11 @@ class SimService {
         this.sim = new Sim(rollChartService, this.simRolls, this.matchup, this.runnerActions)
     }
 
-    startGame(command:StartGameCommand) {
+    initGame(game:Game) {
+        return this.sim.initGame(game)
+    }
+
+    startGame(command:StartGameCommand) : Game {
 
         let game = command.game
 
@@ -99,7 +163,58 @@ class SimService {
 
     }
 
+    buildLeagueAverages(laRating: number, overrideValues?: Partial<LeagueAverage>): LeagueAverage {
+        return {
+            hittingRatings: {
+                speed: overrideValues?.hittingRatings?.speed ?? laRating,
+                steals: overrideValues?.hittingRatings?.steals ?? laRating,
+                arm: overrideValues?.hittingRatings?.arm ?? laRating,
+                defense: overrideValues?.hittingRatings?.defense ?? laRating,
+                vsL: {
+                    contact: overrideValues?.hittingRatings?.vsL?.contact ?? laRating,
+                    gapPower: overrideValues?.hittingRatings?.vsL?.gapPower ?? laRating,
+                    homerunPower: overrideValues?.hittingRatings?.vsL?.homerunPower ?? laRating,
+                    plateDiscipline: overrideValues?.hittingRatings?.vsL?.plateDiscipline ?? laRating
+                },
+                vsR: {
+                    contact: overrideValues?.hittingRatings?.vsR?.contact ?? laRating,
+                    gapPower: overrideValues?.hittingRatings?.vsR?.gapPower ?? laRating,
+                    homerunPower: overrideValues?.hittingRatings?.vsR?.homerunPower ?? laRating,
+                    plateDiscipline: overrideValues?.hittingRatings?.vsR?.plateDiscipline ?? laRating
+                }
+            },
 
+            pitchRatings: {
+                power: overrideValues?.pitchRatings?.power ?? laRating,
+                vsL: {
+                    control: overrideValues?.pitchRatings?.vsL?.control ?? laRating,
+                    movement: overrideValues?.pitchRatings?.vsL?.movement ?? laRating
+                },
+                vsR: {
+                    control: overrideValues?.pitchRatings?.vsR?.control ?? laRating,
+                    movement: overrideValues?.pitchRatings?.vsR?.movement ?? laRating
+                }
+            },
+
+            foulRate: overrideValues?.foulRate ?? LEAGUE_AVERAGE_FOUL_RATE,
+
+            inZoneRate: overrideValues?.inZoneRate ?? LEAGUE_AVERAGE_IN_ZONE_RATE,
+            strikeSwingRate: overrideValues?.strikeSwingRate ?? LEAGUE_AVERAGE_STRIKE_SWING_RATE,
+            ballSwingRate: overrideValues?.ballSwingRate ?? LEAGUE_AVERAGE_BALL_SWING_RATE,
+
+            zoneSwingContactRate: overrideValues?.zoneSwingContactRate ?? LEAGUE_AVERAGE_ZONE_SWING_CONTACT_RATE,
+            chaseSwingContactRate: overrideValues?.chaseSwingContactRate ?? LEAGUE_AVERAGE_CHASE_SWING_CONTACT_RATE,
+
+            fielderChanceR: overrideValues?.fielderChanceR ?? LEAGUE_AVERAGE_FIELDER_CHANCE_R,
+            fielderChanceL: overrideValues?.fielderChanceL ?? LEAGUE_AVERAGE_FIELDER_CHANCE_L,
+            shallowDeepChance: overrideValues?.shallowDeepChance ?? LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE,
+
+            pitchQuality: overrideValues?.pitchQuality ?? LEAGUE_AVERAGE_PITCH_QUALITY,
+
+            powerRollInput: overrideValues?.powerRollInput ?? LEAGUE_AVERAGE_POWER_ROLL_INPUT,
+            contactTypeRollInput: overrideValues?.contactTypeRollInput ?? LEAGUE_AVERAGE_CONTACT_TYPE_INPUT
+        }
+    }
 
 
     /*
@@ -157,6 +272,30 @@ class Sim {
         private matchup:Matchup,
         private runnerActions:RunnerActions
     ) {}
+
+    initGame(game:Game) {
+
+        game.currentInning = 1
+        game.isTopInning = true
+        game.isStarted = false
+        game.isComplete = false
+        game.isFinished = false
+        game.count = {
+            balls: 0,
+            strikes: 0,
+            outs: 0
+        }
+
+        game.score = {
+            away: 0,
+            home: 0
+        }
+
+        game.halfInnings = []
+
+        game.playIndex = 0
+
+    }
 
     createPlay(playIndex:number,
                hitter:GamePlayer, 
@@ -2563,7 +2702,6 @@ class GamePlayers {
 
             gamePlayers.push({ 
                 _id: p._id,
-                coverImageCid: p.coverImageCid,
                 fullName: `${p.firstName} ${p.lastName}`,
                 firstName: p.firstName,
                 lastName: p.lastName,
@@ -2577,7 +2715,6 @@ class GamePlayers {
                     before: p.overallRating,
                 },
 
-                ownerId: p.ownerId,
                 color1: color1,
                 color2: color2,
 

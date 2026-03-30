@@ -19,7 +19,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "test": "node ./node_modules/mocha/bin/mocha --timeout 9999999999 --require ts-node/register test/**/*.spec.ts",
+    "test": "node --loader ts-node/esm ./node_modules/mocha/bin/mocha \"test/**/*.spec.ts\"",
     "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
     "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
     "build": "npm run build:js && npm run build:types",
@@ -52,7 +52,9 @@
     "ts-node": "10.9.2",
     "typescript": "5.9.2",
     "webpack": "5.101.3",
-    "webpack-cli": "6.0.1"
+    "webpack-cli": "6.0.1",
+    "seedrandom": "3.0.5"
+
   },
   "dependencies": {
     "big.js": "7.0.1"

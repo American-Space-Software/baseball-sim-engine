@@ -44,6 +44,7 @@ export type {
   Game,
   Player,
   TeamInfo,
+  Team,  
   LastPlay,
   UpcomingMatchup,
   LeagueAverage,

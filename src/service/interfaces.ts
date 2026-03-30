@@ -122,14 +122,10 @@ interface Player {
     primaryPosition: Position
     zodiacSign: string
 
-    ownerId?: string
-
     throws: Handedness
     hits: Handedness
 
     isRetired: boolean
-
-    coverImageCid?: string
 
     stamina: number
     overallRating: number
@@ -201,7 +197,6 @@ interface GamePlayerBio {
     // ratingBefore:Rating
 
     age:number
-    ownerId:string 
 
     throws:Handedness
     hits:Handedness
@@ -484,7 +479,6 @@ interface HittingHandednessRatings {
 
 interface GamePlayer {
     _id:string
-    coverImageCid:string
     fullName: string
     firstName:string
     lastName:string
@@ -498,7 +492,6 @@ interface GamePlayer {
         before:number
     }
 
-    ownerId:string 
     color1:string
     color2:string
 
