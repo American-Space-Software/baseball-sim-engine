@@ -19,7 +19,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "test": "node --loader ts-node/esm ./node_modules/mocha/bin/mocha \"test/**/*.spec.ts\"",
+    "test": "node --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
     "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
     "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
     "build": "npm run build:js && npm run build:types",

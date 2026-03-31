@@ -1,9 +1,9 @@
 import { BaseResult, Contact, DefenseCreditType, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchType, PitchZone, PlayResult, Position, ShallowDeep, SwingResult, ThrowResult } from "./enums.js";
-import { ContactTypeRollInput, DefensiveCredit, FielderChance, Game, GamePlayer, HalfInning, HitResultCount, HitterChange, HittingRatings, InningEndingEvent, LeagueAverage, Lineup, MatchupHandedness, Pitch, PitcherChange, PitchLog, PitchRatings, PitchResultCount, Play, Player, PowerRollInput, RollChart, RotationPitcher, RunnerEvent, RunnerResult, RunnerThrowCommand, Score, ShallowDeepChance, SimPitchCommand, SimPitchResult, StartGameCommand, Team, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
+import { BallSwingByCount, ContactTypeRollInput, Count, DefensiveCredit, FielderChance, Game, GamePlayer, HalfInning, HitResultCount, HitterChange, HittingRatings, InningEndingEvent, InZoneByCount, LeagueAverage, Lineup, MatchupHandedness, Pitch, PitchCount, PitchEnvironmentTarget, PitcherChange, PitchLog, PitchRatings, PitchResultCount, Play, Player, PowerRollInput, RollChart, RotationPitcher, RunnerEvent, RunnerResult, RunnerThrowCommand, Score, ShallowDeepChance, SimPitchCommand, SimPitchResult, StartGameCommand, StrikeSwingByCount, Team, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
 import { RollChartService } from "./roll-chart-service.js";
 
 
-const APPLY_PLAYER_CHANGES = true
+const APPLY_PLAYER_CHANGES = false
 const PLAYER_CHANGE_SCALE = 0.75
 const STANDARD_INNINGS = 9
 
@@ -40,8 +40,6 @@ const LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE: ShallowDeepChance = {
     deep: 20
 }
 
-const LEAGUE_AVERAGE_IN_ZONE_RATE: number = 49.6
-
 const LEAGUE_AVERAGE_STRIKE_SWING_RATE: number = 67.6
 const LEAGUE_AVERAGE_BALL_SWING_RATE: number = 28.5
 
@@ -50,7 +48,6 @@ const LEAGUE_AVERAGE_ZONE_SWING_CONTACT_RATE: number = 82.2
 const LEAGUE_AVERAGE_CHASE_SWING_CONTACT_RATE: number = 56
 
 const LEAGUE_AVERAGE_FOUL_RATE = 50
-
 
 const LEAGUE_AVERAGE_PITCH_QUALITY = 50
 
@@ -67,6 +64,54 @@ const LEAGUE_AVERAGE_CONTACT_TYPE_INPUT: ContactTypeRollInput = {
     flyBall: 35,
     lineDrive: 21
 }
+
+
+
+//Based on 0-99 average. Adjusted from 2025 pitch data.
+const LEAGUE_AVERAGE_IN_ZONE_BY_COUNT: InZoneByCount[] = [
+    { balls: 0, strikes: 0, inZone: 55 },
+    { balls: 0, strikes: 1, inZone: 46 },
+    { balls: 0, strikes: 2, inZone: 32 },
+    { balls: 1, strikes: 0, inZone: 56 },
+    { balls: 1, strikes: 1, inZone: 51},
+    { balls: 1, strikes: 2, inZone: 38 },
+    { balls: 2, strikes: 0, inZone: 60 },
+    { balls: 2, strikes: 1, inZone: 58 },
+    { balls: 2, strikes: 2, inZone: 48 },
+    { balls: 3, strikes: 0, inZone: 63 },
+    { balls: 3, strikes: 1, inZone: 63 },
+    { balls: 3, strikes: 2, inZone: 60 }
+]
+
+const LEAGUE_AVERAGE_BALL_SWING_BY_COUNT: BallSwingByCount[] = [
+    { balls: 0, strikes: 0, swing: 16 },
+    { balls: 0, strikes: 1, swing: 28 },
+    { balls: 0, strikes: 2, swing: 32 },
+    { balls: 1, strikes: 0, swing: 21 },
+    { balls: 1, strikes: 1, swing: 31 },
+    { balls: 1, strikes: 2, swing: 37 },
+    { balls: 2, strikes: 0, swing: 19 },
+    { balls: 2, strikes: 1, swing: 31 },
+    { balls: 2, strikes: 2, swing: 42 },
+    { balls: 3, strikes: 0, swing: 3 },
+    { balls: 3, strikes: 1, swing: 25 },
+    { balls: 3, strikes: 2, swing: 43 }
+] 
+
+const LEAGUE_AVERAGE_STRIKE_SWING_BY_COUNT: StrikeSwingByCount[] = [
+    { balls: 0, strikes: 0, swing: 45 },
+    { balls: 0, strikes: 1, swing: 73 },
+    { balls: 0, strikes: 2, swing: 86 },
+    { balls: 1, strikes: 0, swing: 59},
+    { balls: 1, strikes: 1, swing: 77 },
+    { balls: 1, strikes: 2, swing: 88 },
+    { balls: 2, strikes: 0, swing: 55 },
+    { balls: 2, strikes: 1, swing: 77 },
+    { balls: 2, strikes: 2, swing: 88 },
+    { balls: 3, strikes: 0, swing: 11 },
+    { balls: 3, strikes: 1, swing: 70},
+    { balls: 3, strikes: 2, swing: 88 }
+]
 
 
 
@@ -198,7 +243,6 @@ class SimService {
 
             foulRate: overrideValues?.foulRate ?? LEAGUE_AVERAGE_FOUL_RATE,
 
-            inZoneRate: overrideValues?.inZoneRate ?? LEAGUE_AVERAGE_IN_ZONE_RATE,
             strikeSwingRate: overrideValues?.strikeSwingRate ?? LEAGUE_AVERAGE_STRIKE_SWING_RATE,
             ballSwingRate: overrideValues?.ballSwingRate ?? LEAGUE_AVERAGE_BALL_SWING_RATE,
 
@@ -212,7 +256,39 @@ class SimService {
             pitchQuality: overrideValues?.pitchQuality ?? LEAGUE_AVERAGE_PITCH_QUALITY,
 
             powerRollInput: overrideValues?.powerRollInput ?? LEAGUE_AVERAGE_POWER_ROLL_INPUT,
-            contactTypeRollInput: overrideValues?.contactTypeRollInput ?? LEAGUE_AVERAGE_CONTACT_TYPE_INPUT
+            contactTypeRollInput: overrideValues?.contactTypeRollInput ?? LEAGUE_AVERAGE_CONTACT_TYPE_INPUT,
+
+
+            inZoneByCount: LEAGUE_AVERAGE_IN_ZONE_BY_COUNT,
+            ballSwingByCount: LEAGUE_AVERAGE_BALL_SWING_BY_COUNT,
+            strikeSwingByCount: LEAGUE_AVERAGE_STRIKE_SWING_BY_COUNT
+
+        }
+    }
+
+    pitchEnvironmentTargetToLeagueAverage(target: PitchEnvironmentTarget): LeagueAverage {
+
+        return {
+
+            ...this.buildLeagueAverages(100),
+
+            foulRate: target.pitch.foulContactPercent,
+
+            inZoneByCount: target.pitch.inZoneByCount,
+            ballSwingByCount: target.swing.ballSwingByCount,
+            strikeSwingByCount: target.swing.strikeSwingByCount,
+
+            strikeSwingRate: target.swing.swingAtStrikesPercent,
+            ballSwingRate: target.swing.swingAtBallsPercent,
+
+            zoneSwingContactRate: target.swing.inZoneContactPercent,
+            chaseSwingContactRate: target.swing.outZoneContactPercent,
+
+            pitchQuality: 50,
+
+            contactTypeRollInput: target.battedBall.contactRollInput,
+
+            powerRollInput: target.battedBall.powerRollInput
         }
     }
 
@@ -534,7 +610,8 @@ class Sim {
         const pitchQuality = Pitching.getPitchQuality(powerQuality, locationQuality, movementQuality)
 
         //Is it in the strike zone?
-        const inZone = this.gameRolls.isInZone(command.rng, locationQuality, command.leagueAverages.inZoneRate)
+        let inZoneRate = command.leagueAverages.inZoneByCount.find(r => r.balls === command.play.pitchLog.count.balls && r.strikes === command.play.pitchLog.count.strikes)?.inZone
+        const inZone = this.gameRolls.isInZone(command.rng, locationQuality, inZoneRate)
 
         const intentZone = this.gameRolls.getIntentZone(command.rng)
         const actualZone = Pitching.getActualZone(intentZone, locationQuality)
@@ -589,7 +666,8 @@ class Sim {
                 command.leagueAverages,
                 inZone,
                 effectivePitchQuality,
-                guessPitch
+                guessPitch,
+                command.play.pitchLog.count
             )
 
             //Create pitch.
@@ -2476,7 +2554,7 @@ class SimRolls {
         return Math.max(0, Math.min(999, Math.round(roll)))
     }    
 
-    getSwingResult(gameRNG, hitterChange: HitterChange, leagueAverage: LeagueAverage, inZone: boolean, pitchQuality: number, guessPitch:boolean): SwingResult {
+    getSwingResult(gameRNG, hitterChange: HitterChange, leagueAverage: LeagueAverage, inZone: boolean, pitchQuality: number, guessPitch:boolean, pitchCount: PitchCount): SwingResult {
 
         //How much better than average is the pitch quality?
         let pitchQualityChange = PlayerChange.getChange(leagueAverage.pitchQuality, pitchQuality)
@@ -2489,7 +2567,7 @@ class SimRolls {
         //Worse players swing more on balls, less often on low-quality strikes.
         if (inZone) {
 
-            swingRate = leagueAverage.strikeSwingRate
+            swingRate = leagueAverage.strikeSwingByCount.find(r => r.balls === pitchCount.balls && r.strikes === pitchCount.strikes).swing
 
             //Better players swing more on low-quality strikes,
             //Worse players swing less on low-quality strikes (because they are dumb).
@@ -2498,46 +2576,44 @@ class SimRolls {
                 swingRateAdjust.push(hitterChange.plateDisiplineChange * PLAYER_CHANGE_SCALE)
                 swingRateAdjust.push(pitchQualityChange * -1 * PLAYER_CHANGE_SCALE)
 
-                if (guessPitch) {
-                    swingRateAdjust.push(.3)
-                }
+                // if (guessPitch) {
+                //     swingRateAdjust.push(.3)
+                // }
             }
 
         } else {
 
-            swingRate = leagueAverage.ballSwingRate
+            swingRate = leagueAverage.ballSwingByCount.find(r => r.balls === pitchCount.balls && r.strikes === pitchCount.strikes).swing
 
             //Better players swing less often on balls (unless 2 strikes)
             //Worse players swing more often on balls (because they are dumb).
 
             if (APPLY_PLAYER_CHANGES) {
-                swingRateAdjust.push(hitterChange.plateDisiplineChange * -1 * PLAYER_CHANGE_SCALE )  //negative adjust
-                swingRateAdjust.push(pitchQualityChange * PLAYER_CHANGE_SCALE) 
+                swingRateAdjust.push(hitterChange.plateDisiplineChange * -1 * PLAYER_CHANGE_SCALE)  //negative adjust
+                swingRateAdjust.push(pitchQualityChange * PLAYER_CHANGE_SCALE)
 
-                if (guessPitch) {
-                    swingRateAdjust.push(.3 * -1)
-                }
+                // if (guessPitch) {
+                //     swingRateAdjust.push(.3 * -1)
+                // }
             }
         }
 
-        swingRate = PlayerChange.applyChanges(swingRate, swingRateAdjust)
-
+        swingRate = PlayerChange.applyChanges(swingRate, swingRateAdjust?.length > 0 ? swingRateAdjust : [0])
 
         //Roll die
-        let die = Rolls.getRollUnrounded(gameRNG, 0, 99)
+        let die = Rolls.getRollUnrounded(gameRNG, 0, 100)
 
-        if (die >= 99 - swingRate) {
+        if (die < swingRate) {
 
             //Swing
             let swingContactRate = inZone ? leagueAverage.zoneSwingContactRate : leagueAverage.chaseSwingContactRate //higher is better for pitcher
 
             //Increase or decrease chance based on hitter's contact rating and vsSameHand rating
-
             if (APPLY_PLAYER_CHANGES) {
 
                 let swingContactRateAdjust = [
-                    hitterChange.contactChange * -1 * PLAYER_CHANGE_SCALE, 
-                    guessPitch ? -.2 : .2,
+                    hitterChange.contactChange * -1 * PLAYER_CHANGE_SCALE,
+                    // guessPitch ? -.2 : .2,
                     pitchQualityChange * PLAYER_CHANGE_SCALE
                 ]
 
@@ -2545,8 +2621,7 @@ class SimRolls {
 
             }
 
-
-            let die2 = Rolls.getRoll(gameRNG, 0, 99)
+            let die2 = Rolls.getRollUnrounded(gameRNG, 0, 100)
 
             if (die2 > swingContactRate) {
 
@@ -2635,7 +2710,7 @@ class SimRolls {
 
     getPowerQuality(gameRNG, powerChange: number): number {
 
-        let roll =  Rolls.getRollUnrounded(gameRNG, 0, 99)
+        let roll =  Rolls.getRollUnrounded(gameRNG, 0, 100)
 
         if (APPLY_PLAYER_CHANGES) {
             roll += (roll * powerChange * PLAYER_CHANGE_SCALE)
@@ -2643,7 +2718,7 @@ class SimRolls {
 
 
         if (roll < 0) roll = 0
-        if (roll > 99) roll = 99
+        if (roll > 100) roll = 100
 
         return parseFloat(roll.toFixed(2))
 
@@ -2651,14 +2726,14 @@ class SimRolls {
 
     getLocationQuality(gameRNG, controlChange: number): number {
 
-        let roll = Rolls.getRollUnrounded(gameRNG, 0, 99)
+        let roll = Rolls.getRollUnrounded(gameRNG, 0, 100)
 
         if (APPLY_PLAYER_CHANGES) {
             roll += (roll * controlChange * PLAYER_CHANGE_SCALE) 
         }
 
         if (roll < 0) roll = 0
-        if (roll > 99) roll = 99
+        if (roll > 100) roll = 100
 
         return parseFloat(roll.toFixed(2))
 
@@ -2666,7 +2741,7 @@ class SimRolls {
 
     getMovementQuality(gameRNG, movementChange: number): number {
         
-        let roll =  Rolls.getRollUnrounded(gameRNG, 0, 99)
+        let roll =  Rolls.getRollUnrounded(gameRNG, 0, 100)
 
 
         if (APPLY_PLAYER_CHANGES) {
@@ -2675,7 +2750,7 @@ class SimRolls {
 
 
         if (roll < 0) roll = 0
-        if (roll > 99) roll = 99
+        if (roll > 100) roll = 100
 
         return parseFloat(roll.toFixed(2))
 
@@ -2779,7 +2854,9 @@ class GamePlayers {
                     doublePlays: 0,
                     sbAttempts: 0,
                     outfieldAssists: 0,
-                    wpa:0
+                    wpa: 0,
+                    calledStrikes: 0,
+                    swingingStrikes: 0
                 },
     
                 pitchResult: {
@@ -2831,7 +2908,9 @@ class GamePlayers {
                     inZoneContact: 0,
                     outZoneContact: 0,
                     wildPitches: 0,
-                    wpa:0
+                    wpa: 0,
+                    calledStrikes: 0,
+                    swingingStrikes: 0
                 },
 
                 hitterChange: {
@@ -3518,7 +3597,14 @@ class LogResult {
                         break
                     case Contact.GROUNDBALL:
                         LogResult.logGroundout(hitter.hitResult, pitcher.pitchResult)
-                        // if (runnerAdvance.hitter.result == -1 && this.getTotalOuts(runnerAdvance) == 2) this.logGidp(command.hitter.hitResult)
+
+                        const nonCaughtStealingOuts = runnerEvents.filter(re => re?.movement?.isOut && !re.isCS).length
+
+                        if (nonCaughtStealingOuts >= 2) {
+                            LogResult.logDoublePlays(hitter.hitResult)
+                            LogResult.logGIDP(hitter.hitResult)
+                        }
+
                         break
                     case Contact.LINE_DRIVE:
                         LogResult.logLineout(hitter.hitResult, pitcher.pitchResult)
@@ -3542,6 +3628,7 @@ class LogResult {
 
         //Pitcher
         pitcher.pitchResult.games = 1
+        pitcher.pitchResult.uniqueGames = 1
 
         pitcher.pitchResult.battersFaced++
 
@@ -3554,6 +3641,9 @@ class LogResult {
         pitcher.pitchResult.swingAtBalls += pitchLog.pitches.filter( p => p.swing == true && p.inZone == false).length || 0
         pitcher.pitchResult.swingAtStrikes += pitchLog.pitches.filter( p => p.swing == true && p.inZone == true).length || 0
         pitcher.pitchResult.ballsInPlay += pitchLog.pitches.filter( p => p.swing == true && p.result == PitchCall.IN_PLAY).length || 0
+
+        pitcher.pitchResult.calledStrikes += pitchLog.pitches.filter( p => p.result == PitchCall.STRIKE && p.swing == false).length || 0
+        pitcher.pitchResult.swingingStrikes += pitchLog.pitches.filter( p => p.result == PitchCall.STRIKE && p.swing == true && p.con == false).length || 0
 
         pitcher.pitchResult.inZone += pitchLog.pitches.filter( p => p.inZone == true).length || 0
         pitcher.pitchResult.inZoneContact += pitchLog.pitches.filter( p => p.inZone == true && p.con == true  ).length || 0
@@ -3568,6 +3658,7 @@ class LogResult {
 
         //Hitter
         hitter.hitResult.games = 1
+        hitter.hitResult.uniqueGames = 1
 
         hitter.hitResult.pa++
 
@@ -3580,6 +3671,9 @@ class LogResult {
         hitter.hitResult.swingAtBalls += pitchLog.pitches.filter( p => p.swing == true && p.inZone == false).length || 0
         hitter.hitResult.swingAtStrikes += pitchLog.pitches.filter( p => p.swing == true && p.inZone == true).length || 0
         hitter.hitResult.ballsInPlay += pitchLog.pitches.filter( p => p.swing == true && p.result == PitchCall.IN_PLAY).length || 0
+
+        hitter.hitResult.calledStrikes += pitchLog.pitches.filter( p => p.result == PitchCall.STRIKE && p.swing == false).length || 0
+        hitter.hitResult.swingingStrikes += pitchLog.pitches.filter( p => p.result == PitchCall.STRIKE && p.swing == true && p.con == false).length || 0
 
         hitter.hitResult.inZone += pitchLog.pitches.filter( p => p.inZone == true).length || 0
         hitter.hitResult.inZoneContact += pitchLog.pitches.filter( p => p.inZone == true && p.con == true ).length || 0

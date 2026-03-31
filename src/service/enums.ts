@@ -199,6 +199,8 @@ enum HomeAway {
     AWAY = "Away"
 }
 
+
+
 export {
     ThrowResult,  HomeAway,  Contact, SwingResult, DefenseCreditType, PlayResult, OfficialRunnerResult, OfficialPlayResult,PitchType, ShallowDeep, PitchCall,  PitchZone, Position, Handedness, BaseResult
 }

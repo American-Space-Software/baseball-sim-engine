@@ -244,9 +244,12 @@ interface HitterStatLine {
     soPercent?:number
 
     strikePercent?:number
+    calledStrikesPercent?:number
+    swingingStrikesPercent?:number    
     ballPercent?:number
     swingPercent?:number
     foulPercent?:number
+    foulContactPercent?:number
     swingAtBallsPercent?:number
     swingAtStrikesPercent?:number
     inZonePercent?:number
@@ -316,10 +319,13 @@ interface PitcherStatLine {
     bbPercent?:number
     soPercent?:number
     strikePercent?:number
+    calledStrikesPercent?:number
+    swingingStrikesPercent?:number
     ballPercent?:number
     swingPercent?:number
     inPlayPercent?:number
     foulPercent?:number
+    foulContactPercent?:number
     wildPitchPercent?:number
     swingAtBallsPercent?:number
     swingAtStrikesPercent?:number
@@ -412,7 +418,6 @@ interface LeagueAverage {
 
     foulRate:number,
 
-    inZoneRate:number
     ballSwingRate:number
     strikeSwingRate:number
 
@@ -424,6 +429,11 @@ interface LeagueAverage {
     fielderChanceR:FielderChance
     fielderChanceL:FielderChance
     shallowDeepChance:ShallowDeepChance
+
+    inZoneByCount: InZoneByCount[],
+    ballSwingByCount: BallSwingByCount[],
+    strikeSwingByCount: StrikeSwingByCount[]
+
 
 }
 
@@ -587,6 +597,9 @@ interface HitResultCount {
 
     inZone:number
 
+    calledStrikes:number
+    swingingStrikes:number
+
     ballsInPlay:number
 
     totalPitchQuality: number
@@ -650,6 +663,9 @@ interface PitchResultCount {
     swingAtStrikes:number
     inZoneContact:number
     outZoneContact:number
+
+    calledStrikes:number
+    swingingStrikes:number
 
     ballsInPlay:number
 
@@ -908,141 +924,220 @@ interface PowerRollInput {
 class InningEndingEvent extends Error {}
 
 
-interface HitResult {
+// interface HitResult {
 
-    games?:number
-    uniqueGames?:number
+//     games?:number
+//     uniqueGames?:number
 
-    playerId:string
-    age:number
-    teamWins:number
-    teamLosses:number
-    pa:number
-    atBats:number 
-    hits:number 
-    singles:number 
-    doubles:number 
-    triples:number 
-    homeRuns:number
-    runs:number 
-    rbi:number 
-    bb:number 
-    sbAttempts:number
-    sb:number
-    cs:number
-    hbp:number 
-    so:number 
-    lob:number 
-    sacBunts:number 
-    sacFlys:number
-    groundOuts:number 
-    flyOuts:number
-    lineOuts:number
-    outs:number
-    groundBalls:number
-    lineDrives:number
-    flyBalls:number
-    gidp:number
-    po:number
-    assists:number
-    outfieldAssists:number
-    csDefense:number
-    doublePlays:number
-    e:number
-    passedBalls:number
-    wpa:number
-    pitches:number
-    balls:number
-    strikes:number
-    fouls:number
-    inZone:number
-    swings:number
-    swingAtBalls:number
-    swingAtStrikes:number
-    ballsInPlay:number
-    inZoneContact:number
-    outZoneContact:number
-    totalPitchQuality: number
-    totalPitchPowerQuality: number
-    totalPitchLocationQuality: number
-    totalPitchMovementQuality: number
-    overallRatingBefore:number
-    overallRatingAfter:number
-    careerStats:{
-        before: HitterStatLine
-        after: HitterStatLine
+//     playerId:string
+//     age:number
+//     teamWins:number
+//     teamLosses:number
+//     pa:number
+//     atBats:number 
+//     hits:number 
+//     singles:number 
+//     doubles:number 
+//     triples:number 
+//     homeRuns:number
+//     runs:number 
+//     rbi:number 
+//     bb:number 
+//     sbAttempts:number
+//     sb:number
+//     cs:number
+//     hbp:number 
+//     so:number 
+//     lob:number 
+//     sacBunts:number 
+//     sacFlys:number
+//     groundOuts:number 
+//     flyOuts:number
+//     lineOuts:number
+//     outs:number
+//     groundBalls:number
+//     lineDrives:number
+//     flyBalls:number
+//     gidp:number
+//     po:number
+//     assists:number
+//     outfieldAssists:number
+//     csDefense:number
+//     doublePlays:number
+//     e:number
+//     passedBalls:number
+//     wpa:number
+//     pitches:number
+//     balls:number
+//     strikes:number
+//     fouls:number
+//     inZone:number
+//     swings:number
+//     swingAtBalls:number
+//     swingAtStrikes:number
+//     calledStrikes:number
+//     swingingStrikes:number
+//     ballsInPlay:number
+//     inZoneContact:number
+//     outZoneContact:number
+//     totalPitchQuality: number
+//     totalPitchPowerQuality: number
+//     totalPitchLocationQuality: number
+//     totalPitchMovementQuality: number
+//     overallRatingBefore:number
+//     overallRatingAfter:number
+//     careerStats:{
+//         before: HitterStatLine
+//         after: HitterStatLine
+//     }
+//     startDate?:Date
+//     lastUpdated?:Date 
+//     dateCreated?:Date    
+// }
+
+// interface PitchResult  {
+//     games?:number
+//     uniqueGames?:number
+
+//     playerId:string
+//     age:number
+//     teamWins:number
+//     teamLosses:number
+//     starts:number
+//     wins:number
+//     losses:number
+//     saves:number
+//     bs:number
+//     outs:number
+//     er:number
+//     so:number
+//     hits:number
+//     bb:number
+//     sho:number
+//     cg:number
+//     hbp:number
+//     singles:number
+//     doubles:number
+//     triples:number
+//     battersFaced:number
+//     atBats:number
+//     runs:number
+//     homeRuns:number
+//     groundOuts:number
+//     flyOuts:number
+//     lineOuts:number
+//     groundBalls:number
+//     lineDrives:number
+//     flyBalls:number
+//     sacFlys:number
+//     wpa:number
+//     wildPitches:number
+//     pitches:number
+//     strikes:number
+//     balls:number
+//     fouls:number
+//     inZone:number
+//     swings:number
+//     swingAtBalls:number
+//     swingAtStrikes:number
+//     calledStrikes:number
+//     swingingStrikes:number    
+//     ballsInPlay:number
+//     inZoneContact:number
+//     outZoneContact:number
+//     totalPitchQuality: number
+//     totalPitchPowerQuality: number
+//     totalPitchLocationQuality: number
+//     totalPitchMovementQuality: number
+//     overallRatingBefore:number
+//     overallRatingAfter:number
+//     careerStats:{
+//             before: PitcherStatLine
+//             after: PitcherStatLine
+//         }
+
+//     startDate?:Date
+//     lastUpdated?:Date 
+//     dateCreated?:Date    
+// }
+
+
+interface PitchEnvironmentTarget {
+    season: number
+
+    pitch: {
+        inZonePercent: number
+        strikePercent: number
+        ballPercent: number
+        swingPercent: number
+        foulContactPercent: number
+        pitchesPerPA: number,
+        inZoneByCount: InZoneByCount[]
     }
-    startDate?:Date
-    lastUpdated?:Date 
-    dateCreated?:Date    
+
+    swing: {
+        ballSwingByCount: BallSwingByCount[],
+        strikeSwingByCount: StrikeSwingByCount[],        
+        swingAtStrikesPercent: number
+        swingAtBallsPercent: number
+        inZoneContactPercent: number
+        outZoneContactPercent: number
+
+        
+    }
+
+    battedBall: {
+        inPlayPercent: number
+        contactRollInput: ContactTypeRollInput
+        powerRollInput: PowerRollInput
+    }
+
+    outcome: {
+        avg: number
+        obp: number
+        slg: number
+        ops: number
+        babip: number
+        homeRunPercent: number
+        doublePercent: number
+        triplePercent: number
+        bbPercent: number
+        soPercent: number
+        hbpPercent?: number
+    }
+
+    team: {
+        runsPerGame: number
+        hitsPerGame: number
+        homeRunsPerGame: number
+        bbPerGame: number
+        soPerGame: number
+    }
 }
 
-interface PitchResult  {
-    games?:number
-    uniqueGames?:number
 
-    playerId:string
-    age:number
-    teamWins:number
-    teamLosses:number
-    starts:number
-    wins:number
-    losses:number
-    saves:number
-    bs:number
-    outs:number
-    er:number
-    so:number
-    hits:number
-    bb:number
-    sho:number
-    cg:number
-    hbp:number
-    singles:number
-    doubles:number
-    triples:number
-    battersFaced:number
-    atBats:number
-    runs:number
-    homeRuns:number
-    groundOuts:number
-    flyOuts:number
-    lineOuts:number
-    groundBalls:number
-    lineDrives:number
-    flyBalls:number
-    sacFlys:number
-    wpa:number
-    wildPitches:number
-    pitches:number
-    strikes:number
+interface StrikeSwingByCount {
     balls:number
-    fouls:number
-    inZone:number
-    swings:number
-    swingAtBalls:number
-    swingAtStrikes:number
-    ballsInPlay:number
-    inZoneContact:number
-    outZoneContact:number
-    totalPitchQuality: number
-    totalPitchPowerQuality: number
-    totalPitchLocationQuality: number
-    totalPitchMovementQuality: number
-    overallRatingBefore:number
-    overallRatingAfter:number
-    careerStats:{
-            before: PitcherStatLine
-            after: PitcherStatLine
-        }
+    strikes:number
+    swing:number
+}
 
-    startDate?:Date
-    lastUpdated?:Date 
-    dateCreated?:Date    
+
+interface InZoneByCount {
+    balls:number
+    strikes:number
+    inZone:number
+}
+
+
+interface BallSwingByCount {
+    balls:number
+    strikes:number
+    swing:number
 }
 
 export {
-    DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, HitResult, PitchResult, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance,
+    StrikeSwingByCount, PitchCount, InZoneByCount, BallSwingByCount, PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance,
     TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, LeagueAverage, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score,
     Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount,HitResultCount, MatchupHandedness,
     GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team,

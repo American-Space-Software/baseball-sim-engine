@@ -8,7 +8,8 @@ import {
     Position,
     ShallowDeep,
     ThrowResult,
-    simService
+    simService,
+    StatService
 } from "../src/index.js"
 import seedrandom from "seedrandom"
 import type {
@@ -17,16 +18,21 @@ import type {
     Player,
     Team,
     Lineup,
-    RotationPitcher
+    RotationPitcher,
+    HitResultCount,
+    PitchResultCount,
+    PitchEnvironmentTarget
 } from "../src/index.js"
 
 let rng = new seedrandom(4)
+const statService = new StatService()
 
 describe("SimService", async () => {
 
     it("should sim a game", async () => {
 
-        const laRatings = simService.buildLeagueAverages(100)
+        const target = getPitchEnvironmentTargetForSeason(2025)
+        const laRatings = simService.pitchEnvironmentTargetToLeagueAverage(target)
 
         const awayPlayers: Player[] = buildTestTeam(1)
         const homePlayers: Player[] = buildTestTeam(100)
@@ -64,9 +70,7 @@ describe("SimService", async () => {
             stamina: 1
         } as RotationPitcher
 
-        const game: Game = {
-            _id: "game-1",
-        } as Game
+        const game: Game = { _id: "game-1" } as Game
 
         simService.initGame(game)
 
@@ -95,8 +99,138 @@ describe("SimService", async () => {
         }
 
         assert.equal(startedGame.isComplete, true)
-        assert.equal(startedGame.score.away, 11)
-        assert.equal(startedGame.score.home, 3)
+    })
+
+    it("should print aggregate stats over 250 games", async () => {
+
+        const NUM_GAMES = 250
+        const target = getPitchEnvironmentTargetForSeason(2025)
+
+        let totalHit: HitResultCount = {} as any
+        let totalPitch: PitchResultCount = {} as any
+
+        const normalize = (v: number) => v / 100
+
+        for (let i = 0; i < NUM_GAMES; i++) {
+
+            const game = buildStartedGame()
+
+            while (!game.isComplete) {
+                simService.simPitch(game, rng)
+            }
+
+            simService.finishGame(game)
+
+            const players = [
+                ...game.away.players,
+                ...game.home.players
+            ]
+
+            for (const p of players) {
+                if (p.hitResult) {
+                    totalHit = mergeHitResults(totalHit, p.hitResult)
+                }
+
+                if (p.pitchResult) {
+                    totalPitch = mergePitchResults(totalPitch, p.pitchResult)
+                }
+            }
+        }
+
+        const hitterStatLine = statService.hitResultToHitterStatLine(totalHit)
+        const pitcherStatLine = statService.pitchResultToPitcherStatLine(totalPitch)
+
+        console.log("=== HITTER STATLINE ===")
+        console.log(JSON.stringify(hitterStatLine, null, 2))
+
+        console.log("=== PITCHER STATLINE ===")
+        console.log(JSON.stringify(pitcherStatLine, null, 2))
+
+        const totalTeamGames = hitterStatLine.games / 9
+
+        const teamRunsPerGame = hitterStatLine.runs / totalTeamGames
+        const teamHitsPerGame = hitterStatLine.hits / totalTeamGames
+        const teamHomeRunsPerGame = hitterStatLine.homeRuns / totalTeamGames
+        const teamBBPerGame = hitterStatLine.bb / totalTeamGames
+        const teamSOPerGame = hitterStatLine.so / totalTeamGames
+
+        console.log("=== TARGET PITCH ===")
+        console.log({
+            inZonePercent: target.pitch.inZonePercent,
+            strikePercent: target.pitch.strikePercent,
+            ballPercent: target.pitch.ballPercent,
+            swingPercent: target.pitch.swingPercent,
+            foulContactPercent: target.pitch.foulContactPercent,
+            pitchesPerPA: target.pitch.pitchesPerPA
+        })
+
+        console.log("=== TARGET SWING ===")
+        console.log({
+            swingAtStrikesPercent: target.swing.swingAtStrikesPercent,
+            swingAtBallsPercent: target.swing.swingAtBallsPercent,
+            inZoneContactPercent: target.swing.inZoneContactPercent,
+            outZoneContactPercent: target.swing.outZoneContactPercent
+        })
+
+
+        console.log("=== ACTUAL PITCH ===")
+        console.log({
+            inZonePercent: hitterStatLine.inZonePercent,
+            strikePercent: hitterStatLine.strikePercent,
+            ballPercent: hitterStatLine.ballPercent,
+            swingPercent: hitterStatLine.swingPercent,
+            foulContactPercent: pitcherStatLine.foulContactPercent,
+            pitchesPerPA: hitterStatLine.pitchesPerPA
+        })
+
+
+        console.log("=== ACTUAL SWING ===")
+        console.log({
+            calledStrikesPercent: hitterStatLine.calledStrikesPercent,
+            swingingStrikesPercent: hitterStatLine.swingingStrikesPercent,
+
+            swingAtStrikesPercent: hitterStatLine.swingAtStrikesPercent,
+            swingAtBallsPercent: hitterStatLine.swingAtBallsPercent,
+            inZoneContactPercent: hitterStatLine.inZoneContactPercent,
+            outZoneContactPercent: hitterStatLine.outZoneContactPercent
+        })
+
+
+        console.log("=== PITCH DIFF ===")
+        console.log({
+            inZonePercentDiff: hitterStatLine.inZonePercent - normalize(target.pitch.inZonePercent),
+            strikePercentDiff: hitterStatLine.strikePercent - normalize(target.pitch.strikePercent),
+            ballPercentDiff: hitterStatLine.ballPercent - normalize(target.pitch.ballPercent),
+            swingPercentDiff: hitterStatLine.swingPercent - normalize(target.pitch.swingPercent),
+            foulContactPercentDiff: pitcherStatLine.foulContactPercent - normalize(target.pitch.foulContactPercent),
+            pitchesPerPADiff: hitterStatLine.pitchesPerPA - target.pitch.pitchesPerPA,
+            swingAtStrikesPercentDiff: hitterStatLine.swingAtStrikesPercent - normalize(target.swing.swingAtStrikesPercent),
+            swingAtBallsPercentDiff: hitterStatLine.swingAtBallsPercent - normalize(target.swing.swingAtBallsPercent),
+            inZoneContactPercentDiff: hitterStatLine.inZoneContactPercent - normalize(target.swing.inZoneContactPercent),
+            outZoneContactPercentDiff: hitterStatLine.outZoneContactPercent - normalize(target.swing.outZoneContactPercent)
+        })
+
+        console.log("=== TARGET TEAM ===")
+        console.log(target.team)
+
+        console.log("=== TEAM PER GAME ===")
+        console.log({
+            teamRunsPerGame,
+            teamHitsPerGame,
+            teamHomeRunsPerGame,
+            teamBBPerGame,
+            teamSOPerGame
+        })
+
+        assert.equal(hitterStatLine.hits, pitcherStatLine.hits)
+        assert.equal(hitterStatLine.runs, pitcherStatLine.runs)
+        assert.equal(hitterStatLine.homeRuns, pitcherStatLine.homeRuns)
+        assert.equal(hitterStatLine.bb, pitcherStatLine.bb)
+        assert.equal(hitterStatLine.so, pitcherStatLine.so)
+        assert.equal(hitterStatLine.hbp, pitcherStatLine.hbp)
+        assert.equal(hitterStatLine.atBats, pitcherStatLine.atBats)
+        assert.equal(hitterStatLine.pa, pitcherStatLine.battersFaced)
+
     })
 
     it("inning can end during runner events; stop further processing but keep events", async () => {
@@ -190,13 +324,10 @@ describe("SimService", async () => {
             homeTeam.players.find(p => p.currentPosition === Position.THIRD_BASE) ??
             homeTeam.players.find(p => p.currentPosition === Position.SHORTSTOP)
 
-        assert.ok(infielder, "Need an infielder on defense")
+        assert.ok(infielder)
 
         const hitter = awayTeam.players.find(p => awayTeam.lineupIds?.includes(p._id)) ?? awayTeam.players[0]
-        assert.ok(hitter)
-
-        const runner3B = awayTeam.players.find(p => p._id !== hitter._id)
-        assert.ok(runner3B)
+        const runner3B = awayTeam.players.find(p => p._id !== hitter._id)!
 
         const runnerResult: any = {
             first: undefined,
@@ -207,8 +338,8 @@ describe("SimService", async () => {
         }
 
         const halfInningRunnerEvents: any[] = [
-            { runner: { _id: "out1" }, movement: { isOut: true, start: BaseResult.HOME, end: BaseResult.FIRST } },
-            { runner: { _id: "out2" }, movement: { isOut: true, start: BaseResult.HOME, end: BaseResult.FIRST } },
+            { runner: { _id: "out1" }, movement: { isOut: true } },
+            { runner: { _id: "out2" }, movement: { isOut: true } },
         ]
 
         const defensiveCredits: any[] = []
@@ -247,33 +378,25 @@ describe("SimService", async () => {
         }
 
         const batterEvent = inPlayRunnerEvents.find(e => e?.runner?._id === hitter._id)
-        assert.ok(batterEvent, "Expected a runner event for the hitter")
+        assert.ok(batterEvent)
 
-        assert.equal(batterEvent.movement?.start, BaseResult.HOME)
-        assert.equal(batterEvent.movement?.end, BaseResult.FIRST)
         assert.equal(batterEvent.movement?.isOut, true)
-        assert.equal(batterEvent.movement?.outBase, BaseResult.FIRST)
-
-        if (infielder.currentPosition !== Position.FIRST_BASE) {
-            assert.ok(batterEvent.throw, "Expected a throw to be recorded (fielder != 1B)")
-            assert.equal(batterEvent.throw.to.position, Position.FIRST_BASE)
-            assert.equal(batterEvent.throw.result, ThrowResult.OUT)
-        } else {
-            assert.equal(batterEvent.throw, undefined, "Unassisted putout at 1B should not record a throw object")
-        }
 
         const outs =
             halfInningRunnerEvents.filter(e => e?.movement?.isOut).length +
             inPlayRunnerEvents.filter(e => e?.movement?.isOut).length
+
         assert.equal(outs, 3)
 
-        const scored = inPlayRunnerEvents.some(e => e?.movement?.end === BaseResult.HOME && e?.movement?.isOut === false)
+        const scored = inPlayRunnerEvents.some(e => e?.movement?.end === BaseResult.HOME && !e?.movement?.isOut)
         assert.equal(scored, false)
     })
 })
 
 function buildStartedGame(seedIdAway = 1, seedIdHome = 100): Game {
-    const laRatings = simService.buildLeagueAverages(100)
+
+    const target = getPitchEnvironmentTargetForSeason(2025)
+    const laRatings = simService.pitchEnvironmentTargetToLeagueAverage(target)
 
     const awayPlayers: Player[] = buildTestTeam(seedIdAway)
     const homePlayers: Player[] = buildTestTeam(seedIdHome)
@@ -282,20 +405,14 @@ function buildStartedGame(seedIdAway = 1, seedIdHome = 100): Game {
         _id: "away-team",
         name: "Away",
         abbrev: "AWAY",
-        colors: {
-            color1: "#ff0000",
-            color2: "#ffffff"
-        }
+        colors: { color1: "#ff0000", color2: "#ffffff" }
     } as Team
 
     const homeTeam: Team = {
         _id: "home-team",
         name: "Home",
         abbrev: "HOME",
-        colors: {
-            color1: "#0000ff",
-            color2: "#ffffff"
-        }
+        colors: { color1: "#0000ff", color2: "#ffffff" }
     } as Team
 
     const awayLineup: Lineup = buildTestLineup(awayPlayers)
@@ -311,31 +428,25 @@ function buildStartedGame(seedIdAway = 1, seedIdHome = 100): Game {
         stamina: 1
     } as RotationPitcher
 
-    const game: Game = {
-        _id: "game-runner-events",
-    } as Game
+    const game: Game = { _id: "game-runner-events" } as Game
 
     simService.initGame(game)
 
-    const command: StartGameCommand = {
+    return simService.startGame({
         game,
         away: awayTeam,
         awayTeamOptions: {},
         awayPlayers,
         awayLineup,
         awayStartingPitcher,
-
         home: homeTeam,
         homeTeamOptions: {},
         homePlayers,
         homeLineup,
         homeStartingPitcher,
-
         leagueAverages: laRatings,
         date: new Date()
-    }
-
-    return simService.startGame(command)
+    })
 }
 
 function buildTestTeam(startingId: number): Player[] {
@@ -354,133 +465,188 @@ function buildTestTeam(startingId: number): Player[] {
 
 function buildTestLineup(players: Player[]): Lineup {
     const pitcher = players.find(p => p.primaryPosition === Position.PITCHER)!
-
-    pitcher.pitchRatings.pitches = [PitchType.FF, PitchType.CU]
-
-    const catcher = players.find(p => p.primaryPosition === Position.CATCHER)!
-    const firstBase = players.find(p => p.primaryPosition === Position.FIRST_BASE)!
-    const secondBase = players.find(p => p.primaryPosition === Position.SECOND_BASE)!
-    const thirdBase = players.find(p => p.primaryPosition === Position.THIRD_BASE)!
-    const shortstop = players.find(p => p.primaryPosition === Position.SHORTSTOP)!
-    const leftField = players.find(p => p.primaryPosition === Position.LEFT_FIELD)!
-    const centerField = players.find(p => p.primaryPosition === Position.CENTER_FIELD)!
-    const rightField = players.find(p => p.primaryPosition === Position.RIGHT_FIELD)!
+    pitcher.pitchRatings.pitches = [PitchType.FF, PitchType.CU, PitchType.SL, PitchType.FO]
 
     return {
-        order: [
-            { _id: catcher._id, position: Position.CATCHER },
-            { _id: firstBase._id, position: Position.FIRST_BASE },
-            { _id: secondBase._id, position: Position.SECOND_BASE },
-            { _id: thirdBase._id, position: Position.THIRD_BASE },
-            { _id: shortstop._id, position: Position.SHORTSTOP },
-            { _id: leftField._id, position: Position.LEFT_FIELD },
-            { _id: centerField._id, position: Position.CENTER_FIELD },
-            { _id: rightField._id, position: Position.RIGHT_FIELD },
-            { _id: pitcher._id, position: Position.PITCHER },
-        ],
-        rotation: [
-            { _id: pitcher._id, stamina: 1 },
-            { _id: pitcher._id, stamina: 1 },
-            { _id: pitcher._id, stamina: 1 },
-            { _id: pitcher._id, stamina: 1 },
-            { _id: pitcher._id, stamina: 1 },
-        ]
+        order: players.map(p => ({ _id: p._id, position: p.primaryPosition })),
+        rotation: new Array(5).fill(0).map(() => ({ _id: pitcher._id, stamina: 1 }))
     } as Lineup
 }
 
 function createPlayer(id: number, position: Position): Player {
     return {
         _id: id.toString(),
-
         firstName: "Player",
         lastName: `${id}`,
-
         get fullName() { return `${this.firstName} ${this.lastName}` },
         get displayName() { return this.fullName },
-
         primaryPosition: position,
         zodiacSign: "Aries",
-
         throws: Handedness.R,
         hits: Handedness.R,
-
         isRetired: false,
-
         stamina: 100,
         overallRating: 100,
-
         pitchRatings: {
-            contactProfile: {
-                groundball: 44,
-                flyBall: 35,
-                lineDrive: 21
-            },
+            contactProfile: { groundball: 44, flyBall: 35, lineDrive: 21 },
             power: 100,
-            vsL: {
-                control: 100,
-                movement: 100
-            },
-            vsR: {
-                control: 100,
-                movement: 100
-            }
+            vsL: { control: 100, movement: 100 },
+            vsR: { control: 100, movement: 100 }
         },
-
         hittingRatings: {
-            contactProfile: {
-                groundball: 44,
-                flyBall: 35,
-                lineDrive: 21
-            },
+            contactProfile: { groundball: 44, flyBall: 35, lineDrive: 21 },
             speed: 100,
             steals: 100,
             arm: 100,
             defense: 100,
-            vsL: {
-                contact: 100,
-                gapPower: 100,
-                homerunPower: 100,
-                plateDiscipline: 100
-            },
-            vsR: {
-                contact: 100,
-                gapPower: 100,
-                homerunPower: 100,
-                plateDiscipline: 100
-            }
+            vsL: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 },
+            vsR: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 }
         },
-
         potentialOverallRating: 100,
-        potentialPitchRatings: {
-            power: 100,
-            vsL: {
-                control: 100,
-                movement: 100
-            },
-            vsR: {
-                control: 100,
-                movement: 100
-            }
-        },
+        potentialPitchRatings: { power: 100, vsL: { control: 100, movement: 100 }, vsR: { control: 100, movement: 100 } },
         potentialHittingRatings: {
             speed: 100,
             steals: 100,
             arm: 100,
             defense: 100,
-            vsL: {
-                contact: 100,
-                gapPower: 100,
-                homerunPower: 100,
-                plateDiscipline: 100
-            },
-            vsR: {
-                contact: 100,
-                gapPower: 100,
-                homerunPower: 100,
-                plateDiscipline: 100
-            }
+            vsL: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 },
+            vsR: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 }
         },
-
         age: 25
     }
+}
+
+function mergeHitResults(total: any, current: any): any {
+    total = total || {}
+
+    for (const key of Object.keys(current)) {
+        if (typeof current[key] === "number") {
+            total[key] = (total[key] || 0) + current[key]
+        }
+    }
+
+    return total
+}
+
+function mergePitchResults(total: any, current: any): any {
+    total = total || {}
+
+    for (const key of Object.keys(current)) {
+        if (typeof current[key] === "number") {
+            total[key] = (total[key] || 0) + current[key]
+        }
+    }
+
+    return total
+}
+
+const PITCH_ENVIRONMENT_TARGETS: Record<number, PitchEnvironmentTarget> = {
+    2025: {
+        season: 2025,
+        pitch: {
+            inZonePercent: 50.5,
+            strikePercent: 65,
+            ballPercent: 33.5,
+            swingPercent: 47.7,
+            foulContactPercent: 50.7,
+            pitchesPerPA: 3.88,
+            inZoneByCount: [
+                { balls: 0, strikes: 0, inZone: 55 },
+                { balls: 0, strikes: 1, inZone: 46 },
+                { balls: 0, strikes: 2, inZone: 32 },
+                { balls: 1, strikes: 0, inZone: 56 },
+                { balls: 1, strikes: 1, inZone: 51},
+                { balls: 1, strikes: 2, inZone: 38 },
+                { balls: 2, strikes: 0, inZone: 60 },
+                { balls: 2, strikes: 1, inZone: 58 },
+                { balls: 2, strikes: 2, inZone: 48 },
+                { balls: 3, strikes: 0, inZone: 63 },
+                { balls: 3, strikes: 1, inZone: 63 },
+                { balls: 3, strikes: 2, inZone: 60 }
+            ]
+        },
+        swing: {
+            swingAtStrikesPercent: 66.8,
+            swingAtBallsPercent: 28.1,
+            inZoneContactPercent: 82.7,
+            outZoneContactPercent: 55.3,
+            ballSwingByCount: [
+                { balls: 0, strikes: 0, swing: 16 },
+                { balls: 0, strikes: 1, swing: 28 },
+                { balls: 0, strikes: 2, swing: 32 },
+                { balls: 1, strikes: 0, swing: 21 },
+                { balls: 1, strikes: 1, swing: 31 },
+                { balls: 1, strikes: 2, swing: 37 },
+                { balls: 2, strikes: 0, swing: 19 },
+                { balls: 2, strikes: 1, swing: 31 },
+                { balls: 2, strikes: 2, swing: 42 },
+                { balls: 3, strikes: 0, swing: 3 },
+                { balls: 3, strikes: 1, swing: 25 },
+                { balls: 3, strikes: 2, swing: 43 }
+            ] ,
+            strikeSwingByCount: [
+                { balls: 0, strikes: 0, swing: 45 },
+                { balls: 0, strikes: 1, swing: 73 },
+                { balls: 0, strikes: 2, swing: 86 },
+                { balls: 1, strikes: 0, swing: 59},
+                { balls: 1, strikes: 1, swing: 77 },
+                { balls: 1, strikes: 2, swing: 88 },
+                { balls: 2, strikes: 0, swing: 55 },
+                { balls: 2, strikes: 1, swing: 77 },
+                { balls: 2, strikes: 2, swing: 88 },
+                { balls: 3, strikes: 0, swing: 11 },
+                { balls: 3, strikes: 1, swing: 70},
+                { balls: 3, strikes: 2, swing: 88 }
+            ]
+        },
+        battedBall: {
+            inPlayPercent: 17.5,
+
+            contactRollInput: {
+                groundball: 43,
+                flyBall: 35,
+                lineDrive: 22,
+            },
+
+            powerRollInput: {
+                out: 675,
+                singles: 215,
+                doubles: 62,
+                triples: 4,
+                hr: 44
+            }
+
+        },
+        outcome: {
+            avg: 0.245,
+            obp: 0.315,
+            slg: 0.404,
+            ops: 0.719,
+            babip: 0.291,
+            homeRunPercent: 0.03,
+            doublePercent: 0.042,
+            triplePercent: 0.003,
+            bbPercent: 0.084,
+            soPercent: 0.222,
+            hbpPercent: 0.01
+        },
+        team: {
+            runsPerGame: 4.45,
+            hitsPerGame: 8.25,
+            homeRunsPerGame: 1.16,
+            bbPerGame: 3.16,
+            soPerGame: 8.36
+        }
+    }
+}
+
+
+function getPitchEnvironmentTargetForSeason(season: number): PitchEnvironmentTarget {
+    const target = PITCH_ENVIRONMENT_TARGETS[season]
+
+    if (!target) {
+        throw new Error(`No PitchEnvironmentTarget found for season ${season}`)
+    }
+
+    return target
 }

@@ -8,14 +8,17 @@ import {
   Rolls,
   PlayerChange
 } from "./service/sim-service.js"
+import { StatService } from "./service/stat-service.js"
 
 let rollChartService = new RollChartService()
 
 let simService = new SimService(rollChartService)
 
+
 export {
   simService,
   SimService,
+  StatService,
   RollChartService,
   PlayResult,
   Contact,
@@ -41,6 +44,7 @@ export type {
   StartGameCommand,
   ThrowRoll,
   DefensiveCredit,
+  PitchEnvironmentTarget,
   Game,
   Player,
   TeamInfo,
@@ -73,8 +77,6 @@ export type {
   PitchingHandednessRatings,
   HittingRatings,
   HittingHandednessRatings,
-  HitResult,
-  PitchResult,
   RollChart,
   ContactTypeRollInput,
   FielderChanceRollInput,
