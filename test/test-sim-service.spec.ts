@@ -31,7 +31,7 @@ describe("SimService", async () => {
 
     it("should sim a game", async () => {
 
-        const target = getPitchEnvironmentTargetForSeason(2025)
+        const target = simService.getPitchEnvironmentTargetForSeason(2025)
         const laRatings = simService.pitchEnvironmentTargetToLeagueAverage(target)
 
         const awayPlayers: Player[] = buildTestTeam(1)
@@ -104,7 +104,7 @@ describe("SimService", async () => {
     it("should print aggregate stats over 250 games", async () => {
 
         const NUM_GAMES = 250
-        const target = getPitchEnvironmentTargetForSeason(2025)
+        const target = simService.getPitchEnvironmentTargetForSeason(2025)
 
         let totalHit: HitResultCount = {} as any
         let totalPitch: PitchResultCount = {} as any
@@ -395,7 +395,7 @@ describe("SimService", async () => {
 
 function buildStartedGame(seedIdAway = 1, seedIdHome = 100): Game {
 
-    const target = getPitchEnvironmentTargetForSeason(2025)
+    const target = simService.getPitchEnvironmentTargetForSeason(2025)
     const laRatings = simService.pitchEnvironmentTargetToLeagueAverage(target)
 
     const awayPlayers: Player[] = buildTestTeam(seedIdAway)
@@ -540,113 +540,6 @@ function mergePitchResults(total: any, current: any): any {
     return total
 }
 
-const PITCH_ENVIRONMENT_TARGETS: Record<number, PitchEnvironmentTarget> = {
-    2025: {
-        season: 2025,
-        pitch: {
-            inZonePercent: 50.5,
-            strikePercent: 65,
-            ballPercent: 33.5,
-            swingPercent: 47.7,
-            foulContactPercent: 50.7,
-            pitchesPerPA: 3.88,
-            inZoneByCount: [
-                { balls: 0, strikes: 0, inZone: 55 },
-                { balls: 0, strikes: 1, inZone: 46 },
-                { balls: 0, strikes: 2, inZone: 32 },
-                { balls: 1, strikes: 0, inZone: 56 },
-                { balls: 1, strikes: 1, inZone: 51},
-                { balls: 1, strikes: 2, inZone: 38 },
-                { balls: 2, strikes: 0, inZone: 60 },
-                { balls: 2, strikes: 1, inZone: 58 },
-                { balls: 2, strikes: 2, inZone: 48 },
-                { balls: 3, strikes: 0, inZone: 63 },
-                { balls: 3, strikes: 1, inZone: 63 },
-                { balls: 3, strikes: 2, inZone: 60 }
-            ]
-        },
-        swing: {
-            swingAtStrikesPercent: 66.8,
-            swingAtBallsPercent: 28.1,
-            inZoneContactPercent: 82.7,
-            outZoneContactPercent: 55.3,
-            ballSwingByCount: [
-                { balls: 0, strikes: 0, swing: 16 },
-                { balls: 0, strikes: 1, swing: 28 },
-                { balls: 0, strikes: 2, swing: 32 },
-                { balls: 1, strikes: 0, swing: 21 },
-                { balls: 1, strikes: 1, swing: 31 },
-                { balls: 1, strikes: 2, swing: 37 },
-                { balls: 2, strikes: 0, swing: 19 },
-                { balls: 2, strikes: 1, swing: 31 },
-                { balls: 2, strikes: 2, swing: 42 },
-                { balls: 3, strikes: 0, swing: 3 },
-                { balls: 3, strikes: 1, swing: 25 },
-                { balls: 3, strikes: 2, swing: 43 }
-            ] ,
-            strikeSwingByCount: [
-                { balls: 0, strikes: 0, swing: 45 },
-                { balls: 0, strikes: 1, swing: 73 },
-                { balls: 0, strikes: 2, swing: 86 },
-                { balls: 1, strikes: 0, swing: 59},
-                { balls: 1, strikes: 1, swing: 77 },
-                { balls: 1, strikes: 2, swing: 88 },
-                { balls: 2, strikes: 0, swing: 55 },
-                { balls: 2, strikes: 1, swing: 77 },
-                { balls: 2, strikes: 2, swing: 88 },
-                { balls: 3, strikes: 0, swing: 11 },
-                { balls: 3, strikes: 1, swing: 70},
-                { balls: 3, strikes: 2, swing: 88 }
-            ]
-        },
-        battedBall: {
-            inPlayPercent: 17.5,
-
-            contactRollInput: {
-                groundball: 43,
-                flyBall: 35,
-                lineDrive: 22,
-            },
-
-            powerRollInput: {
-                out: 675,
-                singles: 215,
-                doubles: 62,
-                triples: 4,
-                hr: 44
-            }
-
-        },
-        outcome: {
-            avg: 0.245,
-            obp: 0.315,
-            slg: 0.404,
-            ops: 0.719,
-            babip: 0.291,
-            homeRunPercent: 0.03,
-            doublePercent: 0.042,
-            triplePercent: 0.003,
-            bbPercent: 0.084,
-            soPercent: 0.222,
-            hbpPercent: 0.01
-        },
-        team: {
-            runsPerGame: 4.45,
-            hitsPerGame: 8.25,
-            homeRunsPerGame: 1.16,
-            bbPerGame: 3.16,
-            soPerGame: 8.36
-        }
-    }
-}
 
 
-function getPitchEnvironmentTargetForSeason(season: number): PitchEnvironmentTarget {
-    const target = PITCH_ENVIRONMENT_TARGETS[season]
 
-    if (!target) {
-        throw new Error(`No PitchEnvironmentTarget found for season ${season}`)
-    }
-
-    return target
-}

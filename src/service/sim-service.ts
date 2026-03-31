@@ -1,5 +1,5 @@
 import { BaseResult, Contact, DefenseCreditType, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchType, PitchZone, PlayResult, Position, ShallowDeep, SwingResult, ThrowResult } from "./enums.js";
-import { BallSwingByCount, ContactTypeRollInput, Count, DefensiveCredit, FielderChance, Game, GamePlayer, HalfInning, HitResultCount, HitterChange, HittingRatings, InningEndingEvent, InZoneByCount, LeagueAverage, Lineup, MatchupHandedness, Pitch, PitchCount, PitchEnvironmentTarget, PitcherChange, PitchLog, PitchRatings, PitchResultCount, Play, Player, PowerRollInput, RollChart, RotationPitcher, RunnerEvent, RunnerResult, RunnerThrowCommand, Score, ShallowDeepChance, SimPitchCommand, SimPitchResult, StartGameCommand, StrikeSwingByCount, Team, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
+import { BallSwingByCount, ContactTypeRollInput, Count, DefensiveCredit, FielderChance, Game, GamePlayer, HalfInning, HitResultCount, HitterChange, HittingRatings, InningEndingEvent, InZoneByCount, LeagueAverage, Lineup, MatchupHandedness, Pitch, PITCH_ENVIRONMENT_TARGETS, PitchCount, PitchEnvironmentTarget, PitcherChange, PitchLog, PitchRatings, PitchResultCount, Play, Player, PowerRollInput, RollChart, RotationPitcher, RunnerEvent, RunnerResult, RunnerThrowCommand, Score, ShallowDeepChance, SimPitchCommand, SimPitchResult, StartGameCommand, StrikeSwingByCount, Team, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
 import { RollChartService } from "./roll-chart-service.js";
 
 
@@ -10,110 +10,8 @@ const STANDARD_INNINGS = 9
 const MIN_CHANGE = -.5
 const MAX_CHANGE = .5
 
-const LEAGUE_AVERAGE_FIELDER_CHANCE_R: FielderChance = {
-    first: 8,
-    second: 13,
-    third: 10,
-    catcher: 2,
-    shortstop: 14,
-    leftField: 17,
-    centerField: 18,
-    rightField: 13,
-    pitcher: 5
-}
 
-const LEAGUE_AVERAGE_FIELDER_CHANCE_L: FielderChance = {
-    first: 10,
-    second: 15,
-    third: 8,
-    catcher: 2,
-    shortstop: 12,
-    leftField: 13,
-    centerField: 18,
-    rightField: 17,
-    pitcher: 5
-}
-
-const LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE: ShallowDeepChance = {
-    shallow: 20,
-    normal: 60,
-    deep: 20
-}
-
-const LEAGUE_AVERAGE_STRIKE_SWING_RATE: number = 67.6
-const LEAGUE_AVERAGE_BALL_SWING_RATE: number = 28.5
-
-
-const LEAGUE_AVERAGE_ZONE_SWING_CONTACT_RATE: number = 82.2
-const LEAGUE_AVERAGE_CHASE_SWING_CONTACT_RATE: number = 56
-
-const LEAGUE_AVERAGE_FOUL_RATE = 50
-
-const LEAGUE_AVERAGE_PITCH_QUALITY = 50
-
-const LEAGUE_AVERAGE_POWER_ROLL_INPUT: PowerRollInput = {
-    out: 649,
-    singles: 200,
-    doubles: 75,
-    triples: 8,
-    hr: 68
-}
-
-const LEAGUE_AVERAGE_CONTACT_TYPE_INPUT: ContactTypeRollInput = {
-    groundball: 44,
-    flyBall: 35,
-    lineDrive: 21
-}
-
-
-
-//Based on 0-99 average. Adjusted from 2025 pitch data.
-const LEAGUE_AVERAGE_IN_ZONE_BY_COUNT: InZoneByCount[] = [
-    { balls: 0, strikes: 0, inZone: 55 },
-    { balls: 0, strikes: 1, inZone: 46 },
-    { balls: 0, strikes: 2, inZone: 32 },
-    { balls: 1, strikes: 0, inZone: 56 },
-    { balls: 1, strikes: 1, inZone: 51},
-    { balls: 1, strikes: 2, inZone: 38 },
-    { balls: 2, strikes: 0, inZone: 60 },
-    { balls: 2, strikes: 1, inZone: 58 },
-    { balls: 2, strikes: 2, inZone: 48 },
-    { balls: 3, strikes: 0, inZone: 63 },
-    { balls: 3, strikes: 1, inZone: 63 },
-    { balls: 3, strikes: 2, inZone: 60 }
-]
-
-const LEAGUE_AVERAGE_BALL_SWING_BY_COUNT: BallSwingByCount[] = [
-    { balls: 0, strikes: 0, swing: 16 },
-    { balls: 0, strikes: 1, swing: 28 },
-    { balls: 0, strikes: 2, swing: 32 },
-    { balls: 1, strikes: 0, swing: 21 },
-    { balls: 1, strikes: 1, swing: 31 },
-    { balls: 1, strikes: 2, swing: 37 },
-    { balls: 2, strikes: 0, swing: 19 },
-    { balls: 2, strikes: 1, swing: 31 },
-    { balls: 2, strikes: 2, swing: 42 },
-    { balls: 3, strikes: 0, swing: 3 },
-    { balls: 3, strikes: 1, swing: 25 },
-    { balls: 3, strikes: 2, swing: 43 }
-] 
-
-const LEAGUE_AVERAGE_STRIKE_SWING_BY_COUNT: StrikeSwingByCount[] = [
-    { balls: 0, strikes: 0, swing: 45 },
-    { balls: 0, strikes: 1, swing: 73 },
-    { balls: 0, strikes: 2, swing: 86 },
-    { balls: 1, strikes: 0, swing: 59},
-    { balls: 1, strikes: 1, swing: 77 },
-    { balls: 1, strikes: 2, swing: 88 },
-    { balls: 2, strikes: 0, swing: 55 },
-    { balls: 2, strikes: 1, swing: 77 },
-    { balls: 2, strikes: 2, swing: 88 },
-    { balls: 3, strikes: 0, swing: 11 },
-    { balls: 3, strikes: 1, swing: 70},
-    { balls: 3, strikes: 2, swing: 88 }
-]
-
-
+const DEFAULT_SEASON = 2025
 
 class SimService {
 
@@ -150,7 +48,8 @@ class SimService {
         GameInfo.validateGameLineup(command.awayLineup, command.awayStartingPitcher)
         GameInfo.validateGameLineup(command.homeLineup, command.homeStartingPitcher)
 
-        game.leagueAverages = command.leagueAverages
+        //Use what gets passed in or just use default config
+        game.leagueAverages = command.leagueAverages ?? this.pitchEnvironmentTargetToLeagueAverage(this.getPitchEnvironmentTargetForSeason(DEFAULT_SEASON))
 
         game.away = this.gameInfo.buildTeamInfoFromTeam(command.leagueAverages, command.away, command.awayLineup,  command.awayPlayers, command.awayStartingPitcher, command.away.colors.color1, command.away.colors.color2, HomeAway.AWAY, 1, command.awayTeamOptions)            
         game.home = this.gameInfo.buildTeamInfoFromTeam(command.leagueAverages, command.home, command.homeLineup, command.homePlayers, command.homeStartingPitcher, command.home.colors.color1, command.home.colors.color2, HomeAway.HOME, 1 + command.awayPlayers.length, command.homeTeamOptions)
@@ -208,60 +107,38 @@ class SimService {
 
     }
 
-    buildLeagueAverages(laRating: number, overrideValues?: Partial<LeagueAverage>): LeagueAverage {
+    buildLeagueAverageRatings(laRating: number) {
         return {
             hittingRatings: {
-                speed: overrideValues?.hittingRatings?.speed ?? laRating,
-                steals: overrideValues?.hittingRatings?.steals ?? laRating,
-                arm: overrideValues?.hittingRatings?.arm ?? laRating,
-                defense: overrideValues?.hittingRatings?.defense ?? laRating,
+                speed: laRating,
+                steals: laRating,
+                arm: laRating,
+                defense: laRating,
                 vsL: {
-                    contact: overrideValues?.hittingRatings?.vsL?.contact ?? laRating,
-                    gapPower: overrideValues?.hittingRatings?.vsL?.gapPower ?? laRating,
-                    homerunPower: overrideValues?.hittingRatings?.vsL?.homerunPower ?? laRating,
-                    plateDiscipline: overrideValues?.hittingRatings?.vsL?.plateDiscipline ?? laRating
+                    contact: laRating,
+                    gapPower: laRating,
+                    homerunPower: laRating,
+                    plateDiscipline:  laRating
                 },
                 vsR: {
-                    contact: overrideValues?.hittingRatings?.vsR?.contact ?? laRating,
-                    gapPower: overrideValues?.hittingRatings?.vsR?.gapPower ?? laRating,
-                    homerunPower: overrideValues?.hittingRatings?.vsR?.homerunPower ?? laRating,
-                    plateDiscipline: overrideValues?.hittingRatings?.vsR?.plateDiscipline ?? laRating
+                    contact:  laRating,
+                    gapPower:  laRating,
+                    homerunPower:  laRating,
+                    plateDiscipline:  laRating
                 }
             },
 
             pitchRatings: {
-                power: overrideValues?.pitchRatings?.power ?? laRating,
+                power:  laRating,
                 vsL: {
-                    control: overrideValues?.pitchRatings?.vsL?.control ?? laRating,
-                    movement: overrideValues?.pitchRatings?.vsL?.movement ?? laRating
+                    control:  laRating,
+                    movement:  laRating
                 },
                 vsR: {
-                    control: overrideValues?.pitchRatings?.vsR?.control ?? laRating,
-                    movement: overrideValues?.pitchRatings?.vsR?.movement ?? laRating
+                    control:  laRating,
+                    movement:  laRating
                 }
-            },
-
-            foulRate: overrideValues?.foulRate ?? LEAGUE_AVERAGE_FOUL_RATE,
-
-            strikeSwingRate: overrideValues?.strikeSwingRate ?? LEAGUE_AVERAGE_STRIKE_SWING_RATE,
-            ballSwingRate: overrideValues?.ballSwingRate ?? LEAGUE_AVERAGE_BALL_SWING_RATE,
-
-            zoneSwingContactRate: overrideValues?.zoneSwingContactRate ?? LEAGUE_AVERAGE_ZONE_SWING_CONTACT_RATE,
-            chaseSwingContactRate: overrideValues?.chaseSwingContactRate ?? LEAGUE_AVERAGE_CHASE_SWING_CONTACT_RATE,
-
-            fielderChanceR: overrideValues?.fielderChanceR ?? LEAGUE_AVERAGE_FIELDER_CHANCE_R,
-            fielderChanceL: overrideValues?.fielderChanceL ?? LEAGUE_AVERAGE_FIELDER_CHANCE_L,
-            shallowDeepChance: overrideValues?.shallowDeepChance ?? LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE,
-
-            pitchQuality: overrideValues?.pitchQuality ?? LEAGUE_AVERAGE_PITCH_QUALITY,
-
-            powerRollInput: overrideValues?.powerRollInput ?? LEAGUE_AVERAGE_POWER_ROLL_INPUT,
-            contactTypeRollInput: overrideValues?.contactTypeRollInput ?? LEAGUE_AVERAGE_CONTACT_TYPE_INPUT,
-
-
-            inZoneByCount: LEAGUE_AVERAGE_IN_ZONE_BY_COUNT,
-            ballSwingByCount: LEAGUE_AVERAGE_BALL_SWING_BY_COUNT,
-            strikeSwingByCount: LEAGUE_AVERAGE_STRIKE_SWING_BY_COUNT
+            }
 
         }
     }
@@ -270,16 +147,9 @@ class SimService {
 
         return {
 
-            ...this.buildLeagueAverages(100),
+            ...this.buildLeagueAverageRatings(100),
 
             foulRate: target.pitch.foulContactPercent,
-
-            inZoneByCount: target.pitch.inZoneByCount,
-            ballSwingByCount: target.swing.ballSwingByCount,
-            strikeSwingByCount: target.swing.strikeSwingByCount,
-
-            strikeSwingRate: target.swing.swingAtStrikesPercent,
-            ballSwingRate: target.swing.swingAtBallsPercent,
 
             zoneSwingContactRate: target.swing.inZoneContactPercent,
             chaseSwingContactRate: target.swing.outZoneContactPercent,
@@ -288,9 +158,31 @@ class SimService {
 
             contactTypeRollInput: target.battedBall.contactRollInput,
 
-            powerRollInput: target.battedBall.powerRollInput
+            powerRollInput: target.battedBall.powerRollInput,
+
+            fielderChanceL: target.fielderChance.vsL,
+            fielderChanceR: target.fielderChance.vsR,
+
+            shallowDeepChance: target.fielderChance.shallowDeep,
+
+            ballSwingByCount: target.swing.ballSwingByCount,
+            strikeSwingByCount: target.swing.strikeSwingByCount,
+            inZoneByCount: target.pitch.inZoneByCount
+
         }
     }
+
+    getPitchEnvironmentTargetForSeason(season: number): PitchEnvironmentTarget {
+
+        const target = PITCH_ENVIRONMENT_TARGETS[season]
+
+        if (!target) {
+            throw new Error(`No PitchEnvironmentTarget found for season ${season}`)
+        }
+
+        return target
+    }
+
 
 
     /*
@@ -305,7 +197,6 @@ class SimService {
     buildTeamInfoFromPlayers (leagueAverage:LeagueAverage, name:string, teamId:string, players:Player[], color1:string, color2:string, startingId:number) {
         return this.gameInfo.buildTeamInfoFromPlayers(leagueAverage, name, teamId, players, color1, color2, startingId)
     }
-
 
     getThrowResult(gameRNG, overallSafeChance:number) : ThrowRoll {
         return this.simRolls.getThrowResult(gameRNG, overallSafeChance)
@@ -331,8 +222,6 @@ class SimService {
         return this.gamePlayers.initGamePlayers(leagueAverage, players, startingPitcher, teamId, color1, color2, startingId)
     }
     
-
-
 
 }
 
