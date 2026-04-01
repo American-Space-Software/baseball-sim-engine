@@ -1,14 +1,39 @@
-# Baseball Simulation Engine
+# Baseball Sim Engine
+
+A deterministic baseball simulation engine written in TypeScript.
+
+This library simulates complete baseball games pitch-by-pitch using a ratings-driven model grounded in league-average distributions. It is designed for both interactive applications and analytical workflows.
+
+The engine runs in both Node.js and browser environments.
+
+---
 
 ## Why This Project Exists
 
-EBL started from a simple frustration: baseball games and franchise saves reset too often, and too much player history depends on a single company or a single release cycle.
+This engine was originally built as the core simulation system for [Ethereum Baseball League (EBL)](https://github.com/American-Space-Software/ethbaseball).
+
+EBL started from a simple frustration: most sports simulations are closed systems. The logic that determines outcomes is hidden, difficult to inspect, and tied to a specific application or release cycle. Player history, results, and even the rules themselves often live inside a single product that can change or disappear over time.
 
 This project takes a different approach.
 
-The simulation engine is open source so it can be studied, preserved, modified, and extended over time. The web app is built for shared league play instead of only single-player franchise mode. Ethereum is used as open infrastructure for optional Diamond withdrawals and deposits, so value is not forced to remain inside one server.
+The simulation engine is separated from the game and released as a standalone, open system. Every pitch, decision, and outcome is driven by a model that can be inspected, tested, and reproduced.
 
-EBL is the first public baseball game built on top of that philosophy.
+The goal is not just to simulate games, but to provide a foundation that can be:
+
+- Studied and understood  
+- Reproduced exactly  
+- Extended for new use cases  
+- Integrated into different applications  
+
+While this engine powers EBL, it is not limited to it. The same system can be used for:
+
+- Custom leagues  
+- Analytical tools  
+- Replay systems  
+- Alternative baseball environments  
+
+At its core, this project treats baseball simulation as infrastructure — something that should be transparent, deterministic, and able to evolve over time without being locked inside a single application.
+
 
 ---
 
