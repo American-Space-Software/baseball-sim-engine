@@ -140,11 +140,11 @@ describe("SimService", async () => {
         const hitterStatLine = statService.hitResultToHitterStatLine(totalHit)
         const pitcherStatLine = statService.pitchResultToPitcherStatLine(totalPitch)
 
-        console.log("=== HITTER STATLINE ===")
-        console.log(JSON.stringify(hitterStatLine, null, 2))
+        // console.log("=== HITTER STATLINE ===")
+        // console.log(JSON.stringify(hitterStatLine, null, 2))
 
-        console.log("=== PITCHER STATLINE ===")
-        console.log(JSON.stringify(pitcherStatLine, null, 2))
+        // console.log("=== PITCHER STATLINE ===")
+        // console.log(JSON.stringify(pitcherStatLine, null, 2))
 
         const totalTeamGames = hitterStatLine.games / 9
 
@@ -196,6 +196,24 @@ describe("SimService", async () => {
         })
 
 
+        console.log("=== ACTUAL HITS ===")
+        console.log({
+            singlePercent: hitterStatLine.singlePercent,
+            doublePercent: hitterStatLine.doublePercent,
+            triplePercent: hitterStatLine.triplePercent,
+            homeRunPercent: hitterStatLine.homeRunPercent,
+            bbPercent: hitterStatLine.bbPercent,
+            soPercent: hitterStatLine.soPercent,
+            hbpPercent: hitterStatLine.hbpPercent,
+            groundBallPercent: hitterStatLine.groundBallPercent,
+            flyBallPercent: hitterStatLine.flyBallPercent,
+            ldPercent: hitterStatLine.ldPercent,
+            sbPerGame: hitterStatLine.sbPerGame,
+            sbAttemptsPerGame: hitterStatLine.sbAttemptsPerGame
+        })
+
+
+
         console.log("=== PITCH DIFF ===")
         console.log({
             inZonePercentDiff: hitterStatLine.inZonePercent - normalize(target.pitch.inZonePercent),
@@ -230,6 +248,32 @@ describe("SimService", async () => {
         assert.equal(hitterStatLine.hbp, pitcherStatLine.hbp)
         assert.equal(hitterStatLine.atBats, pitcherStatLine.atBats)
         assert.equal(hitterStatLine.pa, pitcherStatLine.battersFaced)
+
+
+
+    const round3 = (n: number) => Number(n.toFixed(3))
+
+    console.log("=== Target Offense ===")
+    console.log({
+        avg: round3(target.outcome.avg),
+        obp: round3(target.outcome.obp),
+        slg: round3(target.outcome.slg),
+        ops: round3(target.outcome.ops),
+        babip: round3(target.outcome.babip)
+    })
+
+    console.log("=== Actual Offense ===")
+    console.log({
+        avg: round3(hitterStatLine.avg),
+        obp: round3(hitterStatLine.obp),
+        slg: round3(hitterStatLine.slg),
+        ops: round3(hitterStatLine.ops),
+        babip: round3(hitterStatLine.babip)
+    })
+
+
+
+
 
     })
 

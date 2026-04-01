@@ -616,7 +616,12 @@ class RollChartService {
 
     }
 
-
+    getFirstRollIndex(chart: RollChart, result: string): number {
+        for (let i = 0; i < 1000; i++) {
+            if (chart.entries.get(i) === result) return i
+        }
+        return 999
+    }
 
     private _getAverage(array: number[]) {
         if (array.length == 0) return 0

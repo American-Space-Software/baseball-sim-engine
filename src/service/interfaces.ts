@@ -428,8 +428,67 @@ interface LeagueAverage {
     shallowDeepChance:ShallowDeepChance
 
     inZoneByCount: InZoneByCount[],
-    ballSwingByCount: BallSwingByCount[],
-    strikeSwingByCount: StrikeSwingByCount[]
+
+    steal: StolenBaseByCount[]
+
+
+    tuning: {
+        zoneSwingBase: number
+        chaseSwingBase: number
+
+        zoneSwingPerStrike: number
+        zoneSwingPerBall: number
+
+        chaseSwingPerStrike: number
+        chaseSwingPerBall: number
+
+        threeBallZoneSwingPenalty: number
+        threeBallChaseSwingPenalty: number
+
+        pitchQualityZoneSwingEffect: number
+        pitchQualityChaseSwingEffect: number
+
+        disciplineZoneSwingEffect: number
+        disciplineChaseSwingEffect: number
+
+        zoneContactBase: number
+        chaseContactBase: number
+
+        zoneContactPerStrike: number
+        zoneContactPerBall: number
+
+        chaseContactPerStrike: number
+        chaseContactPerBall: number
+
+        twoStrikeZoneContactBonus: number
+        twoStrikeChaseContactBonus: number
+
+        pitchQualityContactEffect: number
+        contactSkillEffect: number
+
+        foulRateBase: number
+        twoStrikeFoulBonus: number
+
+        fullPitchQualityBonus: number
+        fullTeamDefenseBonus: number
+        fullFielderDefenseBonus: number        
+        
+        groundballDoublePenalty:number
+        groundballTriplePenalty: number
+        groundballHRPenalty: number
+
+        groundballOutcomeBoost: number
+        flyballOutcomeBoost: number
+        lineDriveOutcomeBoost: number
+
+        flyballHRPenalty:number
+
+        lineDriveOutToSingleWindow: number
+        lineDriveOutToSingleBoost:number
+
+        lineDriveSingleToDoubleFactor:number    
+
+    }
 
 
 }
@@ -1072,15 +1131,11 @@ interface PitchEnvironmentTarget {
         inZoneByCount: InZoneByCount[]
     }
 
-    swing: {
-        ballSwingByCount: BallSwingByCount[],
-        strikeSwingByCount: StrikeSwingByCount[],        
+    swing: {      
         swingAtStrikesPercent: number
         swingAtBallsPercent: number
         inZoneContactPercent: number
         outZoneContactPercent: number
-
-        
     }
 
     battedBall: {
@@ -1088,6 +1143,8 @@ interface PitchEnvironmentTarget {
         contactRollInput: ContactTypeRollInput
         powerRollInput: PowerRollInput
     },
+
+    steal: StolenBaseByCount[],
 
     fielderChance: {
         vsR: FielderChance
@@ -1115,15 +1172,68 @@ interface PitchEnvironmentTarget {
         homeRunsPerGame: number
         bbPerGame: number
         soPerGame: number
+    },
+
+    tuning: {
+        zoneSwingBase: number
+        chaseSwingBase: number
+
+        zoneSwingPerStrike: number
+        zoneSwingPerBall: number
+
+        chaseSwingPerStrike: number
+        chaseSwingPerBall: number
+
+        threeBallZoneSwingPenalty: number
+        threeBallChaseSwingPenalty: number
+
+        pitchQualityZoneSwingEffect: number
+        pitchQualityChaseSwingEffect: number
+
+        disciplineZoneSwingEffect: number
+        disciplineChaseSwingEffect: number
+
+        zoneContactBase: number
+        chaseContactBase: number
+
+        zoneContactPerStrike: number
+        zoneContactPerBall: number
+
+        chaseContactPerStrike: number
+        chaseContactPerBall: number
+
+        twoStrikeZoneContactBonus: number
+        twoStrikeChaseContactBonus: number
+
+        pitchQualityContactEffect: number
+        contactSkillEffect: number
+
+        foulRateBase: number
+        twoStrikeFoulBonus: number
+
+        fullPitchQualityBonus: number
+        fullTeamDefenseBonus: number
+        fullFielderDefenseBonus: number   
+    
+        groundballDoublePenalty:number
+        groundballTriplePenalty: number
+        groundballHRPenalty: number
+
+        groundballOutcomeBoost: number
+        flyballOutcomeBoost: number
+        lineDriveOutcomeBoost: number
+
+        flyballHRPenalty:number
+
+        lineDriveOutToSingleWindow: number
+        lineDriveOutToSingleBoost:number
+
+        lineDriveSingleToDoubleFactor:number        
     }
 }
 
 
-interface StrikeSwingByCount {
-    balls:number
-    strikes:number
-    swing:number
-}
+
 
 
 interface InZoneByCount {
@@ -1133,13 +1243,14 @@ interface InZoneByCount {
 }
 
 
-interface BallSwingByCount {
+
+
+interface StolenBaseByCount {
     balls:number
     strikes:number
-    swing:number
+    attempt:number
+    success:number
 }
-
-
 
 
 const LEAGUE_AVERAGE_FIELDER_CHANCE_R: FielderChance = {
@@ -1177,6 +1288,7 @@ const LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE: ShallowDeepChance = {
 const PITCH_ENVIRONMENT_TARGETS: Record<number, PitchEnvironmentTarget> = {
     2025: {
         season: 2025,
+        //researched via baseballsavant
         pitch: {
             inZonePercent: 50.5,
             strikePercent: 65,
@@ -1189,7 +1301,7 @@ const PITCH_ENVIRONMENT_TARGETS: Record<number, PitchEnvironmentTarget> = {
                 { balls: 0, strikes: 1, inZone: 46 },
                 { balls: 0, strikes: 2, inZone: 32 },
                 { balls: 1, strikes: 0, inZone: 56 },
-                { balls: 1, strikes: 1, inZone: 51},
+                { balls: 1, strikes: 1, inZone: 51 },
                 { balls: 1, strikes: 2, inZone: 38 },
                 { balls: 2, strikes: 0, inZone: 60 },
                 { balls: 2, strikes: 1, inZone: 58 },
@@ -1203,35 +1315,7 @@ const PITCH_ENVIRONMENT_TARGETS: Record<number, PitchEnvironmentTarget> = {
             swingAtStrikesPercent: 66.8,
             swingAtBallsPercent: 28.1,
             inZoneContactPercent: 82.7,
-            outZoneContactPercent: 55.3,
-            ballSwingByCount: [
-                { balls: 0, strikes: 0, swing: 16 },
-                { balls: 0, strikes: 1, swing: 28 },
-                { balls: 0, strikes: 2, swing: 32 },
-                { balls: 1, strikes: 0, swing: 21 },
-                { balls: 1, strikes: 1, swing: 31 },
-                { balls: 1, strikes: 2, swing: 37 },
-                { balls: 2, strikes: 0, swing: 19 },
-                { balls: 2, strikes: 1, swing: 31 },
-                { balls: 2, strikes: 2, swing: 42 },
-                { balls: 3, strikes: 0, swing: 3 },
-                { balls: 3, strikes: 1, swing: 25 },
-                { balls: 3, strikes: 2, swing: 43 }
-            ] ,
-            strikeSwingByCount: [
-                { balls: 0, strikes: 0, swing: 45 },
-                { balls: 0, strikes: 1, swing: 73 },
-                { balls: 0, strikes: 2, swing: 86 },
-                { balls: 1, strikes: 0, swing: 59},
-                { balls: 1, strikes: 1, swing: 77 },
-                { balls: 1, strikes: 2, swing: 88 },
-                { balls: 2, strikes: 0, swing: 55 },
-                { balls: 2, strikes: 1, swing: 77 },
-                { balls: 2, strikes: 2, swing: 88 },
-                { balls: 3, strikes: 0, swing: 11 },
-                { balls: 3, strikes: 1, swing: 70},
-                { balls: 3, strikes: 2, swing: 88 }
-            ]
+            outZoneContactPercent: 55.3
         },
         battedBall: {
             inPlayPercent: 17.5,
@@ -1269,20 +1353,98 @@ const PITCH_ENVIRONMENT_TARGETS: Record<number, PitchEnvironmentTarget> = {
             hitsPerGame: 8.25,
             homeRunsPerGame: 1.16,
             bbPerGame: 3.16,
-            soPerGame: 8.36
+            soPerGame: 8.36,
         },
 
+        //these ones are just global for now. Not sure how to research fully.
+        steal: [
+            { balls: 0, strikes: 0, attempt: 32, success: 76 },
+            { balls: 0, strikes: 1, attempt: 42, success: 76 },
+            { balls: 0, strikes: 2, attempt: 18, success: 76 },
+
+            { balls: 1, strikes: 0, attempt: 32, success: 76 },
+            { balls: 1, strikes: 1, attempt: 42, success: 76 },
+            { balls: 1, strikes: 2, attempt: 20, success: 76 },
+
+            { balls: 2, strikes: 0, attempt: 49, success: 76 },
+            { balls: 2, strikes: 1, attempt: 53, success: 76 },
+            { balls: 2, strikes: 2, attempt: 25, success: 76 },
+
+            { balls: 3, strikes: 0, attempt: 1,  success: 76 },
+            { balls: 3, strikes: 1, attempt: 14, success: 76 },
+            { balls: 3, strikes: 2, attempt: 29, success: 76 }
+        ],
+
+        //Just global for now.
         fielderChance: {
             vsR: LEAGUE_AVERAGE_FIELDER_CHANCE_R,
             vsL: LEAGUE_AVERAGE_FIELDER_CHANCE_L,
             shallowDeep: LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE
+        },
+
+        tuning: {
+            zoneSwingBase: 47,
+            chaseSwingBase: 16,
+
+            zoneSwingPerStrike: 20.9,
+            zoneSwingPerBall: 5,
+
+            chaseSwingPerStrike: 11,
+            chaseSwingPerBall: 2.85,
+
+            threeBallZoneSwingPenalty: 22.5,
+            threeBallChaseSwingPenalty: 22.5,
+
+            pitchQualityZoneSwingEffect: 5,
+            pitchQualityChaseSwingEffect: 6,
+
+            disciplineZoneSwingEffect: 6.25,
+            disciplineChaseSwingEffect: 8.25,
+
+            zoneContactBase: 81.3,
+            chaseContactBase: 54.25,
+
+            zoneContactPerStrike: 0.5,
+            zoneContactPerBall: 0,
+
+            chaseContactPerStrike: 0.5,
+            chaseContactPerBall: 0,
+
+            twoStrikeZoneContactBonus: 2.5,
+            twoStrikeChaseContactBonus: 1.45,
+
+            pitchQualityContactEffect: 8.5,
+            contactSkillEffect: 12,
+
+            foulRateBase: 50.25,
+            twoStrikeFoulBonus: 3.25,
+
+            fullPitchQualityBonus: -180,
+            fullTeamDefenseBonus: 0,
+            fullFielderDefenseBonus: -25,
+
+            groundballDoublePenalty: 6,
+            groundballTriplePenalty: 18,
+            groundballHRPenalty: 30,
+
+            flyballHRPenalty: 13,
+
+            lineDriveOutToSingleWindow: 27,
+            lineDriveOutToSingleBoost: 27,
+
+            lineDriveSingleToDoubleFactor: 0.60,
+
+            groundballOutcomeBoost: 3,
+            flyballOutcomeBoost: 1,
+            lineDriveOutcomeBoost: 12
+
         }
     }
 }
 
 
 export {
-    PITCH_ENVIRONMENT_TARGETS, StrikeSwingByCount, PitchCount, InZoneByCount, BallSwingByCount, PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance,
+    PITCH_ENVIRONMENT_TARGETS, StolenBaseByCount,  PitchCount, InZoneByCount,  PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance,
     TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, LeagueAverage, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score,
     Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount,HitResultCount, MatchupHandedness,
     GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team,

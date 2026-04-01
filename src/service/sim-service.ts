@@ -1,5 +1,5 @@
 import { BaseResult, Contact, DefenseCreditType, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchType, PitchZone, PlayResult, Position, ShallowDeep, SwingResult, ThrowResult } from "./enums.js";
-import { BallSwingByCount, ContactTypeRollInput, Count, DefensiveCredit, FielderChance, Game, GamePlayer, HalfInning, HitResultCount, HitterChange, HittingRatings, InningEndingEvent, InZoneByCount, LeagueAverage, Lineup, MatchupHandedness, Pitch, PITCH_ENVIRONMENT_TARGETS, PitchCount, PitchEnvironmentTarget, PitcherChange, PitchLog, PitchRatings, PitchResultCount, Play, Player, PowerRollInput, RollChart, RotationPitcher, RunnerEvent, RunnerResult, RunnerThrowCommand, Score, ShallowDeepChance, SimPitchCommand, SimPitchResult, StartGameCommand, StrikeSwingByCount, Team, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
+import {  ContactTypeRollInput, Count, DefensiveCredit, FielderChance, Game, GamePlayer, HalfInning, HitResultCount, HitterChange, HittingRatings, InningEndingEvent, InZoneByCount, LeagueAverage, Lineup, MatchupHandedness, Pitch, PITCH_ENVIRONMENT_TARGETS, PitchCount, PitchEnvironmentTarget, PitcherChange, PitchLog, PitchRatings, PitchResultCount, Play, Player, PowerRollInput, RollChart, RotationPitcher, RunnerEvent, RunnerResult, RunnerThrowCommand, Score, ShallowDeepChance, SimPitchCommand, SimPitchResult, StartGameCommand, StolenBaseByCount, Team, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
 import { RollChartService } from "./roll-chart-service.js";
 
 
@@ -165,9 +165,11 @@ class SimService {
 
             shallowDeepChance: target.fielderChance.shallowDeep,
 
-            ballSwingByCount: target.swing.ballSwingByCount,
-            strikeSwingByCount: target.swing.strikeSwingByCount,
-            inZoneByCount: target.pitch.inZoneByCount
+            inZoneByCount: target.pitch.inZoneByCount,
+
+            steal: target.steal,
+
+            tuning: target.tuning
 
         }
     }
@@ -472,34 +474,25 @@ class Sim {
 
     simPitchRolls(command: SimPitchCommand, pitchIndex: number): SimPitchResult {
 
-        //Sort pitcher's pitches by rating
-        // command.pitcher.pitchRatings.pitches.sort((a, b) => b.rating - a.rating)
-
         const pitches = command.pitcher.pitchRatings.pitches
-        const weights = [50, 25, 15, 5, 5] //later this can be passed in via strategy
+        const weights = [50, 25, 15, 5, 5]
 
-        //Choose a pitch type
         const pitchType: PitchType = Rolls.weightedRandom(command.rng, pitches, weights.slice(0, pitches.length))
 
-        //Hitter will try to guess which pitch.
         const hitterPitchGuess: PitchType =
             command.pitcher.pitchRatings.pitches[Rolls.getRoll(command.rng, 0, pitches.length - 1)]
         const guessPitch: boolean = hitterPitchGuess == pitchType
 
-        //How fast is it going? We can translate this to MPH later. 0-99.
         const powerQuality = this.gameRolls.getPowerQuality(command.rng, command.pitcherChange.powerChange)
-
-        //Did the pitcher throw it where they wanted? 0-99
         const locationQuality = this.gameRolls.getLocationQuality(command.rng, command.pitcherChange.controlChange)
-
-        //How much movement does the pitch have? 0-99
         const movementQuality = this.gameRolls.getMovementQuality(command.rng, command.pitcherChange.movementChange)
 
-        //Average for overall pitch quality
         const pitchQuality = Pitching.getPitchQuality(powerQuality, locationQuality, movementQuality)
 
-        //Is it in the strike zone?
-        let inZoneRate = command.leagueAverages.inZoneByCount.find(r => r.balls === command.play.pitchLog.count.balls && r.strikes === command.play.pitchLog.count.strikes)?.inZone
+        let inZoneRate = command.leagueAverages.inZoneByCount.find(
+            r => r.balls === command.play.pitchLog.count.balls && r.strikes === command.play.pitchLog.count.strikes
+        )?.inZone
+
         const inZone = this.gameRolls.isInZone(command.rng, locationQuality, inZoneRate)
 
         const intentZone = this.gameRolls.getIntentZone(command.rng)
@@ -522,48 +515,30 @@ class Sim {
             isPB: false,
         }
 
-        // --- Determine outcome (but DO NOT mutate balls/strikes here) ---
-        if (locationQuality <= 0.025) {
+        const anomaly = this.getPitchAnomalyResult(command.rng, locationQuality)
 
-            //Passed ball
-            pitch.isPB = true
+        if (anomaly) {
+
             pitch.inZone = false
-            pitch.result = PitchCall.BALL
-
-        } else if (locationQuality <= 0.25) {
-
-            //HBP
-            pitch.inZone = false
-            pitch.result = PitchCall.HBP
-
-        } else if (locationQuality <= 0.50) {
-
-            //Wild pitch
-            pitch.isWP = true
-            pitch.inZone = false
-            pitch.result = PitchCall.BALL
+            pitch.result = anomaly.result
+            pitch.isWP = anomaly.isWP ?? false
+            pitch.isPB = anomaly.isPB ?? false
 
         } else {
 
-            //If the batter guesses the pitch reduce the effective quality when the batter swings.
-            const effectivePitchQuality = guessPitch ? pitchQuality * 0.85 : pitchQuality
-
-            //Does the batter swing?
             const swingResult = this.gameRolls.getSwingResult(
                 command.rng,
                 command.hitterChange,
                 command.leagueAverages,
                 inZone,
-                effectivePitchQuality,
+                pitchQuality,
                 guessPitch,
                 command.play.pitchLog.count
             )
 
-            //Create pitch.
             pitch.swing = (swingResult != SwingResult.NO_SWING)
             pitch.con = (swingResult == SwingResult.FAIR || swingResult == SwingResult.FOUL)
 
-            // Only set the pitch.result here. Count updates happen once below.
             switch (swingResult) {
                 case SwingResult.FAIR:
                     pitch.result = PitchCall.IN_PLAY
@@ -601,7 +576,6 @@ class Sim {
 
             case PitchCall.HBP:
             case PitchCall.IN_PLAY:
-                // no balls/strikes added
                 break
         }
 
@@ -610,16 +584,13 @@ class Sim {
 
         let continueAtBat = true
 
-        //HBP
         if (pitch.result == PitchCall.HBP) {
             command.play.result = PlayResult.HIT_BY_PITCH
             continueAtBat = false
         }
 
-        //In play?
         if (pitch.result == PitchCall.IN_PLAY) continueAtBat = false
 
-        //Strikeout or walk?
         if (command.play.pitchLog.count.balls == 4) {
             command.play.result = PlayResult.BB
             continueAtBat = false
@@ -643,6 +614,29 @@ class Sim {
         pitch.count = JSON.parse(JSON.stringify(command.game.count))
 
         return result
+    }
+
+    private getPitchAnomalyResult(  gameRNG, locationQuality: number ): { result: PitchCall, isWP?: boolean, isPB?: boolean } | null {
+
+        // Only truly bad location can trigger anomalies
+        if (locationQuality >= 5) return null
+
+        const badness = (5 - locationQuality) / 5
+        const rareRoll = Rolls.getRollUnrounded(gameRNG, 0, 1)
+
+        if (locationQuality < 0.5 && rareRoll < 0.01 * badness) {
+            return { result: PitchCall.BALL, isPB: true }
+        }
+
+        if (rareRoll < 0.08 * badness) {
+            return { result: PitchCall.HBP }
+        }
+
+        if (rareRoll < 0.18 * badness) {
+            return { result: PitchCall.BALL, isWP: true }
+        }
+
+        return null
     }
 
     finishPlay(game:Game, command:SimPitchCommand, isInningEndingEvent:boolean) {
@@ -703,10 +697,13 @@ class Sim {
                 let teamDefenseChange:number = PlayerChange.getChange(command.leagueAverages.hittingRatings.defense, GameInfo.getTeamDefense(command.defense))
                 let fielderDefenseChange:number = PlayerChange.getChange(command.leagueAverages.hittingRatings.defense, fielderPlayer.hittingRatings.defense)
 
-                //Was it high quality contact? 1-1000
-                hitQuality = this.gameRolls.getHitQuality(command.rng, pitchQualityChange, teamDefenseChange, fielderDefenseChange, command.play.contact, pitch.guess)
 
                 let powerRollChart:RollChart = this.rollChartService.getMatchupPowerRollChart(command.leagueAverages, command.hitterChange, command.pitcherChange, APPLY_PLAYER_CHANGES)
+
+
+                //Was it high quality contact? 1-1000
+                hitQuality = this.gameRolls.getHitQuality(command.rng, command.leagueAverages, pitchQualityChange, teamDefenseChange, fielderDefenseChange, command.play.contact, pitch.guess, powerRollChart)
+
 
                 //O, 1B, 2B, 3B, or HR
                 command.play.result = powerRollChart.entries.get(hitQuality) as PlayResult
@@ -1224,6 +1221,11 @@ class RunnerActions {
             runnerEvent.movement.outBase = outBase
             runnerEvent.movement.end = outBase
 
+
+            if (runnerResult.out.includes(runnerEvent.runner._id)) {
+                throw new Error('Runner recorded out twice')
+            }
+
             runnerResult.out.push(runnerEvent.runner._id)
 
             if (this.isRunUnearned(allEvents, runnerEvent)) {
@@ -1533,7 +1535,6 @@ class RunnerActions {
 
     }
 
-
     getPositionCoveringBase(throwFromPosition:Position, throwToBase:BaseResult) {
 
         switch(throwToBase) {
@@ -1550,51 +1551,76 @@ class RunnerActions {
 
     }    
 
-    stealBases(runner1B:GamePlayer, runner2B: GamePlayer, runner3B: GamePlayer, gameRNG, runnerResult:RunnerResult, allEvents:RunnerEvent[], runnerEvents:RunnerEvent[], defensiveCredits:DefensiveCredit[], leagueAverages:LeagueAverage, catcher:GamePlayer, defense:TeamInfo, offense:TeamInfo, pitcher:GamePlayer, pitchIndex:number) {
+    stealBases(runner1B: GamePlayer, runner2B: GamePlayer, runner3B: GamePlayer, gameRNG, runnerResult: RunnerResult, allEvents: RunnerEvent[], runnerEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], leagueAverages: LeagueAverage, catcher: GamePlayer, defense: TeamInfo, offense: TeamInfo, pitcher: GamePlayer, pitchIndex: number, pitchCount: PitchCount) {
 
-        let runners = [runner1B, runner2B, runner3B].filter( r => r != undefined)
+        let runners = [runner1B, runner2B, runner3B].filter(r => r != undefined)
 
         if (runnerEvents.length > 0) {
 
             for (let re of runnerEvents) {
-        
-                //Would runner steal?
-                if (re.movement.start == BaseResult.THIRD) continue //runner from third wouldn't.
-                if (re.movement.start == BaseResult.SECOND && runnerResult.third) continue //runner from second wouldn't if a runner on third
-                if (re.movement.start ==  BaseResult.FIRST && runnerResult.second && runnerResult.first) continue//runner from first either
-    
-                //If runner is on first and the runner on second isn't stealing then no attempt.
+
+                if (re.movement.isOut) continue
+                if (re.movement.end != undefined) continue
+                if (re.isSBAttempt) continue
+                if (re.isSB) continue
+                if (re.isCS) continue
+
+                if (re.movement.start == BaseResult.THIRD) continue
+                if (re.movement.start == BaseResult.SECOND && runnerResult.third) continue
+                if (re.movement.start == BaseResult.FIRST && runnerResult.second && runnerResult.first) continue
+
+                const supportedStealState =
+                    (runnerResult.first && !runnerResult.second && !runnerResult.third) ||
+                    (runnerResult.second && !runnerResult.first && !runnerResult.third) ||
+                    (runnerResult.first && runnerResult.second && !runnerResult.third)
+
+                if (!supportedStealState) continue
+
                 if (re.movement.start == BaseResult.FIRST && runnerEvents.find(re => re.movement.start == BaseResult.SECOND)?.isSBAttempt == false) continue
-    
-                let SAFE_CHANCE = 65 //by default for 3B
-                if (re.movement.start == BaseResult.FIRST) SAFE_CHANCE = 75 //if they're stealing second
-    
-    
-                //If the runner on second is stealing then the runner on first goes for free
-                if (re.movement.start ==  BaseResult.FIRST && runnerEvents.find( re => re?.movement?.start)?.isSBAttempt) {
-    
+
+                if (re.movement.start == BaseResult.FIRST && runnerEvents.find(re => re?.movement?.start == BaseResult.SECOND)?.isSBAttempt) {
+
                     this.runnerToBase(runnerResult, re, BaseResult.FIRST, BaseResult.SECOND, OfficialRunnerResult.STOLEN_BASE_2B, false)
 
                     re.isSBAttempt = true
                     re.isSB = true
                     re.pitchIndex = pitchIndex
-    
-                } else {
-    
-                    let runner = runners.find( r => r._id == re.runner._id)
 
-                    //Is runner going to steal?
-                    let chanceRunnerSafe = this.getStolenBaseSafe(leagueAverages, catcher.hittingRatings.arm, runner.hittingRatings.speed, runner.hittingRatings.steals, SAFE_CHANCE) 
-    
-                    //Don't steal every time. 
-                    let jumpRoll = this.gameRolls.getStealResult(gameRNG) 
+                } else {
+
+                    let runner = runners.find(r => r._id == re.runner._id)
+
+                    const stealSettings = this.getStealSettingsForState(
+                        leagueAverages,
+                        pitchCount
+                    )
+
+                    let chanceRunnerSafe = this.getStolenBaseSafe(
+                        leagueAverages,
+                        catcher.hittingRatings.arm,
+                        runner.hittingRatings.speed,
+                        runner.hittingRatings.steals,
+                        stealSettings.success
+                    )
+
+                    const MIN_SUCCESS = 55
+                    const GREEN_LIGHT_SUCCESS = 75
+
+                    let successScale = (chanceRunnerSafe - MIN_SUCCESS) / (GREEN_LIGHT_SUCCESS - MIN_SUCCESS)
+                    successScale = Math.max(0, Math.min(1, successScale))
+
+                    let effectiveAttempt = stealSettings.attempt * successScale
+                    effectiveAttempt = Math.max(0, Math.min(100, Math.round(effectiveAttempt)))
+
+                    if (effectiveAttempt <= 0) continue
+
+                    let jumpRoll = Rolls.getRoll(gameRNG, 1, 100)
 
                     let endBase
                     let eventType
                     let eventTypeOut
-        
-                    //Are they doing it?
-                    if (jumpRoll > 965 && chanceRunnerSafe >= 72) {
+
+                    if (jumpRoll <= effectiveAttempt) {
 
                         if (re.movement.start == BaseResult.SECOND) {
                             endBase = BaseResult.THIRD
@@ -1604,8 +1630,12 @@ class RunnerActions {
                             endBase = BaseResult.SECOND
                             eventType = OfficialRunnerResult.STOLEN_BASE_2B
                             eventTypeOut = OfficialRunnerResult.CAUGHT_STEALING_2B
+                        } else {
+                            continue
                         }
-    
+
+                        re.isSBAttempt = true
+
                         this.runnerToBaseWithThrow({
                             gameRNG: gameRNG,
                             runnerResult: runnerResult,
@@ -1628,30 +1658,25 @@ class RunnerActions {
                             isFieldersChoice: false,
                             pitchIndex: pitchIndex
                         })
-    
-                        re.isSBAttempt = true
-    
+
                         if (re.movement.isOut) {
-                            
+
                             re.isCS = true
-    
-                            //Credit the catcher
+
                             defensiveCredits.push({
                                 _id: catcher._id,
                                 type: DefenseCreditType.CAUGHT_STEALING
                             })
-    
+
                         } else {
                             re.isSB = true
                         }
-                        
                     }
                 }
             }
 
         }
-
-    }    
+    }
 
     getStolenBaseSafe(leagueAverages: LeagueAverage, armRating:number, runnerSpeed:number, runnerSteals:number, defaultSuccess:number) {
 
@@ -2357,11 +2382,25 @@ class RunnerActions {
         } if (result.continueAtBat) {
             
             //Stolen bases
-            //Even if there's a good chance they can't go on every pitch
-            //No stealing on the last pitch.
-            
-            this.stealBases(runner1B, runner2B, runner3B, command.rng, command.play.runner.result.end, command.halfInningRunnerEvents, pitchEvents, command.play.credits, command.leagueAverages, command.catcher, command.defense, command.offense, command.pitcher, pitchIndex)            
-        }
+            this.stealBases(
+                runner1B,
+                runner2B,
+                runner3B,
+                command.rng,
+                command.play.runner.result.end,
+                command.halfInningRunnerEvents,
+                pitchEvents,
+                command.play.credits,
+                command.leagueAverages,
+                command.catcher,
+                command.defense,
+                command.offense,
+                command.pitcher,
+                pitchIndex,
+                command.play.pitchLog.count
+            )
+
+}
 
 
         command.play.runner.events.push(...RunnerActions.filterNonEvents(pitchEvents, undefined))
@@ -2381,16 +2420,25 @@ class RunnerActions {
         
     }
 
-    validateRunnerResult(runnerResult:RunnerResult) {
+    validateRunnerResult(runnerResult: RunnerResult) {
+        const all = [].concat(runnerResult.scored).concat(runnerResult.out)
 
-        //Validate runs and outs are cool
-        if (new Set([].concat(runnerResult.scored).concat(runnerResult.out)).size != (runnerResult.scored.length + runnerResult.out.length) ) {
-            throw new Error(`Runner both scored and is out. Problem.`)
+        if (new Set(all).size != all.length) {
+            console.log(JSON.stringify(runnerResult, null, 2))
+            throw new Error(`Duplicate runner id in scored/out.`)
         }
 
-        //Validate runners
         this.validateRunners(runnerResult.first, runnerResult.second, runnerResult.third)
     }
+
+    private getStealSettingsForState( leagueAverages: LeagueAverage, pitchCount?: PitchCount ): StolenBaseByCount {
+
+        let table: StolenBaseByCount[] = leagueAverages.steal
+
+        return table.find(r => r.balls === pitchCount.balls && r.strikes === pitchCount.strikes)
+    }
+
+
 
     applyMinMaxToNumber(num, min, max) {
 
@@ -2418,126 +2466,175 @@ class SimRolls {
         return ALL_PITCH_ZONES[index]
     }
 
-    getHitQuality( gameRNG, pitchQualityChange: number, teamDefenseChange: number, fielderDefenseChange: number, contact: Contact, guessPitch: boolean ): number {
+    getHitQuality(gameRNG, leagueAverages: LeagueAverage, pitchQualityChange: number, teamDefenseChange: number, fielderDefenseChange: number, contact: Contact, guessPitch: boolean, powerRollChart: RollChart): number {
 
-        const FULL_DEFENSE_BONUS = -200
-        const FULL_PITCH_QUALITY_BONUS = -200
+        const singleStart = this.rollChartService.getFirstRollIndex(powerRollChart, PlayResult.SINGLE)
+        const doubleStart = this.rollChartService.getFirstRollIndex(powerRollChart, PlayResult.DOUBLE)
+        const tripleStart = this.rollChartService.getFirstRollIndex(powerRollChart, PlayResult.TRIPLE)
 
-        let bonusRoll = 0
-
-        bonusRoll += FULL_PITCH_QUALITY_BONUS * pitchQualityChange
-        bonusRoll += (FULL_DEFENSE_BONUS / 2) * teamDefenseChange
-        bonusRoll += FULL_DEFENSE_BONUS * fielderDefenseChange
-
-        switch (contact) {
-            case Contact.FLY_BALL: bonusRoll += 50; break
-            case Contact.LINE_DRIVE: bonusRoll += 100; break
-        }
-
-        if (guessPitch) bonusRoll += 30
+        const doubleBandSize = Math.max(1, tripleStart - doubleStart)
+        const lowDoubleTarget = doubleStart + Math.floor(doubleBandSize * 0.33)
 
         const base = Rolls.getRoll(gameRNG, 0, 999)
-        const roll = base + bonusRoll
 
-        // Clamp to [0, 999] so it's always valid.
+        let roll = base
+
+        roll += leagueAverages.tuning.fullPitchQualityBonus * pitchQualityChange
+        roll += leagueAverages.tuning.fullTeamDefenseBonus * teamDefenseChange
+        roll += leagueAverages.tuning.fullFielderDefenseBonus * fielderDefenseChange
+
+        switch (contact) {
+            case Contact.GROUNDBALL:
+                roll += leagueAverages.tuning.groundballOutcomeBoost
+                break
+
+            case Contact.FLY_BALL:
+                roll += leagueAverages.tuning.flyballOutcomeBoost
+                break
+
+            case Contact.LINE_DRIVE:
+                roll += leagueAverages.tuning.lineDriveOutcomeBoost
+                break
+        }
+
+        roll = Math.max(0, Math.min(999, roll))
+
+        const currentResult = powerRollChart.entries.get(Math.round(roll))
+
+        switch (contact) {
+            case Contact.GROUNDBALL:
+                if (currentResult === PlayResult.DOUBLE) {
+                    roll -= leagueAverages.tuning.groundballDoublePenalty
+                } else if (currentResult === PlayResult.TRIPLE) {
+                    roll -= leagueAverages.tuning.groundballTriplePenalty
+                } else if (currentResult === PlayResult.HR) {
+                    roll -= leagueAverages.tuning.groundballHRPenalty
+                }
+                break
+
+            case Contact.FLY_BALL:
+                if (currentResult === PlayResult.HR) {
+                    roll -= leagueAverages.tuning.flyballHRPenalty
+                }
+                break
+
+            case Contact.LINE_DRIVE:
+                if (currentResult === PlayResult.OUT) {
+                    if (roll >= singleStart - leagueAverages.tuning.lineDriveOutToSingleWindow) {
+                        roll += leagueAverages.tuning.lineDriveOutToSingleBoost
+                    }
+                }
+
+                if (currentResult === PlayResult.SINGLE) {
+                    roll += (lowDoubleTarget - roll) * leagueAverages.tuning.lineDriveSingleToDoubleFactor
+                }
+                break
+        }
+
         return Math.max(0, Math.min(999, Math.round(roll)))
-    }    
+    }
 
-    getSwingResult(gameRNG, hitterChange: HitterChange, leagueAverage: LeagueAverage, inZone: boolean, pitchQuality: number, guessPitch:boolean, pitchCount: PitchCount): SwingResult {
+    getSwingResult(gameRNG, hitterChange: HitterChange, leagueAverage: LeagueAverage, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult {
 
-        //How much better than average is the pitch quality?
         let pitchQualityChange = PlayerChange.getChange(leagueAverage.pitchQuality, pitchQuality)
 
-        //Look up swing rate based on count
+        const t = leagueAverage.tuning
+
+        const isTwoStrike = pitchCount.strikes >= 2
+        const isThreeBall = pitchCount.balls >= 3
+
         let swingRate = 0
 
-        let swingRateAdjust = [] //value used to adjust overall swing rate equally between balls/strikes
-
-        //Worse players swing more on balls, less often on low-quality strikes.
         if (inZone) {
 
-            swingRate = leagueAverage.strikeSwingByCount.find(r => r.balls === pitchCount.balls && r.strikes === pitchCount.strikes).swing
+            swingRate = t.zoneSwingBase
 
-            //Better players swing more on low-quality strikes,
-            //Worse players swing less on low-quality strikes (because they are dumb).
+            swingRate += pitchCount.strikes * t.zoneSwingPerStrike
+            swingRate += pitchCount.balls * t.zoneSwingPerBall
+
+            if (isThreeBall) {
+                swingRate -= t.threeBallZoneSwingPenalty
+            }
+
+            swingRate += pitchQualityChange * t.pitchQualityZoneSwingEffect * -1
+
             if (APPLY_PLAYER_CHANGES) {
-
-                swingRateAdjust.push(hitterChange.plateDisiplineChange * PLAYER_CHANGE_SCALE)
-                swingRateAdjust.push(pitchQualityChange * -1 * PLAYER_CHANGE_SCALE)
-
-                // if (guessPitch) {
-                //     swingRateAdjust.push(.3)
-                // }
+                swingRate += hitterChange.plateDisiplineChange * t.disciplineZoneSwingEffect
             }
 
         } else {
 
-            swingRate = leagueAverage.ballSwingByCount.find(r => r.balls === pitchCount.balls && r.strikes === pitchCount.strikes).swing
+            swingRate = t.chaseSwingBase
 
-            //Better players swing less often on balls (unless 2 strikes)
-            //Worse players swing more often on balls (because they are dumb).
+            swingRate += pitchCount.strikes * t.chaseSwingPerStrike
+            swingRate += pitchCount.balls * t.chaseSwingPerBall
+
+            if (isThreeBall) {
+                swingRate -= t.threeBallChaseSwingPenalty
+            }
+
+            swingRate += pitchQualityChange * t.pitchQualityChaseSwingEffect
 
             if (APPLY_PLAYER_CHANGES) {
-                swingRateAdjust.push(hitterChange.plateDisiplineChange * -1 * PLAYER_CHANGE_SCALE)  //negative adjust
-                swingRateAdjust.push(pitchQualityChange * PLAYER_CHANGE_SCALE)
-
-                // if (guessPitch) {
-                //     swingRateAdjust.push(.3 * -1)
-                // }
+                swingRate += hitterChange.plateDisiplineChange * t.disciplineChaseSwingEffect * -1
             }
+
         }
 
-        swingRate = PlayerChange.applyChanges(swingRate, swingRateAdjust?.length > 0 ? swingRateAdjust : [0])
+        swingRate = Math.max(0, Math.min(100, swingRate))
 
-        //Roll die
         let die = Rolls.getRollUnrounded(gameRNG, 0, 100)
 
         if (die < swingRate) {
 
-            //Swing
-            let swingContactRate = inZone ? leagueAverage.zoneSwingContactRate : leagueAverage.chaseSwingContactRate //higher is better for pitcher
+            let swingContactRate = inZone ? t.zoneContactBase : t.chaseContactBase
 
-            //Increase or decrease chance based on hitter's contact rating and vsSameHand rating
-            if (APPLY_PLAYER_CHANGES) {
-
-                let swingContactRateAdjust = [
-                    hitterChange.contactChange * -1 * PLAYER_CHANGE_SCALE,
-                    // guessPitch ? -.2 : .2,
-                    pitchQualityChange * PLAYER_CHANGE_SCALE
-                ]
-
-                swingContactRate = PlayerChange.applyChanges(swingContactRate, swingContactRateAdjust)
-
+            if (inZone) {
+                swingContactRate += pitchCount.strikes * t.zoneContactPerStrike
+                swingContactRate += pitchCount.balls * t.zoneContactPerBall
+            } else {
+                swingContactRate += pitchCount.strikes * t.chaseContactPerStrike
+                swingContactRate += pitchCount.balls * t.chaseContactPerBall
             }
+
+            if (isTwoStrike) {
+                swingContactRate += inZone ? t.twoStrikeZoneContactBonus : t.twoStrikeChaseContactBonus
+            }
+
+            swingContactRate += pitchQualityChange * t.pitchQualityContactEffect * -1
+
+            if (APPLY_PLAYER_CHANGES) {
+                swingContactRate += hitterChange.contactChange * t.contactSkillEffect * -1
+            }
+
+            swingContactRate = Math.max(0, Math.min(100, swingContactRate))
 
             let die2 = Rolls.getRollUnrounded(gameRNG, 0, 100)
 
-            if (die2 > swingContactRate) {
+            if (die2 < swingContactRate) {
 
-                //Swinging strike
-                return SwingResult.STRIKE
+                let foulRate = t.foulRateBase
 
-            } else {
+                if (isTwoStrike) {
+                    foulRate += t.twoStrikeFoulBonus
+                }
 
-                //Made contact
+                foulRate = Math.max(0, Math.min(100, foulRate))
 
-                //Roll for fair/foul
                 let die3 = Rolls.getRoll(gameRNG, 0, 99)
 
-                if (die3 > 99 - leagueAverage.foulRate) {
-                    //Foul
+                if (die3 > 99 - foulRate) {
                     return SwingResult.FOUL
                 } else {
-                    //Fair
                     return SwingResult.FAIR
                 }
+
+            } else {
+                return SwingResult.STRIKE
             }
 
         } else {
-
-            //No swing
             return SwingResult.NO_SWING
-
         }
 
     }
