@@ -15,6 +15,7 @@ declare class RollChartService {
     updateContactTypeInput(input: ContactTypeRollInput, field: string, value: number): void;
     getMatchupPowerRollChart(leagueAverage: LeagueAverage, hitterChange: HitterChange, pitcherChange: PitcherChange, applyPlayerChanges: boolean): RollChart;
     getMatchupContactRollChart(leagueAverage: LeagueAverage, hitterContactProfile: ContactProfile, pitcherContactProfile: ContactProfile, applyPlayerChanges: boolean): RollChart;
+    getFirstRollIndex(chart: RollChart, result: string): number;
     private _getAverage;
 }
 export { RollChartService };

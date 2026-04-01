@@ -1,5 +1,5 @@
 import { Contact, Handedness, OfficialPlayResult, PlayResult, Position, ShallowDeep } from "./enums.js";
-import { DefensiveCredit, Game, GamePlayer, HitterChange, HittingRatings, LeagueAverage, PitcherChange, PitchRatings, Player, RotationPitcher, RunnerEvent, RunnerResult, StartGameCommand, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
+import { DefensiveCredit, Game, GamePlayer, HitterChange, HittingRatings, LeagueAverage, PitchEnvironmentTarget, PitcherChange, PitchRatings, Player, RotationPitcher, RunnerEvent, RunnerResult, StartGameCommand, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
 import { RollChartService } from "./roll-chart-service.js";
 declare class SimService {
     private rollChartService;
@@ -13,7 +13,39 @@ declare class SimService {
     initGame(game: Game): void;
     startGame(command: StartGameCommand): Game;
     finishGame(game: Game): void;
-    buildLeagueAverages(laRating: number, overrideValues?: Partial<LeagueAverage>): LeagueAverage;
+    buildLeagueAverageRatings(laRating: number): {
+        hittingRatings: {
+            speed: number;
+            steals: number;
+            arm: number;
+            defense: number;
+            vsL: {
+                contact: number;
+                gapPower: number;
+                homerunPower: number;
+                plateDiscipline: number;
+            };
+            vsR: {
+                contact: number;
+                gapPower: number;
+                homerunPower: number;
+                plateDiscipline: number;
+            };
+        };
+        pitchRatings: {
+            power: number;
+            vsL: {
+                control: number;
+                movement: number;
+            };
+            vsR: {
+                control: number;
+                movement: number;
+            };
+        };
+    };
+    pitchEnvironmentTargetToLeagueAverage(target: PitchEnvironmentTarget): LeagueAverage;
+    getPitchEnvironmentTargetForSeason(season: number): PitchEnvironmentTarget;
     simPitch(game: Game, rng: any): void;
     buildTeamInfoFromPlayers(leagueAverage: LeagueAverage, name: string, teamId: string, players: Player[], color1: string, color2: string, startingId: number): TeamInfo;
     getThrowResult(gameRNG: any, overallSafeChance: number): ThrowRoll;

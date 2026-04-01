@@ -1,4 +1,4 @@
-import { HitResult, HitResultCount, HitterStatLine, PitcherStatLine, PitchResult, PitchResultCount } from "./interfaces.js";
+import { HitResultCount, HitterStatLine, PitcherStatLine, PitchResultCount } from "./interfaces.js";
 declare class StatService {
     constructor();
     formatRatio(num: any): any;
@@ -10,9 +10,9 @@ declare class StatService {
     getAVG(hits: number, atBats: number): number;
     getWinPercent(wins: number, losses: number): number;
     displayPercent(num: number): string;
-    hitResultToHitterStatLine(hitResult: HitResult | HitResultCount): HitterStatLine;
-    mergeHitResultsToStatLine(total: HitResult, currentGame: HitResultCount): HitterStatLine;
-    mergePitchResultsToStatLine(total: PitchResult, currentGame: PitchResultCount): PitcherStatLine;
-    pitchResultToPitcherStatLine(pitchResult: PitchResult | PitchResultCount): PitcherStatLine;
+    hitResultToHitterStatLine(hitResult: HitResultCount): HitterStatLine;
+    mergeHitResultsToStatLine(total: HitResultCount, currentGame: HitResultCount): HitterStatLine;
+    mergePitchResultsToStatLine(total: PitchResultCount, currentGame: PitchResultCount): PitcherStatLine;
+    pitchResultToPitcherStatLine(pitchResult: PitchResultCount): PitcherStatLine;
 }
 export { StatService };
