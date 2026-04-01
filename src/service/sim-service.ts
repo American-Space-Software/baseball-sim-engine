@@ -3,7 +3,7 @@ import {  ContactTypeRollInput, Count, DefensiveCredit, FielderChance, Game, Gam
 import { RollChartService } from "./roll-chart-service.js";
 
 
-const APPLY_PLAYER_CHANGES = false
+const APPLY_PLAYER_CHANGES = true
 const PLAYER_CHANGE_SCALE = 0.75
 const STANDARD_INNINGS = 9
 
