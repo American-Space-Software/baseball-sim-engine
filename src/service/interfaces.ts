@@ -1253,6 +1253,257 @@ interface StolenBaseByCount {
 }
 
 
+
+
+
+interface PlayerFromStatsCommand {
+    
+    season: number
+
+    playerId: string
+    firstName: string
+    lastName: string
+
+    age?: number
+
+    primaryPosition: Position
+    secondaryPositions?: Position[]
+
+    throws: Handedness
+    hits: Handedness
+
+    primaryRole: "hitter" | "pitcher" | "twoWay"
+
+    hitter: PlayerHittingStats
+    pitcher: PlayerPitchingStats
+
+    fielding: PlayerFieldingStats
+    running: PlayerRunningStats
+
+    splits: PlayerSplitsStats
+
+    leagueAverages:LeagueAverage
+    playerImportBaseline:PlayerImportBaseline
+}
+
+interface PlayerHittingStats {
+    games: number
+    pa: number
+    ab: number
+
+    hits: number
+    doubles: number
+    triples: number
+    homeRuns: number
+    bb: number
+    so: number
+    hbp: number
+
+    pitchesSeen: number
+    ballsSeen: number
+    strikesSeen: number
+    swings: number
+    swingAtBalls: number
+    swingAtStrikes: number
+    calledStrikes: number
+    swingingStrikes: number
+    inZonePitches: number
+    inZoneContact: number
+    outZoneContact: number
+    fouls: number
+    ballsInPlay: number
+
+    groundBalls: number
+    flyBalls: number
+    lineDrives: number
+    popups: number
+}
+
+interface PlayerPitchingStats {
+    games: number
+    starts: number
+
+    battersFaced: number
+    outs: number
+
+    hitsAllowed: number
+    doublesAllowed: number
+    triplesAllowed: number
+    homeRunsAllowed: number
+    bbAllowed: number
+    so: number
+    hbpAllowed: number
+
+    pitchesThrown: number
+    ballsThrown: number
+    strikesThrown: number
+    swingsInduced: number
+    swingAtBallsAllowed: number
+    swingAtStrikesAllowed: number
+    calledStrikes: number
+    swingingStrikes: number
+    inZonePitches: number
+    inZoneContactAllowed: number
+    outZoneContactAllowed: number
+    foulsAllowed: number
+    ballsInPlayAllowed: number
+
+    groundBallsAllowed: number
+    flyBallsAllowed: number
+    lineDrivesAllowed: number
+    popupsAllowed: number
+}
+
+interface PlayerFieldingStats {
+    gamesAtPosition?: Partial<Record<Position, number>>
+    inningsAtPosition?: Partial<Record<Position, number>>
+
+    errors?: number
+    assists?: number
+    putouts?: number
+    doublePlays?: number
+
+    outfieldAssists?: number
+    catcherCaughtStealing?: number
+    catcherStolenBasesAllowed?: number
+    passedBalls?: number
+}
+
+interface PlayerRunningStats {
+    sb?: number
+    cs?: number
+    sbAttempts?: number
+}
+
+interface PlayerSplitsStats {
+    hitting: {
+        vsL: PlayerHittingSplitStats
+        vsR: PlayerHittingSplitStats
+    }
+    pitching: {
+        vsL: PlayerPitchingSplitStats
+        vsR: PlayerPitchingSplitStats
+    }
+}
+
+interface PlayerHittingSplitStats {
+    pa: number
+    ab: number
+
+    hits: number
+    doubles: number
+    triples: number
+    homeRuns: number
+    bb: number
+    so: number
+    hbp: number
+
+    pitchesSeen?: number
+    ballsSeen?: number
+    strikesSeen?: number
+    swings?: number
+    swingAtBalls?: number
+    swingAtStrikes?: number
+    calledStrikes?: number
+    swingingStrikes?: number
+    inZonePitches?: number
+    inZoneContact?: number
+    outZoneContact?: number
+    fouls?: number
+    ballsInPlay?: number
+
+    groundBalls?: number
+    flyBalls?: number
+    lineDrives?: number
+    popups?: number
+}
+
+interface PlayerPitchingSplitStats {
+    battersFaced: number
+    outs: number
+
+    hitsAllowed: number
+    doublesAllowed: number
+    triplesAllowed: number
+    homeRunsAllowed: number
+    bbAllowed: number
+    so: number
+    hbpAllowed: number
+
+    pitchesThrown?: number
+    ballsThrown?: number
+    strikesThrown?: number
+    swingsInduced?: number
+    swingAtBallsAllowed?: number
+    swingAtStrikesAllowed?: number
+    calledStrikes?: number
+    swingingStrikes?: number
+    inZonePitches?: number
+    inZoneContactAllowed?: number
+    outZoneContactAllowed?: number
+    foulsAllowed?: number
+    ballsInPlayAllowed?: number
+
+    groundBallsAllowed?: number
+    flyBallsAllowed?: number
+    lineDrivesAllowed?: number
+    popupsAllowed?: number
+}
+
+
+interface PlayerImportBaseline {
+    hitting: {
+        plateDisciplineBBPercent: number
+        contactSOPercent: number
+        gapPowerPercent: number
+        homerunPowerPercent: number
+        contactProfile: {
+            groundball: number
+            flyBall: number
+            lineDrive: number
+        }
+    }
+    pitching: {
+        powerSOPercent: number
+        controlBBPercent: number
+        movementHRPercent: number
+        contactProfile: {
+            groundball: number
+            flyBall: number
+            lineDrive: number
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const LEAGUE_AVERAGE_FIELDER_CHANCE_R: FielderChance = {
     first: 8,
     second: 13,
@@ -1448,6 +1699,14 @@ export {
     TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, LeagueAverage, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score,
     Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount,HitResultCount, MatchupHandedness,
     GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team,
-    Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings
+    Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings,     PlayerFromStatsCommand,
+    PlayerHittingStats,
+    PlayerPitchingStats,
+    PlayerFieldingStats,
+    PlayerRunningStats,
+    PlayerSplitsStats,
+    PlayerHittingSplitStats,
+    PlayerPitchingSplitStats,
+    PlayerImportBaseline
 
 }

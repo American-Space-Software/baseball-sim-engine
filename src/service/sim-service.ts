@@ -1,6 +1,7 @@
 import { BaseResult, Contact, DefenseCreditType, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchType, PitchZone, PlayResult, Position, ShallowDeep, SwingResult, ThrowResult } from "./enums.js";
-import {  ContactTypeRollInput, Count, DefensiveCredit, FielderChance, Game, GamePlayer, HalfInning, HitResultCount, HitterChange, HittingRatings, InningEndingEvent, InZoneByCount, LeagueAverage, Lineup, MatchupHandedness, Pitch, PITCH_ENVIRONMENT_TARGETS, PitchCount, PitchEnvironmentTarget, PitcherChange, PitchLog, PitchRatings, PitchResultCount, Play, Player, PowerRollInput, RollChart, RotationPitcher, RunnerEvent, RunnerResult, RunnerThrowCommand, Score, ShallowDeepChance, SimPitchCommand, SimPitchResult, StartGameCommand, StolenBaseByCount, Team, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
+import {  ContactTypeRollInput, Count, DefensiveCredit, FielderChance, Game, GamePlayer, HalfInning, HitResultCount, HitterChange, HitterStatLine, HittingRatings, InningEndingEvent, InZoneByCount, LeagueAverage, Lineup, MatchupHandedness, Pitch, PITCH_ENVIRONMENT_TARGETS, PitchCount, PitchEnvironmentTarget, PitcherChange, PitchLog, PitchRatings, PitchResultCount, Play, Player, PlayerFromStatsCommand, PlayerImportBaseline, PowerRollInput, RollChart, RotationPitcher, RunnerEvent, RunnerResult, RunnerThrowCommand, Score, ShallowDeepChance, SimPitchCommand, SimPitchResult, StartGameCommand, StolenBaseByCount, Team, TeamInfo, ThrowRoll, UpcomingMatchup } from "./interfaces.js";
 import { RollChartService } from "./roll-chart-service.js";
+import { StatService } from "./stat-service.js";
 
 
 const APPLY_PLAYER_CHANGES = true
@@ -24,20 +25,118 @@ class SimService {
     private runnerActions:RunnerActions
     private matchup:Matchup
 
+    private playerImporter:PlayerImporter
+
     
     constructor(
-        private rollChartService: RollChartService
+        private rollChartService: RollChartService,
+        private statService:StatService
     ) {
         this.simRolls = new SimRolls(rollChartService)
         this.gamePlayers = new GamePlayers(rollChartService)
         this.runnerActions = new RunnerActions(rollChartService, this.simRolls)
         this.matchup = new Matchup(this.gamePlayers)
         this.gameInfo = new GameInfo(this.gamePlayers)
-        this.sim = new Sim(rollChartService, this.simRolls, this.matchup, this.runnerActions)
+        
+        this.sim = new Sim(rollChartService, this.simRolls, this.matchup, this.runnerActions, this.gameInfo)
+
+        this.playerImporter = new PlayerImporter(this.sim, this.statService)
+        
     }
 
     initGame(game:Game) {
         return this.sim.initGame(game)
+    }
+
+    startGame(command:StartGameCommand) : Game {
+        return this.sim.startGame(command)
+    }
+
+    finishGame(game:Game) : void {
+        return this.sim.finishGame(game)
+    }
+
+    getPlayerImportBaseline(command:PlayerFromStatsCommand, rng:Function): PlayerImportBaseline {
+        return this.playerImporter.getPlayerImportBaseline(command, rng)
+    }
+
+
+    /*
+    Passthrough/public stuff for tests.
+
+    */
+
+    simPitch(game:Game, rng:any) {
+        return this.sim.simPitch(game, rng)
+    }
+
+    buildTeamInfoFromPlayers (leagueAverage:LeagueAverage, name:string, teamId:string, players:Player[], color1:string, color2:string, startingId:number) {
+        return this.gameInfo.buildTeamInfoFromPlayers(leagueAverage, name, teamId, players, color1, color2, startingId)
+    }
+
+    getThrowResult(gameRNG, overallSafeChance:number) : ThrowRoll {
+        return this.simRolls.getThrowResult(gameRNG, overallSafeChance)
+    }
+
+    getRunnerEvents(gameRNG, runnerResult:RunnerResult, halfInningRunnerEvents:RunnerEvent[], defensiveCredits:DefensiveCredit[], leagueAverages: LeagueAverage, playResult: PlayResult, 
+                    contact: Contact|undefined, shallowDeep: ShallowDeep|undefined, hitter:GamePlayer, fielderPlayer: GamePlayer|undefined, 
+                    runner1B:GamePlayer|undefined, runner2B:GamePlayer|undefined, runner3B:GamePlayer|undefined, offense:TeamInfo, defense:TeamInfo, pitcher:GamePlayer, pitchIndex:number) : RunnerEvent[] {
+
+                    return this.runnerActions.getRunnerEvents(gameRNG, runnerResult, halfInningRunnerEvents, defensiveCredits, leagueAverages, playResult, contact, shallowDeep, hitter, fielderPlayer, runner1B, runner2B, runner3B, offense, defense, pitcher, pitchIndex)
+    }
+
+    getChanceRunnerSafe(leagueAverages: LeagueAverage, armRating:number, runnerSpeed:number, defaultSuccess:number) {
+        return this.runnerActions.getChanceRunnerSafe(leagueAverages, armRating, runnerSpeed, defaultSuccess)
+    }
+    
+    getUpcomingMatchup(game:Game) : UpcomingMatchup {
+        return this.sim.getUpcomingMatchup(game)
+    }
+
+    //Exposed in tests.
+    initGamePlayers(leagueAverage:LeagueAverage, players:Player[], startingPitcher:RotationPitcher, teamId:string, color1:string, color2:string, startingId:number) : GamePlayer[] {
+        return this.gamePlayers.initGamePlayers(leagueAverage, players, startingPitcher, teamId, color1, color2, startingId)
+    }
+    
+
+}
+
+const _getAverage = (array: number[]) => {
+    return array.reduce((a, b) => a + b) / array.length
+}
+
+class Sim {
+
+    constructor(
+        private rollChartService:RollChartService,
+        private gameRolls:SimRolls,
+        private matchup:Matchup,
+        private runnerActions:RunnerActions,
+        private gameInfo:GameInfo,
+    ) {}
+
+    initGame(game:Game) {
+
+        game.currentInning = 1
+        game.isTopInning = true
+        game.isStarted = false
+        game.isComplete = false
+        game.isFinished = false
+        game.count = {
+            balls: 0,
+            strikes: 0,
+            outs: 0
+        }
+
+        game.score = {
+            away: 0,
+            home: 0
+        }
+
+        game.halfInnings = []
+
+        game.playIndex = 0
+
     }
 
     startGame(command:StartGameCommand) : Game {
@@ -49,7 +148,7 @@ class SimService {
         GameInfo.validateGameLineup(command.homeLineup, command.homeStartingPitcher)
 
         //Use what gets passed in or just use default config
-        game.leagueAverages = command.leagueAverages ?? this.pitchEnvironmentTargetToLeagueAverage(this.getPitchEnvironmentTargetForSeason(DEFAULT_SEASON))
+        game.leagueAverages = command.leagueAverages ?? PlayerImporter.pitchEnvironmentTargetToLeagueAverage(PlayerImporter.getPitchEnvironmentTargetForSeason(DEFAULT_SEASON))
 
         game.away = this.gameInfo.buildTeamInfoFromTeam(command.leagueAverages, command.away, command.awayLineup,  command.awayPlayers, command.awayStartingPitcher, command.away.colors.color1, command.away.colors.color2, HomeAway.AWAY, 1, command.awayTeamOptions)            
         game.home = this.gameInfo.buildTeamInfoFromTeam(command.leagueAverages, command.home, command.homeLineup, command.homePlayers, command.homeStartingPitcher, command.home.colors.color1, command.home.colors.color2, HomeAway.HOME, 1 + command.awayPlayers.length, command.homeTeamOptions)
@@ -105,164 +204,7 @@ class SimService {
         //Mark game as finished
         game.isFinished = true
 
-    }
-
-    buildLeagueAverageRatings(laRating: number) {
-        return {
-            hittingRatings: {
-                speed: laRating,
-                steals: laRating,
-                arm: laRating,
-                defense: laRating,
-                vsL: {
-                    contact: laRating,
-                    gapPower: laRating,
-                    homerunPower: laRating,
-                    plateDiscipline:  laRating
-                },
-                vsR: {
-                    contact:  laRating,
-                    gapPower:  laRating,
-                    homerunPower:  laRating,
-                    plateDiscipline:  laRating
-                }
-            },
-
-            pitchRatings: {
-                power:  laRating,
-                vsL: {
-                    control:  laRating,
-                    movement:  laRating
-                },
-                vsR: {
-                    control:  laRating,
-                    movement:  laRating
-                }
-            }
-
-        }
-    }
-
-    pitchEnvironmentTargetToLeagueAverage(target: PitchEnvironmentTarget): LeagueAverage {
-
-        return {
-
-            ...this.buildLeagueAverageRatings(100),
-
-            foulRate: target.pitch.foulContactPercent,
-
-            zoneSwingContactRate: target.swing.inZoneContactPercent,
-            chaseSwingContactRate: target.swing.outZoneContactPercent,
-
-            pitchQuality: 50,
-
-            contactTypeRollInput: target.battedBall.contactRollInput,
-
-            powerRollInput: target.battedBall.powerRollInput,
-
-            fielderChanceL: target.fielderChance.vsL,
-            fielderChanceR: target.fielderChance.vsR,
-
-            shallowDeepChance: target.fielderChance.shallowDeep,
-
-            inZoneByCount: target.pitch.inZoneByCount,
-
-            steal: target.steal,
-
-            tuning: target.tuning
-
-        }
-    }
-
-    getPitchEnvironmentTargetForSeason(season: number): PitchEnvironmentTarget {
-
-        const target = PITCH_ENVIRONMENT_TARGETS[season]
-
-        if (!target) {
-            throw new Error(`No PitchEnvironmentTarget found for season ${season}`)
-        }
-
-        return target
-    }
-
-
-
-    /*
-    Passthrough/public stuff for tests.
-
-    */
-
-    simPitch(game:Game, rng:any) {
-        return this.sim.simPitch(game, rng)
-    }
-
-    buildTeamInfoFromPlayers (leagueAverage:LeagueAverage, name:string, teamId:string, players:Player[], color1:string, color2:string, startingId:number) {
-        return this.gameInfo.buildTeamInfoFromPlayers(leagueAverage, name, teamId, players, color1, color2, startingId)
-    }
-
-    getThrowResult(gameRNG, overallSafeChance:number) : ThrowRoll {
-        return this.simRolls.getThrowResult(gameRNG, overallSafeChance)
-    }
-
-    getRunnerEvents(gameRNG, runnerResult:RunnerResult, halfInningRunnerEvents:RunnerEvent[], defensiveCredits:DefensiveCredit[], leagueAverages: LeagueAverage, playResult: PlayResult, 
-                    contact: Contact|undefined, shallowDeep: ShallowDeep|undefined, hitter:GamePlayer, fielderPlayer: GamePlayer|undefined, 
-                    runner1B:GamePlayer|undefined, runner2B:GamePlayer|undefined, runner3B:GamePlayer|undefined, offense:TeamInfo, defense:TeamInfo, pitcher:GamePlayer, pitchIndex:number) : RunnerEvent[] {
-
-                    return this.runnerActions.getRunnerEvents(gameRNG, runnerResult, halfInningRunnerEvents, defensiveCredits, leagueAverages, playResult, contact, shallowDeep, hitter, fielderPlayer, runner1B, runner2B, runner3B, offense, defense, pitcher, pitchIndex)
-    }
-
-    getChanceRunnerSafe(leagueAverages: LeagueAverage, armRating:number, runnerSpeed:number, defaultSuccess:number) {
-        return this.runnerActions.getChanceRunnerSafe(leagueAverages, armRating, runnerSpeed, defaultSuccess)
-    }
-    
-    getUpcomingMatchup(game:Game) : UpcomingMatchup {
-        return this.sim.getUpcomingMatchup(game)
-    }
-
-    //Exposed in tests.
-    initGamePlayers(leagueAverage:LeagueAverage, players:Player[], startingPitcher:RotationPitcher, teamId:string, color1:string, color2:string, startingId:number) : GamePlayer[] {
-        return this.gamePlayers.initGamePlayers(leagueAverage, players, startingPitcher, teamId, color1, color2, startingId)
-    }
-    
-
-}
-
-const _getAverage = (array: number[]) => {
-    return array.reduce((a, b) => a + b) / array.length
-}
-
-class Sim {
-
-    constructor(
-        private rollChartService:RollChartService,
-        private gameRolls:SimRolls,
-        private matchup:Matchup,
-        private runnerActions:RunnerActions
-    ) {}
-
-    initGame(game:Game) {
-
-        game.currentInning = 1
-        game.isTopInning = true
-        game.isStarted = false
-        game.isComplete = false
-        game.isFinished = false
-        game.count = {
-            balls: 0,
-            strikes: 0,
-            outs: 0
-        }
-
-        game.score = {
-            away: 0,
-            home: 0
-        }
-
-        game.halfInnings = []
-
-        game.playIndex = 0
-
-    }
+    }    
 
     createPlay(playIndex:number,
                hitter:GamePlayer, 
@@ -932,7 +874,6 @@ class Sim {
         }
 
     }
-
 
     getUpcomingMatchup(game:Game) : UpcomingMatchup {
 
@@ -3827,6 +3768,472 @@ class PlayerChange {
 
 }
 
+class PlayerImporter {
+
+    constructor(
+        private sim:Sim,
+        private statService:StatService
+    ) {}
+
+    static buildLeagueAverageRatings(laRating: number) {
+        return {
+            hittingRatings: {
+                speed: laRating,
+                steals: laRating,
+                arm: laRating,
+                defense: laRating,
+                vsL: {
+                    contact: laRating,
+                    gapPower: laRating,
+                    homerunPower: laRating,
+                    plateDiscipline:  laRating
+                },
+                vsR: {
+                    contact:  laRating,
+                    gapPower:  laRating,
+                    homerunPower:  laRating,
+                    plateDiscipline:  laRating
+                }
+            },
+
+            pitchRatings: {
+                power:  laRating,
+                vsL: {
+                    control:  laRating,
+                    movement:  laRating
+                },
+                vsR: {
+                    control:  laRating,
+                    movement:  laRating
+                }
+            }
+
+        }
+    }
+
+    static pitchEnvironmentTargetToLeagueAverage(target: PitchEnvironmentTarget): LeagueAverage {
+
+        return {
+
+            ...this.buildLeagueAverageRatings(100),
+
+            foulRate: target.pitch.foulContactPercent,
+
+            zoneSwingContactRate: target.swing.inZoneContactPercent,
+            chaseSwingContactRate: target.swing.outZoneContactPercent,
+
+            pitchQuality: 50,
+
+            contactTypeRollInput: target.battedBall.contactRollInput,
+
+            powerRollInput: target.battedBall.powerRollInput,
+
+            fielderChanceL: target.fielderChance.vsL,
+            fielderChanceR: target.fielderChance.vsR,
+
+            shallowDeepChance: target.fielderChance.shallowDeep,
+
+            inZoneByCount: target.pitch.inZoneByCount,
+
+            steal: target.steal,
+
+            tuning: target.tuning
+
+        }
+    }
+
+    static getPitchEnvironmentTargetForSeason(season: number): PitchEnvironmentTarget {
+
+        const target = PITCH_ENVIRONMENT_TARGETS[season]
+
+        if (!target) {
+            throw new Error(`No PitchEnvironmentTarget found for season ${season}`)
+        }
+
+        return target
+    }
+
+    static buildHittingRatings(command: PlayerFromStatsCommand): HittingRatings {
+
+        const vsR = command.splits.hitting.vsR
+        const vsL = command.splits.hitting.vsL
+        const baseline = command.playerImportBaseline.hitting
+
+        const vsRBB = vsR.bb / vsR.pa
+        const vsLBB = vsL.bb / vsL.pa
+
+        const vsRSO = vsR.so / vsR.pa
+        const vsLSO = vsL.so / vsL.pa
+
+        const vsRGap = (vsR.doubles + vsR.triples) / vsR.pa
+        const vsLGap = (vsL.doubles + vsL.triples) / vsL.pa
+
+        const vsRHR = vsR.homeRuns / vsR.pa
+        const vsLHR = vsL.homeRuns / vsL.pa
+
+        const totalBattedBalls = command.hitter.groundBalls + command.hitter.flyBalls + command.hitter.lineDrives
+
+        const groundball = Math.round((command.hitter.groundBalls / totalBattedBalls) * 100)
+        const flyBall = Math.round((command.hitter.flyBalls / totalBattedBalls) * 100)
+        const lineDrive = 100 - groundball - flyBall
+
+        return {
+            speed: 100,
+            steals: 100,
+            defense: 100,
+            arm: 100,
+
+            contactProfile: {
+                groundball: groundball,
+                flyBall: flyBall,
+                lineDrive: lineDrive
+            },
+
+            vsR: {
+                plateDiscipline: Math.round(100 + 100 * PlayerChange.getChange(baseline.plateDisciplineBBPercent, vsRBB)),
+                contact: Math.round(100 + 100 * PlayerChange.getChange(baseline.contactSOPercent, vsRSO)),
+                gapPower: Math.round(100 + 100 * PlayerChange.getChange(baseline.gapPowerPercent, vsRGap)),
+                homerunPower: Math.round(100 + 100 * PlayerChange.getChange(baseline.homerunPowerPercent, vsRHR))
+            },
+
+            vsL: {
+                plateDiscipline: Math.round(100 + 100 * PlayerChange.getChange(baseline.plateDisciplineBBPercent, vsLBB)),
+                contact: Math.round(100 + 100 * PlayerChange.getChange(baseline.contactSOPercent, vsLSO)),
+                gapPower: Math.round(100 + 100 * PlayerChange.getChange(baseline.gapPowerPercent, vsLGap)),
+                homerunPower: Math.round(100 + 100 * PlayerChange.getChange(baseline.homerunPowerPercent, vsLHR))
+            }
+        }
+    }
+
+    static buildPitchRatings(command: PlayerFromStatsCommand): PitchRatings {
+
+        const vsR = command.splits.pitching.vsR
+        const vsL = command.splits.pitching.vsL
+        const baseline = command.playerImportBaseline.pitching
+
+        const totalSO = vsR.so + vsL.so
+        const totalBF = vsR.battersFaced + vsL.battersFaced
+        const soRate = totalSO / totalBF
+
+        const vsRBB = vsR.bbAllowed / vsR.battersFaced
+        const vsLBB = vsL.bbAllowed / vsL.battersFaced
+
+        const vsRHR = vsR.homeRunsAllowed / vsR.battersFaced
+        const vsLHR = vsL.homeRunsAllowed / vsL.battersFaced
+
+        const totalBattedBallsAllowed = command.pitcher.groundBallsAllowed + command.pitcher.flyBallsAllowed + command.pitcher.lineDrivesAllowed
+
+        const groundball = Math.round((command.pitcher.groundBallsAllowed / totalBattedBallsAllowed) * 100)
+        const flyBall = Math.round((command.pitcher.flyBallsAllowed / totalBattedBallsAllowed) * 100)
+        const lineDrive = 100 - groundball - flyBall
+
+        return {
+            power: Math.round(100 + 100 * PlayerChange.getChange(baseline.powerSOPercent, soRate)),
+
+            contactProfile: {
+                groundball: groundball,
+                flyBall: flyBall,
+                lineDrive: lineDrive
+            },
+
+            vsR: {
+                control: Math.round(100 + 100 * PlayerChange.getChange(vsRBB, baseline.controlBBPercent)),
+                movement: Math.round(100 + 100 * PlayerChange.getChange(vsRHR, baseline.movementHRPercent))
+            },
+
+            vsL: {
+                control: Math.round(100 + 100 * PlayerChange.getChange(vsLBB, baseline.controlBBPercent)),
+                movement: Math.round(100 + 100 * PlayerChange.getChange(vsLHR, baseline.movementHRPercent))
+            }
+        }
+    }
+
+    static createPlayerFromStats(command: PlayerFromStatsCommand): { hittingRatings: HittingRatings, pitchRatings: PitchRatings } {
+
+        return {
+            hittingRatings: this.buildHittingRatings(command),
+            pitchRatings: this.buildPitchRatings(command)
+        }
+    }
+
+    getPlayerImportBaseline(command: PlayerFromStatsCommand, rng: Function): PlayerImportBaseline {
+
+        let totalHit: HitResultCount = {} as HitResultCount
+
+        const mergeHitResults = (total: HitResultCount, current: HitResultCount): HitResultCount => {
+
+            total = total || {} as HitResultCount
+
+            for (const key of Object.keys(current)) {
+                const typedKey = key as keyof HitResultCount
+
+                if (typeof current[typedKey] === "number") {
+                    ;(total[typedKey] as number) = ((total[typedKey] as number) || 0) + (current[typedKey] as number)
+                }
+            }
+
+            return total
+        }
+
+        const buildBaselinePlayer = (id: string, position: Position): Player => {
+            return {
+                _id: id,
+
+                firstName: "Baseline",
+                lastName: id,
+                get fullName() { return `${this.firstName} ${this.lastName}` },
+                get displayName() { return this.fullName },
+
+                primaryPosition: position,
+                zodiacSign: "Aries",
+
+                throws: Handedness.R,
+                hits: Handedness.R,
+
+                isRetired: false,
+
+                stamina: 100,
+                overallRating: 100,
+
+                pitchRatings: {
+                    contactProfile: { groundball: 43, flyBall: 35, lineDrive: 22 },
+                    power: 100,
+                    vsL: { control: 100, movement: 100 },
+                    vsR: { control: 100, movement: 100 },
+                    pitches: [PitchType.FF, PitchType.CU, PitchType.SL, PitchType.FO]
+                },
+
+                hittingRatings: {
+                    contactProfile: { groundball: 43, flyBall: 35, lineDrive: 22 },
+                    speed: 100,
+                    steals: 100,
+                    arm: 100,
+                    defense: 100,
+                    vsL: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 },
+                    vsR: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 }
+                },
+
+                potentialOverallRating: 100,
+                potentialPitchRatings: {
+                    contactProfile: { groundball: 43, flyBall: 35, lineDrive: 22 },
+                    power: 100,
+                    vsL: { control: 100, movement: 100 },
+                    vsR: { control: 100, movement: 100 },
+                    pitches: [PitchType.FF, PitchType.CU, PitchType.SL, PitchType.FO]
+                },
+                potentialHittingRatings: {
+                    contactProfile: { groundball: 43, flyBall: 35, lineDrive: 22 },
+                    speed: 100,
+                    steals: 100,
+                    arm: 100,
+                    defense: 100,
+                    vsL: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 },
+                    vsR: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 }
+                },
+
+                age: 27
+            }
+        }
+
+        const buildBaselinePlayers = (): Player[] => {
+            return [
+                buildBaselinePlayer("p", Position.PITCHER),
+                buildBaselinePlayer("c", Position.CATCHER),
+                buildBaselinePlayer("1b", Position.FIRST_BASE),
+                buildBaselinePlayer("2b", Position.SECOND_BASE),
+                buildBaselinePlayer("3b", Position.THIRD_BASE),
+                buildBaselinePlayer("ss", Position.SHORTSTOP),
+                buildBaselinePlayer("lf", Position.LEFT_FIELD),
+                buildBaselinePlayer("cf", Position.CENTER_FIELD),
+                buildBaselinePlayer("rf", Position.RIGHT_FIELD)
+            ]
+        }
+
+        const buildBaselineLineup = (players: Player[]): Lineup => {
+            const pitcher = players.find(p => p.primaryPosition === Position.PITCHER)!
+
+            return {
+                order: players.map(p => ({
+                    _id: p._id,
+                    position: p.primaryPosition
+                })),
+                rotation: new Array(5).fill(0).map(() => ({
+                    _id: pitcher._id,
+                    stamina: 1
+                }))
+            }
+        }
+
+        const NUM_GAMES = 250
+
+        for (let i = 0; i < NUM_GAMES; i++) {
+
+            const awayPlayers = buildBaselinePlayers()
+            const homePlayers = buildBaselinePlayers()
+
+            const awayLineup = buildBaselineLineup(awayPlayers)
+            const homeLineup = buildBaselineLineup(homePlayers)
+
+            const awayStartingPitcher: RotationPitcher = {
+                _id: awayPlayers.find(p => p.primaryPosition === Position.PITCHER)!._id,
+                stamina: 1
+            }
+
+            const homeStartingPitcher: RotationPitcher = {
+                _id: homePlayers.find(p => p.primaryPosition === Position.PITCHER)!._id,
+                stamina: 1
+            }
+
+            const awayTeam: Team = {
+                _id: `baseline-away-${i}`,
+                name: "Away",
+                abbrev: "AWAY",
+                colors: {
+                    color1: "#ff0000",
+                    color2: "#ffffff"
+                }
+            }
+
+            const homeTeam: Team = {
+                _id: `baseline-home-${i}`,
+                name: "Home",
+                abbrev: "HOME",
+                colors: {
+                    color1: "#0000ff",
+                    color2: "#ffffff"
+                }
+            }
+
+            const game: Game = { _id: `baseline-${i}` } as Game
+
+            this.sim.initGame(game)
+
+            const startedGame = this.sim.startGame({
+                game,
+                away: awayTeam,
+                awayTeamOptions: {},
+                awayPlayers,
+                awayLineup,
+                awayStartingPitcher,
+
+                home: homeTeam,
+                homeTeamOptions: {},
+                homePlayers,
+                homeLineup,
+                homeStartingPitcher,
+
+                leagueAverages: command.leagueAverages,
+                date: new Date()
+            })
+
+            while (!startedGame.isComplete) {
+                this.sim.simPitch(startedGame, rng)
+            }
+
+            this.sim.finishGame(startedGame)
+
+            const allPlayers = [
+                ...startedGame.away.players,
+                ...startedGame.home.players
+            ]
+
+            for (const p of allPlayers) {
+                totalHit = mergeHitResults(totalHit, p.hitResult)
+            }
+        }
+
+        const stats: HitterStatLine = this.statService.hitResultToHitterStatLine(totalHit)
+
+        const baseline: PlayerImportBaseline = {
+            hitting: {
+                plateDisciplineBBPercent: (stats.bbPercent ?? (stats.bb / stats.pa)),
+                contactSOPercent: (stats.soPercent ?? (stats.so / stats.pa)),
+                gapPowerPercent: ((stats.doublePercent ?? (stats.doubles / stats.pa)) + (stats.triplePercent ?? (stats.triples / stats.pa))),
+                homerunPowerPercent: (stats.homeRunPercent ?? (stats.homeRuns / stats.pa)),
+                contactProfile: {
+                    groundball: stats.groundBallPercent ?? 0,
+                    flyBall: stats.flyBallPercent ?? 0,
+                    lineDrive: stats.ldPercent ?? 0
+                }
+            },
+            pitching: {
+                powerSOPercent: (stats.soPercent ?? (stats.so / stats.pa)),
+                controlBBPercent: (stats.bbPercent ?? (stats.bb / stats.pa)),
+                movementHRPercent: (stats.homeRunPercent ?? (stats.homeRuns / stats.pa)),
+                contactProfile: {
+                    groundball: stats.groundBallPercent ?? 0,
+                    flyBall: stats.flyBallPercent ?? 0,
+                    lineDrive: stats.ldPercent ?? 0
+                }
+            }
+        }
+
+        const targetHittingPlateDiscipline = ((command.splits.hitting.vsR.bb / command.splits.hitting.vsR.pa) + (command.splits.hitting.vsL.bb / command.splits.hitting.vsL.pa)) / 2
+        const targetHittingContact = ((command.splits.hitting.vsR.so / command.splits.hitting.vsR.pa) + (command.splits.hitting.vsL.so / command.splits.hitting.vsL.pa)) / 2
+        const targetHittingGap = ((((command.splits.hitting.vsR.doubles + command.splits.hitting.vsR.triples) / command.splits.hitting.vsR.pa)) + (((command.splits.hitting.vsL.doubles + command.splits.hitting.vsL.triples) / command.splits.hitting.vsL.pa))) / 2
+        const targetHittingHR = ((command.splits.hitting.vsR.homeRuns / command.splits.hitting.vsR.pa) + (command.splits.hitting.vsL.homeRuns / command.splits.hitting.vsL.pa)) / 2
+
+        const targetPitchingPower = ((command.splits.pitching.vsR.so / command.splits.pitching.vsR.battersFaced) + (command.splits.pitching.vsL.so / command.splits.pitching.vsL.battersFaced)) / 2
+        const targetPitchingControl = ((command.splits.pitching.vsR.bbAllowed / command.splits.pitching.vsR.battersFaced) + (command.splits.pitching.vsL.bbAllowed / command.splits.pitching.vsL.battersFaced)) / 2
+        const targetPitchingMovement = ((command.splits.pitching.vsR.homeRunsAllowed / command.splits.pitching.vsR.battersFaced) + (command.splits.pitching.vsL.homeRunsAllowed / command.splits.pitching.vsL.battersFaced)) / 2
+
+        let bestScore = Number.MAX_SAFE_INTEGER
+        let stagnantLoops = 0
+
+        for (let i = 0; i < 1000; i++) {
+
+            command.playerImportBaseline = baseline
+
+            const hittingRatings = PlayerImporter.buildHittingRatings(command)
+            const pitchRatings = PlayerImporter.buildPitchRatings(command)
+
+            const score =
+                Math.abs((hittingRatings.vsR?.plateDiscipline ?? 100) - 100) +
+                Math.abs((hittingRatings.vsR?.contact ?? 100) - 100) +
+                Math.abs((hittingRatings.vsR?.gapPower ?? 100) - 100) +
+                Math.abs((hittingRatings.vsR?.homerunPower ?? 100) - 100) +
+
+                Math.abs((hittingRatings.vsL?.plateDiscipline ?? 100) - 100) +
+                Math.abs((hittingRatings.vsL?.contact ?? 100) - 100) +
+                Math.abs((hittingRatings.vsL?.gapPower ?? 100) - 100) +
+                Math.abs((hittingRatings.vsL?.homerunPower ?? 100) - 100) +
+
+                Math.abs((pitchRatings.power ?? 100) - 100) +
+                Math.abs((pitchRatings.vsR?.control ?? 100) - 100) +
+                Math.abs((pitchRatings.vsR?.movement ?? 100) - 100) +
+                Math.abs((pitchRatings.vsL?.control ?? 100) - 100) +
+                Math.abs((pitchRatings.vsL?.movement ?? 100) - 100)
+
+            if (score === 0) {
+                return baseline
+            }
+
+            if (score < bestScore) {
+                bestScore = score
+                stagnantLoops = 0
+            } else {
+                stagnantLoops++
+            }
+
+            if (stagnantLoops >= 1000) {
+                throw new Error(`getPlayerImportBaseline failed to converge. bestScore=${bestScore}`)
+            }
+
+            baseline.hitting.plateDisciplineBBPercent = (baseline.hitting.plateDisciplineBBPercent + targetHittingPlateDiscipline) / 2
+            baseline.hitting.contactSOPercent = (baseline.hitting.contactSOPercent + targetHittingContact) / 2
+            baseline.hitting.gapPowerPercent = (baseline.hitting.gapPowerPercent + targetHittingGap) / 2
+            baseline.hitting.homerunPowerPercent = (baseline.hitting.homerunPowerPercent + targetHittingHR) / 2
+
+            baseline.pitching.powerSOPercent = (baseline.pitching.powerSOPercent + targetPitchingPower) / 2
+            baseline.pitching.controlBBPercent = (baseline.pitching.controlBBPercent + targetPitchingControl) / 2
+            baseline.pitching.movementHRPercent = (baseline.pitching.movementHRPercent + targetPitchingMovement) / 2
+        }
+
+        throw new Error(`getPlayerImportBaseline failed to converge. bestScore=${bestScore}`)
+    }
+
+}
+
 const ALL_PITCH_ZONES: readonly PitchZone[] = [
   PitchZone.LOW_AWAY, PitchZone.LOW_MIDDLE, PitchZone.LOW_INSIDE,
   PitchZone.MID_AWAY, PitchZone.MID_MIDDLE, PitchZone.MID_INSIDE,
@@ -3834,6 +4241,6 @@ const ALL_PITCH_ZONES: readonly PitchZone[] = [
 ] as const
 
 export {
-    SimService, PlayerChange, Rolls, AtBatInfo
+    SimService, PlayerChange, Rolls, AtBatInfo, PlayerImporter
 }
 

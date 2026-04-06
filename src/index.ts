@@ -6,13 +6,15 @@ import {
 
   AtBatInfo,
   Rolls,
-  PlayerChange
+  PlayerChange,
+  PlayerImporter
 } from "./service/sim-service.js"
 import { StatService } from "./service/stat-service.js"
 
 let rollChartService = new RollChartService()
+let statService = new StatService()
 
-let simService = new SimService(rollChartService)
+let simService = new SimService(rollChartService, statService)
 
 
 export {
@@ -37,7 +39,7 @@ export {
   InningEndingEvent,
   Rolls,
   PlayerChange,
-
+  PlayerImporter
 }
 
 export type {
@@ -85,5 +87,14 @@ export type {
   PitcherHandednessRollInput,
   PowerRollInput,
   ShallowDeepChance,
-  FielderChance
+  FielderChance,
+  PlayerFromStatsCommand,
+  PlayerHittingStats,
+  PlayerPitchingStats,
+  PlayerFieldingStats,
+  PlayerRunningStats,
+  PlayerSplitsStats,
+  PlayerHittingSplitStats,
+  PlayerPitchingSplitStats,
+  PlayerImportBaseline
 } from "./service/interfaces.js"
