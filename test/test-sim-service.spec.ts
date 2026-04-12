@@ -23,17 +23,61 @@ import type {
     HitResultCount,
     PitchResultCount,
     PitchEnvironmentTarget,
-    PlayerFromStatsCommand
+    PitchEnvironmentTuning,
+    PlayerImportBaseline
 } from "../src/index.js"
+
+import { DownloaderService } from "./service/downloader-service.js"
 
 let rng = new seedrandom(4)
 const statService = new StatService()
+const downloaderservice = new DownloaderService("test/data", 1000)
+let importBaseline: PlayerImportBaseline
+let pitchEnvironment: PitchEnvironmentTarget
+let pitchEnvironmentTuning: PitchEnvironmentTuning
+let tunedPitchEnvironment: PitchEnvironmentTarget
+
+let season = 2025
+
+const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
 
 describe("SimService", async () => {
 
+    it("should calculate pitch environment target for season", async () => {
+        
+        pitchEnvironment = PlayerImporter.getPitchEnvironmentTargetForSeason(season, players)
+
+        console.log("=== GENERATED PITCH ENVIRONMENT TARGET ===")
+        console.log(JSON.stringify(pitchEnvironment, null, 2))
+
+        assert.ok(pitchEnvironment)
+    })
+
+    it("should infer pitch environment tunings from target", async () => {
+
+        pitchEnvironmentTuning = simService.getTuningsForPitchEnvironment(pitchEnvironment, rng, {
+            maxIterations: 25,
+            gamesPerIteration: 25
+        })
+
+        tunedPitchEnvironment = {
+            ...pitchEnvironment,
+            pitchEnvironmentTuning
+        }
+
+        console.log("=== INFERRED PITCH ENVIRONMENT TUNING ===")
+        console.log(JSON.stringify(pitchEnvironmentTuning, null, 2))
+
+        // console.log("=== TUNED PITCH ENVIRONMENT ===")
+        // console.log(JSON.stringify(tunedPitchEnvironment, null, 2))
+
+        assert.ok(pitchEnvironmentTuning)
+        assert.ok(tunedPitchEnvironment)
+    })
+
     it("should sim a game", async () => {
 
-        const target = PlayerImporter.getPitchEnvironmentTargetForSeason(2025)
+        const target = tunedPitchEnvironment
         const laRatings = PlayerImporter.pitchEnvironmentTargetToLeagueAverage(target)
 
         const awayPlayers: Player[] = buildTestTeam(1)
@@ -106,7 +150,7 @@ describe("SimService", async () => {
     it("should print aggregate stats over 250 games", async () => {
 
         const NUM_GAMES = 250
-        const target = PlayerImporter.getPitchEnvironmentTargetForSeason(2025)
+        const target = tunedPitchEnvironment
 
         let totalHit: HitResultCount = {} as any
         let totalPitch: PitchResultCount = {} as any
@@ -142,12 +186,6 @@ describe("SimService", async () => {
         const hitterStatLine = statService.hitResultToHitterStatLine(totalHit)
         const pitcherStatLine = statService.pitchResultToPitcherStatLine(totalPitch)
 
-        // console.log("=== HITTER STATLINE ===")
-        // console.log(JSON.stringify(hitterStatLine, null, 2))
-
-        // console.log("=== PITCHER STATLINE ===")
-        // console.log(JSON.stringify(pitcherStatLine, null, 2))
-
         const totalTeamGames = hitterStatLine.games / 9
 
         const teamRunsPerGame = hitterStatLine.runs / totalTeamGames
@@ -155,6 +193,12 @@ describe("SimService", async () => {
         const teamHomeRunsPerGame = hitterStatLine.homeRuns / totalTeamGames
         const teamBBPerGame = hitterStatLine.bb / totalTeamGames
         const teamSOPerGame = hitterStatLine.so / totalTeamGames
+
+        const sbSuccessPercent = hitterStatLine.sbAttempts > 0 ? hitterStatLine.sb / hitterStatLine.sbAttempts : 0
+        const csPercent = (hitterStatLine.csDefense + hitterStatLine.cs) > 0 ? hitterStatLine.csDefense / (hitterStatLine.csDefense + hitterStatLine.cs) : 0
+
+        console.log("=== TARGET PITCH ENVIRONMENT ===")
+        console.log(JSON.stringify(target, null, 2))
 
         console.log("=== TARGET PITCH ===")
         console.log({
@@ -174,7 +218,6 @@ describe("SimService", async () => {
             outZoneContactPercent: target.swing.outZoneContactPercent
         })
 
-
         console.log("=== ACTUAL PITCH ===")
         console.log({
             inZonePercent: hitterStatLine.inZonePercent,
@@ -185,18 +228,15 @@ describe("SimService", async () => {
             pitchesPerPA: hitterStatLine.pitchesPerPA
         })
 
-
         console.log("=== ACTUAL SWING ===")
         console.log({
             calledStrikesPercent: hitterStatLine.calledStrikesPercent,
             swingingStrikesPercent: hitterStatLine.swingingStrikesPercent,
-
             swingAtStrikesPercent: hitterStatLine.swingAtStrikesPercent,
             swingAtBallsPercent: hitterStatLine.swingAtBallsPercent,
             inZoneContactPercent: hitterStatLine.inZoneContactPercent,
             outZoneContactPercent: hitterStatLine.outZoneContactPercent
         })
-
 
         console.log("=== ACTUAL HITS ===")
         console.log({
@@ -211,10 +251,29 @@ describe("SimService", async () => {
             flyBallPercent: hitterStatLine.flyBallPercent,
             ldPercent: hitterStatLine.ldPercent,
             sbPerGame: hitterStatLine.sbPerGame,
-            sbAttemptsPerGame: hitterStatLine.sbAttemptsPerGame
+            sbAttemptsPerGame: hitterStatLine.sbAttemptsPerGame,
+            sbSuccessPercent
         })
 
+        console.log("=== ACTUAL RUNNING ===")
+        console.log({
+            sb: hitterStatLine.sb,
+            cs: hitterStatLine.cs,
+            sbAttempts: hitterStatLine.sbAttempts,
+            sbSuccessPercent
+        })
 
+        console.log("=== ACTUAL DEFENSE ===")
+        console.log({
+            errors: hitterStatLine.e,
+            assists: hitterStatLine.assists,
+            putouts: hitterStatLine.po,
+            doublePlays: hitterStatLine.doublePlays,
+            outfieldAssists: hitterStatLine.outfieldAssists,
+            catcherCaughtStealing: hitterStatLine.csDefense,
+            catcherCSPercent: csPercent,
+            passedBalls: hitterStatLine.passedBalls
+        })
 
         console.log("=== PITCH DIFF ===")
         console.log({
@@ -251,32 +310,25 @@ describe("SimService", async () => {
         assert.equal(hitterStatLine.atBats, pitcherStatLine.atBats)
         assert.equal(hitterStatLine.pa, pitcherStatLine.battersFaced)
 
+        const round3 = (n: number) => Number(n.toFixed(3))
 
+        console.log("=== TARGET OFFENSE ===")
+        console.log({
+            avg: round3(target.outcome.avg),
+            obp: round3(target.outcome.obp),
+            slg: round3(target.outcome.slg),
+            ops: round3(target.outcome.ops),
+            babip: round3(target.outcome.babip)
+        })
 
-    const round3 = (n: number) => Number(n.toFixed(3))
-
-    console.log("=== Target Offense ===")
-    console.log({
-        avg: round3(target.outcome.avg),
-        obp: round3(target.outcome.obp),
-        slg: round3(target.outcome.slg),
-        ops: round3(target.outcome.ops),
-        babip: round3(target.outcome.babip)
-    })
-
-    console.log("=== Actual Offense ===")
-    console.log({
-        avg: round3(hitterStatLine.avg),
-        obp: round3(hitterStatLine.obp),
-        slg: round3(hitterStatLine.slg),
-        ops: round3(hitterStatLine.ops),
-        babip: round3(hitterStatLine.babip)
-    })
-
-
-
-
-
+        console.log("=== ACTUAL OFFENSE ===")
+        console.log({
+            avg: round3(hitterStatLine.avg),
+            obp: round3(hitterStatLine.obp),
+            slg: round3(hitterStatLine.slg),
+            ops: round3(hitterStatLine.ops),
+            babip: round3(hitterStatLine.babip)
+        })
     })
 
     it("inning can end during runner events; stop further processing but keep events", async () => {
@@ -437,310 +489,11 @@ describe("SimService", async () => {
         const scored = inPlayRunnerEvents.some(e => e?.movement?.end === BaseResult.HOME && !e?.movement?.isOut)
         assert.equal(scored, false)
     })
-
-    it("should create a player from stats using 2025 league averages", async () => {
-
-        const command: PlayerFromStatsCommand = buildLeagueAverage2025PlayerCommand()
-
-        const player = PlayerImporter.createPlayerFromStats(command)
-
-        assert.ok(player)
-        assert.ok(player.hittingRatings)
-        assert.ok(player.pitchRatings)
-
-        assert.equal(player.hittingRatings.speed, 100)
-        assert.equal(player.hittingRatings.steals, 100)
-        assert.equal(player.hittingRatings.arm, 100)
-        assert.equal(player.hittingRatings.defense, 100)
-
-        assert.equal(player.hittingRatings.vsR?.plateDiscipline, 100)
-        assert.equal(player.hittingRatings.vsR?.contact, 100)
-        assert.equal(player.hittingRatings.vsR?.gapPower, 100)
-        assert.equal(player.hittingRatings.vsR?.homerunPower, 100)
-
-        assert.equal(player.hittingRatings.vsL?.plateDiscipline, 100)
-        assert.equal(player.hittingRatings.vsL?.contact, 100)
-        assert.equal(player.hittingRatings.vsL?.gapPower, 100)
-        assert.equal(player.hittingRatings.vsL?.homerunPower, 100)
-
-        assert.equal(player.pitchRatings.power, 100)
-        assert.equal(player.pitchRatings.vsR?.control, 100)
-        assert.equal(player.pitchRatings.vsR?.movement, 100)
-        assert.equal(player.pitchRatings.vsL?.control, 100)
-        assert.equal(player.pitchRatings.vsL?.movement, 100)
-
-        assert.equal(player.pitchRatings.contactProfile?.flyBall, 29)
-        assert.equal(player.pitchRatings.contactProfile?.groundball, 45)
-        assert.equal(player.pitchRatings.contactProfile?.lineDrive, 26)
-
-        assert.equal(player.hittingRatings.contactProfile?.flyBall, 29)
-        assert.equal(player.hittingRatings.contactProfile?.groundball, 45)
-        assert.equal(player.hittingRatings.contactProfile?.lineDrive, 26)        
-
-    })
-
-
 })
-
-
-function buildLeagueAverage2025PlayerCommand(): PlayerFromStatsCommand {
-
-    const rng = new seedrandom(4)
-
-    const target = PlayerImporter.getPitchEnvironmentTargetForSeason(2025)
-    const leagueAverages = PlayerImporter.pitchEnvironmentTargetToLeagueAverage(target)
-
-    //@ts-ignore
-    let command:PlayerFromStatsCommand =  {
-        season: 2025,
-        leagueAverages,
-
-        playerId: "avg-player-2025",
-        firstName: "Average",
-        lastName: "Player",
-
-        age: 27,
-
-        primaryPosition: Position.PITCHER,
-        throws: Handedness.R,
-        hits: Handedness.R,
-        primaryRole: "twoWay",
-
-        hitter: {
-            games: 162,
-            pa: 1000,
-            ab: 906,
-
-            hits: 245,
-            doubles: 42,
-            triples: 3,
-            homeRuns: 30,
-            bb: 84,
-            so: 222,
-            hbp: 10,
-
-            pitchesSeen: 3880,
-            ballsSeen: 1300,
-            strikesSeen: 2580,
-            swings: 1850,
-            swingAtBalls: 365,
-            swingAtStrikes: 1302,
-            calledStrikes: 700,
-            swingingStrikes: 288,
-            inZonePitches: 1959,
-            inZoneContact: 1077,
-            outZoneContact: 202,
-            fouls: 648,
-            ballsInPlay: 631,
-
-            groundBalls: 261,
-            flyBalls: 168,
-            lineDrives: 151,
-            popups: 51
-        },
-
-        pitcher: {
-            games: 32,
-            starts: 32,
-
-            battersFaced: 1000,
-            outs: 666,
-
-            hitsAllowed: 245,
-            doublesAllowed: 42,
-            triplesAllowed: 3,
-            homeRunsAllowed: 30,
-            bbAllowed: 84,
-            so: 222,
-            hbpAllowed: 10,
-
-            pitchesThrown: 3880,
-            ballsThrown: 1300,
-            strikesThrown: 2580,
-            swingsInduced: 1850,
-            swingAtBallsAllowed: 365,
-            swingAtStrikesAllowed: 1302,
-            calledStrikes: 700,
-            swingingStrikes: 288,
-            inZonePitches: 1959,
-            inZoneContactAllowed: 1077,
-            outZoneContactAllowed: 202,
-            foulsAllowed: 648,
-            ballsInPlayAllowed: 631,
-
-            groundBallsAllowed: 261,
-            flyBallsAllowed: 168,
-            lineDrivesAllowed: 151,
-            popupsAllowed: 51
-        },
-
-        fielding: {
-            gamesAtPosition: {
-                [Position.PITCHER]: 32
-            },
-            inningsAtPosition: {
-                [Position.PITCHER]: 666
-            },
-            errors: 0,
-            assists: 0,
-            putouts: 0,
-            doublePlays: 0,
-            outfieldAssists: 0,
-            catcherCaughtStealing: 0,
-            catcherStolenBasesAllowed: 0,
-            passedBalls: 0
-        },
-
-        running: {
-            sb: 10,
-            cs: 3,
-            sbAttempts: 13
-        },
-
-        splits: {
-            hitting: {
-                vsR: {
-                    pa: 1000,
-                    ab: 906,
-
-                    hits: 245,
-                    doubles: 42,
-                    triples: 3,
-                    homeRuns: 30,
-                    bb: 84,
-                    so: 222,
-                    hbp: 10,
-
-                    pitchesSeen: 3880,
-                    ballsSeen: 1300,
-                    strikesSeen: 2580,
-                    swings: 1850,
-                    swingAtBalls: 365,
-                    swingAtStrikes: 1302,
-                    calledStrikes: 700,
-                    swingingStrikes: 288,
-                    inZonePitches: 1959,
-                    inZoneContact: 1077,
-                    outZoneContact: 202,
-                    fouls: 648,
-                    ballsInPlay: 631,
-
-                    groundBalls: 261,
-                    flyBalls: 168,
-                    lineDrives: 151,
-                    popups: 51
-                },
-                vsL: {
-                    pa: 1000,
-                    ab: 906,
-
-                    hits: 245,
-                    doubles: 42,
-                    triples: 3,
-                    homeRuns: 30,
-                    bb: 84,
-                    so: 222,
-                    hbp: 10,
-
-                    pitchesSeen: 3880,
-                    ballsSeen: 1300,
-                    strikesSeen: 2580,
-                    swings: 1850,
-                    swingAtBalls: 365,
-                    swingAtStrikes: 1302,
-                    calledStrikes: 700,
-                    swingingStrikes: 288,
-                    inZonePitches: 1959,
-                    inZoneContact: 1077,
-                    outZoneContact: 202,
-                    fouls: 648,
-                    ballsInPlay: 631,
-
-                    groundBalls: 261,
-                    flyBalls: 168,
-                    lineDrives: 151,
-                    popups: 51
-                }
-            },
-
-            pitching: {
-                vsR: {
-                    battersFaced: 1000,
-                    outs: 666,
-
-                    hitsAllowed: 245,
-                    doublesAllowed: 42,
-                    triplesAllowed: 3,
-                    homeRunsAllowed: 30,
-                    bbAllowed: 84,
-                    so: 222,
-                    hbpAllowed: 10,
-
-                    pitchesThrown: 3880,
-                    ballsThrown: 1300,
-                    strikesThrown: 2580,
-                    swingsInduced: 1850,
-                    swingAtBallsAllowed: 365,
-                    swingAtStrikesAllowed: 1302,
-                    calledStrikes: 700,
-                    swingingStrikes: 288,
-                    inZonePitches: 1959,
-                    inZoneContactAllowed: 1077,
-                    outZoneContactAllowed: 202,
-                    foulsAllowed: 648,
-                    ballsInPlayAllowed: 631,
-
-                    groundBallsAllowed: 261,
-                    flyBallsAllowed: 168,
-                    lineDrivesAllowed: 151,
-                    popupsAllowed: 51
-                },
-                vsL: {
-                    battersFaced: 1000,
-                    outs: 666,
-
-                    hitsAllowed: 245,
-                    doublesAllowed: 42,
-                    triplesAllowed: 3,
-                    homeRunsAllowed: 30,
-                    bbAllowed: 84,
-                    so: 222,
-                    hbpAllowed: 10,
-
-                    pitchesThrown: 3880,
-                    ballsThrown: 1300,
-                    strikesThrown: 2580,
-                    swingsInduced: 1850,
-                    swingAtBallsAllowed: 365,
-                    swingAtStrikesAllowed: 1302,
-                    calledStrikes: 700,
-                    swingingStrikes: 288,
-                    inZonePitches: 1959,
-                    inZoneContactAllowed: 1077,
-                    outZoneContactAllowed: 202,
-                    foulsAllowed: 648,
-                    ballsInPlayAllowed: 631,
-
-                    groundBallsAllowed: 261,
-                    flyBallsAllowed: 168,
-                    lineDrivesAllowed: 151,
-                    popupsAllowed: 51
-                }
-            }
-        }
-    }
-
-    const playerImportBaseline = simService.getPlayerImportBaseline(command, rng)
-    command.playerImportBaseline = playerImportBaseline
-
-    return command
-
-}
-
 
 function buildStartedGame(seedIdAway = 1, seedIdHome = 100): Game {
 
-    const target = PlayerImporter.getPitchEnvironmentTargetForSeason(2025)
+    const target = tunedPitchEnvironment
     const laRatings = PlayerImporter.pitchEnvironmentTargetToLeagueAverage(target)
 
     const awayPlayers: Player[] = buildTestTeam(seedIdAway)
@@ -884,7 +637,3 @@ function mergePitchResults(total: any, current: any): any {
 
     return total
 }
-
-
-
-

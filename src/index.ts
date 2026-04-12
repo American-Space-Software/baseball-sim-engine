@@ -96,5 +96,7 @@ export type {
   PlayerSplitsStats,
   PlayerHittingSplitStats,
   PlayerPitchingSplitStats,
-  PlayerImportBaseline
+  PlayerImportBaseline,
+  PlayerImportRaw,
+  PitchEnvironmentTuning
 } from "./service/interfaces.js"
