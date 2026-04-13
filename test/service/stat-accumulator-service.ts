@@ -152,6 +152,14 @@ class StatAccumulatorService {
                 ? this.getOrCreate(players, pitcherId, play?.matchup?.pitcher?.fullName, undefined, play?.matchup?.pitchHand?.code, "pitcher")
                 : undefined
 
+            if (batter && !batter.hitting.behaviorByCount) {
+                batter.hitting.behaviorByCount = this.emptyBehaviorByCountRaw()
+            }
+
+            if (pitcher && !pitcher.pitching.behaviorByCount) {
+                pitcher.pitching.behaviorByCount = this.emptyBehaviorByCountRaw()
+            }
+
             this.markHittingGame(gamePk, batter)
             this.markPitchingGame(gamePk, pitcher)
 
@@ -274,6 +282,7 @@ class StatAccumulatorService {
                 const isStrikeOutcome = isStrike || isInPlay
                 const isSwing = callCode === "S" || callCode === "F" || callCode === "T" || callCode === "W" || isInPlay
                 const isContact = callCode === "F" || callCode === "T" || isInPlay
+                const isFoul = callCode === "F" || callCode === "T"
                 const zone = Number(pitchData?.zone)
                 const inZone = this.IN_ZONE.has(zone)
 
@@ -301,10 +310,11 @@ class StatAccumulatorService {
                     if (isContact && inZone) batter.hitting.inZoneContact++
                     if (isContact && !inZone) batter.hitting.outZoneContact++
 
-                    if (callCode === "F" || callCode === "T") batter.hitting.fouls++
+                    if (isFoul) batter.hitting.fouls++
                     if (isInPlay) batter.hitting.ballsInPlay++
 
                     this.incrementInZoneByCount(batter.hitting.inZoneByCount, prePitchBalls, prePitchStrikes, inZone)
+                    this.incrementBehaviorByCount(batter.hitting.behaviorByCount, prePitchBalls, prePitchStrikes, inZone, isSwing, isContact, isInPlay, isFoul)
 
                     if (isInPlay) {
                         this.addExitVelocity(batter.hitting.exitVelocity, launchSpeed)
@@ -341,10 +351,11 @@ class StatAccumulatorService {
                     if (isContact && inZone) pitcher.pitching.inZoneContactAllowed++
                     if (isContact && !inZone) pitcher.pitching.outZoneContactAllowed++
 
-                    if (callCode === "F" || callCode === "T") pitcher.pitching.foulsAllowed++
+                    if (isFoul) pitcher.pitching.foulsAllowed++
                     if (isInPlay) pitcher.pitching.ballsInPlayAllowed++
 
                     this.incrementInZoneByCount(pitcher.pitching.inZoneByCount, prePitchBalls, prePitchStrikes, inZone)
+                    this.incrementBehaviorByCount(pitcher.pitching.behaviorByCount, prePitchBalls, prePitchStrikes, inZone, isSwing, isContact, isInPlay, isFoul)
                     this.addPitchTypeData(pitcher, pitchType, startSpeed, horizontalBreak, verticalBreak)
 
                     if (isInPlay) {
@@ -786,6 +797,14 @@ class StatAccumulatorService {
                 existing.primaryRole = "twoWay"
             }
 
+            if (!existing.hitting.behaviorByCount) {
+                existing.hitting.behaviorByCount = this.emptyBehaviorByCountRaw()
+            }
+
+            if (!existing.pitching.behaviorByCount) {
+                existing.pitching.behaviorByCount = this.emptyBehaviorByCountRaw()
+            }
+
             return existing
         }
 
@@ -833,6 +852,7 @@ class StatAccumulatorService {
                 fouls: 0,
                 ballsInPlay: 0,
                 inZoneByCount: this.emptyInZoneByCountRaw(),
+                behaviorByCount: this.emptyBehaviorByCountRaw(),
                 exitVelocity: this.emptyExitVelocityStat()
             },
 
@@ -863,6 +883,7 @@ class StatAccumulatorService {
                 foulsAllowed: 0,
                 ballsInPlayAllowed: 0,
                 inZoneByCount: this.emptyInZoneByCountRaw(),
+                behaviorByCount: this.emptyBehaviorByCountRaw(),
                 pitchTypes: {}
             },
 
@@ -1269,6 +1290,74 @@ class StatAccumulatorService {
                     ?? rep?.abbreviation
 
                 this.maybeApplyAlignmentHint(gamePk, repPlayerId, repPosition, defendingAlignment, players, repPlayerName)
+            }
+        }
+    }
+
+    private emptyBehaviorByCountRaw(): { balls: number; strikes: number; zonePitches: number; chasePitches: number; zoneSwings: number; chaseSwings: number; zoneContact: number; chaseContact: number; zoneMisses: number; chaseMisses: number; zoneFouls: number; chaseFouls: number; zoneBallsInPlay: number; chaseBallsInPlay: number }[] {
+        return [
+            { balls: 0, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 0, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 0, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 1, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 1, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 1, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 2, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 2, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 2, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 3, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 3, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 3, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 }
+        ]
+    }
+
+    private incrementBehaviorByCount(buckets: { balls: number; strikes: number; zonePitches: number; chasePitches: number; zoneSwings: number; chaseSwings: number; zoneContact: number; chaseContact: number; zoneMisses: number; chaseMisses: number; zoneFouls: number; chaseFouls: number; zoneBallsInPlay: number; chaseBallsInPlay: number }[], balls: number, strikes: number, inZone: boolean, isSwing: boolean, isContact: boolean, isInPlay: boolean, isFoul: boolean): void {
+        const bucket = buckets.find(item => item.balls === balls && item.strikes === strikes)
+        if (!bucket) return
+
+        if (inZone) {
+            bucket.zonePitches++
+
+            if (isSwing) {
+                bucket.zoneSwings++
+            }
+
+            if (isContact) {
+                bucket.zoneContact++
+            }
+
+            if (isSwing && !isContact) {
+                bucket.zoneMisses++
+            }
+
+            if (isFoul) {
+                bucket.zoneFouls++
+            }
+
+            if (isInPlay) {
+                bucket.zoneBallsInPlay++
+            }
+        } else {
+            bucket.chasePitches++
+
+            if (isSwing) {
+                bucket.chaseSwings++
+            }
+
+            if (isContact) {
+                bucket.chaseContact++
+            }
+
+            if (isSwing && !isContact) {
+                bucket.chaseMisses++
+            }
+
+            if (isFoul) {
+                bucket.chaseFouls++
+            }
+
+            if (isInPlay) {
+                bucket.chaseBallsInPlay++
             }
         }
     }

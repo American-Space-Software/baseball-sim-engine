@@ -1,8 +1,8 @@
 import Big from 'big.js'
 
-import {  PlayerChange,  } from "./sim-service.js"
 import { ContactProfile, ContactTypeRollInput, FielderChanceRollInput,  HitterChange, HittingRatings, LeagueAverage, PitcherChange, PitchRatings, PowerRollInput, RollChart, ShallowDeepRollInput } from "./interfaces.js"
 import { Contact, PlayResult, Position, ShallowDeep } from './enums.js'
+import { PlayerChange } from './sim-service.js'
 
 class RollChartService {
 

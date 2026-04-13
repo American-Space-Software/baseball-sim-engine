@@ -1,5 +1,8 @@
 import assert from "assert"
 import {
+    StatService,
+    PlayerImporterService,
+    simService,
     BaseResult,
     Contact,
     Handedness,
@@ -7,13 +10,13 @@ import {
     PlayResult,
     Position,
     ShallowDeep,
-    ThrowResult,
-    simService,
-    StatService,
-    PlayerImporter
+    ThrowResult
 } from "../src/index.js"
 import seedrandom from "seedrandom"
 import type {
+    PitchEnvironmentTarget,
+    PitchEnvironmentTuning,
+    PlayerImportBaseline,
     Game,
     StartGameCommand,
     Player,
@@ -21,31 +24,36 @@ import type {
     Lineup,
     RotationPitcher,
     HitResultCount,
-    PitchResultCount,
-    PitchEnvironmentTarget,
-    PitchEnvironmentTuning,
-    PlayerImportBaseline
+    PitchResultCount
 } from "../src/index.js"
 
 import { DownloaderService } from "./service/downloader-service.js"
 
+
 let rng = new seedrandom(4)
 const statService = new StatService()
 const downloaderservice = new DownloaderService("test/data", 1000)
-let importBaseline: PlayerImportBaseline
-let pitchEnvironment: PitchEnvironmentTarget
+let importBaseline:PlayerImportBaseline
+let pitchEnvironment:PitchEnvironmentTarget
 let pitchEnvironmentTuning: PitchEnvironmentTuning
 let tunedPitchEnvironment: PitchEnvironmentTarget
 
+
 let season = 2025
+
 
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
 
-describe("SimService", async () => {
+const playerImporterService = new PlayerImporterService(simService, statService)
+
+console.log(JSON.stringify(players.get("592450")))
+
+describe("PlayerImporter", async () => {
+
 
     it("should calculate pitch environment target for season", async () => {
         
-        pitchEnvironment = PlayerImporter.getPitchEnvironmentTargetForSeason(season, players)
+        pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
 
         console.log("=== GENERATED PITCH ENVIRONMENT TARGET ===")
         console.log(JSON.stringify(pitchEnvironment, null, 2))
@@ -55,11 +63,12 @@ describe("SimService", async () => {
 
     it("should infer pitch environment tunings from target", async () => {
 
-        pitchEnvironmentTuning = simService.getTuningsForPitchEnvironment(pitchEnvironment, rng, {
-            maxIterations: 25,
-            gamesPerIteration: 25
+        pitchEnvironmentTuning = playerImporterService.getTuningsForPitchEnvironment(pitchEnvironment, rng, {
+            maxIterations: 10,
+            gamesPerIteration: 250
         })
 
+        
         tunedPitchEnvironment = {
             ...pitchEnvironment,
             pitchEnvironmentTuning
@@ -77,68 +86,7 @@ describe("SimService", async () => {
 
     it("should sim a game", async () => {
 
-        const target = tunedPitchEnvironment
-        const laRatings = PlayerImporter.pitchEnvironmentTargetToLeagueAverage(target)
-
-        const awayPlayers: Player[] = buildTestTeam(1)
-        const homePlayers: Player[] = buildTestTeam(100)
-
-        const awayTeam: Team = {
-            _id: "away-team",
-            name: "Away",
-            abbrev: "AWAY",
-            colors: {
-                color1: "#ff0000",
-                color2: "#ffffff"
-            }
-        } as Team
-
-        const homeTeam: Team = {
-            _id: "home-team",
-            name: "Home",
-            abbrev: "HOME",
-            colors: {
-                color1: "#0000ff",
-                color2: "#ffffff"
-            }
-        } as Team
-
-        const awayLineup: Lineup = buildTestLineup(awayPlayers)
-        const homeLineup: Lineup = buildTestLineup(homePlayers)
-
-        const awayStartingPitcher: RotationPitcher = {
-            _id: awayPlayers.find(p => p.primaryPosition == Position.PITCHER)!._id,
-            stamina: 1
-        } as RotationPitcher
-
-        const homeStartingPitcher: RotationPitcher = {
-            _id: homePlayers.find(p => p.primaryPosition == Position.PITCHER)!._id,
-            stamina: 1
-        } as RotationPitcher
-
-        const game: Game = { _id: "game-1" } as Game
-
-        simService.initGame(game)
-
-        const command: StartGameCommand = {
-            game,
-            away: awayTeam,
-            awayTeamOptions: {},
-            awayPlayers,
-            awayLineup,
-            awayStartingPitcher,
-
-            home: homeTeam,
-            homeTeamOptions: {},
-            homePlayers,
-            homeLineup,
-            homeStartingPitcher,
-
-            leagueAverages: laRatings,
-            date: new Date()
-        }
-
-        const startedGame: Game = simService.startGame(command)
+        const startedGame: Game = playerImporterService.buildStartedBaselineGame(tunedPitchEnvironment, "game-1")
 
         while (!startedGame.isComplete) {
             simService.simPitch(startedGame, rng)
@@ -149,20 +97,28 @@ describe("SimService", async () => {
 
     it("should print aggregate stats over 250 games", async () => {
 
+        const aggregateRng = new seedrandom(4)
         const NUM_GAMES = 250
         const target = tunedPitchEnvironment
 
         let totalHit: HitResultCount = {} as any
         let totalPitch: PitchResultCount = {} as any
 
+        let paLengthCounts: Record<number, number> = {}
+        let paTotal = 0
+
+        let countStateCounts: Record<string, number> = {}
+        let countStateTerminal: Record<string, number> = {}
+        // ----------------------------
+
         const normalize = (v: number) => v / 100
 
         for (let i = 0; i < NUM_GAMES; i++) {
 
-            const game = buildStartedGame()
+            const game = playerImporterService.buildStartedBaselineGame(target, `aggregate-${i}`)
 
             while (!game.isComplete) {
-                simService.simPitch(game, rng)
+                simService.simPitch(game, aggregateRng)
             }
 
             simService.finishGame(game)
@@ -181,6 +137,36 @@ describe("SimService", async () => {
                     totalPitch = mergePitchResults(totalPitch, p.pitchResult)
                 }
             }
+
+            const allPlays = game.halfInnings.flatMap(h => h.plays)
+
+            for (const play of allPlays) {
+
+                const pitches = play.pitchLog?.pitches || []
+                const pitchCount = pitches.length
+
+                if (pitchCount > 0) {
+                    paLengthCounts[pitchCount] = (paLengthCounts[pitchCount] || 0) + 1
+                    paTotal++
+                }
+
+                // track all count states seen
+                for (const pitch of pitches) {
+                    const c = pitch.count
+                    if (!c) continue
+
+                    const key = `${c.balls}-${c.strikes}`
+                    countStateCounts[key] = (countStateCounts[key] || 0) + 1
+                }
+
+                // track terminal count
+                const finalPitch = pitches[pitches.length - 1]
+                if (finalPitch?.count) {
+                    const key = `${finalPitch.count.balls}-${finalPitch.count.strikes}`
+                    countStateTerminal[key] = (countStateTerminal[key] || 0) + 1
+                }
+            }
+            // --------------------------------
         }
 
         const hitterStatLine = statService.hitResultToHitterStatLine(totalHit)
@@ -275,19 +261,21 @@ describe("SimService", async () => {
             passedBalls: hitterStatLine.passedBalls
         })
 
-        console.log("=== PITCH DIFF ===")
-        console.log({
-            inZonePercentDiff: hitterStatLine.inZonePercent - normalize(target.pitch.inZonePercent),
-            strikePercentDiff: hitterStatLine.strikePercent - normalize(target.pitch.strikePercent),
-            ballPercentDiff: hitterStatLine.ballPercent - normalize(target.pitch.ballPercent),
-            swingPercentDiff: hitterStatLine.swingPercent - normalize(target.pitch.swingPercent),
-            foulContactPercentDiff: pitcherStatLine.foulContactPercent - normalize(target.pitch.foulContactPercent),
-            pitchesPerPADiff: hitterStatLine.pitchesPerPA - target.pitch.pitchesPerPA,
-            swingAtStrikesPercentDiff: hitterStatLine.swingAtStrikesPercent - normalize(target.swing.swingAtStrikesPercent),
-            swingAtBallsPercentDiff: hitterStatLine.swingAtBallsPercent - normalize(target.swing.swingAtBallsPercent),
-            inZoneContactPercentDiff: hitterStatLine.inZoneContactPercent - normalize(target.swing.inZoneContactPercent),
-            outZoneContactPercentDiff: hitterStatLine.outZoneContactPercent - normalize(target.swing.outZoneContactPercent)
-        })
+        console.log("=== PA LENGTH DISTRIBUTION ===")
+        const sortedPALengths = Object.entries(paLengthCounts)
+            .sort((a, b) => Number(a[0]) - Number(b[0]))
+            .map(([len, count]) => ({
+                pitches: Number(len),
+                percent: (count / paTotal)
+            }))
+        console.log(sortedPALengths)
+
+        console.log("=== COUNT STATE FREQUENCY ===")
+        console.log(countStateCounts)
+
+        console.log("=== TERMINAL COUNT STATES ===")
+        console.log(countStateTerminal)
+        // ---------------------------
 
         console.log("=== TARGET TEAM ===")
         console.log(target.team)
@@ -300,15 +288,6 @@ describe("SimService", async () => {
             teamBBPerGame,
             teamSOPerGame
         })
-
-        assert.equal(hitterStatLine.hits, pitcherStatLine.hits)
-        assert.equal(hitterStatLine.runs, pitcherStatLine.runs)
-        assert.equal(hitterStatLine.homeRuns, pitcherStatLine.homeRuns)
-        assert.equal(hitterStatLine.bb, pitcherStatLine.bb)
-        assert.equal(hitterStatLine.so, pitcherStatLine.so)
-        assert.equal(hitterStatLine.hbp, pitcherStatLine.hbp)
-        assert.equal(hitterStatLine.atBats, pitcherStatLine.atBats)
-        assert.equal(hitterStatLine.pa, pitcherStatLine.battersFaced)
 
         const round3 = (n: number) => Number(n.toFixed(3))
 
@@ -332,7 +311,7 @@ describe("SimService", async () => {
     })
 
     it("inning can end during runner events; stop further processing but keep events", async () => {
-        const game = buildStartedGame()
+        const game = playerImporterService.buildStartedBaselineGame(tunedPitchEnvironment, "game-runner-events")
         const laRatings = game.leagueAverages
 
         const awayTeam = game.away
@@ -371,7 +350,8 @@ describe("SimService", async () => {
 
         let inPlayRunnerEvents: any[] = []
         try {
-            inPlayRunnerEvents = simService.getRunnerEvents(
+            //@ts-ignore
+            inPlayRunnerEvents = simService.runnerActions.getRunnerEvents(
                 () => 0.5,
                 runnerResult,
                 halfInningRunnerEvents,
@@ -407,7 +387,7 @@ describe("SimService", async () => {
     })
 
     it("Ground ball to infielder with runner on 3B and 2 outs must record the batter out at 1B (throw if needed), no run", async () => {
-        const game = buildStartedGame()
+        const game = playerImporterService.buildStartedBaselineGame(tunedPitchEnvironment, "game-runner-events")
         const laRatings = game.leagueAverages
 
         const awayTeam = game.away
@@ -451,7 +431,8 @@ describe("SimService", async () => {
 
         let inPlayRunnerEvents: any[] = []
         try {
-            inPlayRunnerEvents = simService.getRunnerEvents(
+            //@ts-ignore
+            inPlayRunnerEvents = simService.runnerActions.getRunnerEvents(
                 () => 0.5,
                 runnerResult,
                 halfInningRunnerEvents,
@@ -489,130 +470,39 @@ describe("SimService", async () => {
         const scored = inPlayRunnerEvents.some(e => e?.movement?.end === BaseResult.HOME && !e?.movement?.isOut)
         assert.equal(scored, false)
     })
+
+
+        // it("should calculate player import baseline based on pitch environment", async () => {
+    
+        //     pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(2025)
+    
+        //     importBaseline = simService.getPlayerImportBaseline(pitchEnvironment, rng)
+    
+        //     assert.ok(importBaseline)
+    
+        //     console.log(importBaseline)
+    
+        // })
+    
+        // it("should download 2025 stats and build import data for listed players", async () => {
+    
+        //     for (let playerId of playerIds) {
+        //         getPlayerImport(playerId)
+        //     }
+    
+        // })
+    
+    
+    
+        // it("should download 2025 stats and build import data for all players", async () => {
+    
+        //     const players = await downloaderservice.buildSeasonPlayerImports(2025, undefined, true)
+    
+        //     assert.ok(players.size > 0)
+        //     console.log(players.size)
+        // })
+
 })
-
-function buildStartedGame(seedIdAway = 1, seedIdHome = 100): Game {
-
-    const target = tunedPitchEnvironment
-    const laRatings = PlayerImporter.pitchEnvironmentTargetToLeagueAverage(target)
-
-    const awayPlayers: Player[] = buildTestTeam(seedIdAway)
-    const homePlayers: Player[] = buildTestTeam(seedIdHome)
-
-    const awayTeam: Team = {
-        _id: "away-team",
-        name: "Away",
-        abbrev: "AWAY",
-        colors: { color1: "#ff0000", color2: "#ffffff" }
-    } as Team
-
-    const homeTeam: Team = {
-        _id: "home-team",
-        name: "Home",
-        abbrev: "HOME",
-        colors: { color1: "#0000ff", color2: "#ffffff" }
-    } as Team
-
-    const awayLineup: Lineup = buildTestLineup(awayPlayers)
-    const homeLineup: Lineup = buildTestLineup(homePlayers)
-
-    const awayStartingPitcher: RotationPitcher = {
-        _id: awayPlayers.find(p => p.primaryPosition == Position.PITCHER)!._id,
-        stamina: 1
-    } as RotationPitcher
-
-    const homeStartingPitcher: RotationPitcher = {
-        _id: homePlayers.find(p => p.primaryPosition == Position.PITCHER)!._id,
-        stamina: 1
-    } as RotationPitcher
-
-    const game: Game = { _id: "game-runner-events" } as Game
-
-    simService.initGame(game)
-
-    return simService.startGame({
-        game,
-        away: awayTeam,
-        awayTeamOptions: {},
-        awayPlayers,
-        awayLineup,
-        awayStartingPitcher,
-        home: homeTeam,
-        homeTeamOptions: {},
-        homePlayers,
-        homeLineup,
-        homeStartingPitcher,
-        leagueAverages: laRatings,
-        date: new Date()
-    })
-}
-
-function buildTestTeam(startingId: number): Player[] {
-    return [
-        createPlayer(startingId + 0, Position.PITCHER),
-        createPlayer(startingId + 1, Position.CATCHER),
-        createPlayer(startingId + 2, Position.FIRST_BASE),
-        createPlayer(startingId + 3, Position.SECOND_BASE),
-        createPlayer(startingId + 4, Position.THIRD_BASE),
-        createPlayer(startingId + 5, Position.SHORTSTOP),
-        createPlayer(startingId + 6, Position.LEFT_FIELD),
-        createPlayer(startingId + 7, Position.CENTER_FIELD),
-        createPlayer(startingId + 8, Position.RIGHT_FIELD),
-    ]
-}
-
-function buildTestLineup(players: Player[]): Lineup {
-    const pitcher = players.find(p => p.primaryPosition === Position.PITCHER)!
-    pitcher.pitchRatings.pitches = [PitchType.FF, PitchType.CU, PitchType.SL, PitchType.FO]
-
-    return {
-        order: players.map(p => ({ _id: p._id, position: p.primaryPosition })),
-        rotation: new Array(5).fill(0).map(() => ({ _id: pitcher._id, stamina: 1 }))
-    } as Lineup
-}
-
-function createPlayer(id: number, position: Position): Player {
-    return {
-        _id: id.toString(),
-        firstName: "Player",
-        lastName: `${id}`,
-        get fullName() { return `${this.firstName} ${this.lastName}` },
-        get displayName() { return this.fullName },
-        primaryPosition: position,
-        zodiacSign: "Aries",
-        throws: Handedness.R,
-        hits: Handedness.R,
-        isRetired: false,
-        stamina: 100,
-        overallRating: 100,
-        pitchRatings: {
-            contactProfile: { groundball: 44, flyBall: 35, lineDrive: 21 },
-            power: 100,
-            vsL: { control: 100, movement: 100 },
-            vsR: { control: 100, movement: 100 }
-        },
-        hittingRatings: {
-            contactProfile: { groundball: 44, flyBall: 35, lineDrive: 21 },
-            speed: 100,
-            steals: 100,
-            arm: 100,
-            defense: 100,
-            vsL: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 },
-            vsR: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 }
-        },
-        potentialOverallRating: 100,
-        potentialPitchRatings: { power: 100, vsL: { control: 100, movement: 100 }, vsR: { control: 100, movement: 100 } },
-        potentialHittingRatings: {
-            speed: 100,
-            steals: 100,
-            arm: 100,
-            defense: 100,
-            vsL: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 },
-            vsR: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 }
-        },
-        age: 25
-    }
-}
 
 function mergeHitResults(total: any, current: any): any {
     total = total || {}

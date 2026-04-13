@@ -418,9 +418,6 @@ interface LeagueAverage {
 
     foulRate:number,
 
-    zoneSwingContactRate:number
-    chaseSwingContactRate:number
-
     pitchQuality:number,
 
     fielderChanceR:FielderChance
@@ -431,48 +428,20 @@ interface LeagueAverage {
 
     steal: StolenBaseByCount[]
 
-
-    tuning: {
+    swing: {
         zoneSwingBase: number
         chaseSwingBase: number
-
-        zoneSwingPerStrike: number
-        zoneSwingPerBall: number
-
-        chaseSwingPerStrike: number
-        chaseSwingPerBall: number
-
-        threeBallZoneSwingPenalty: number
-        threeBallChaseSwingPenalty: number
-
-        pitchQualityZoneSwingEffect: number
-        pitchQualityChaseSwingEffect: number
-
-        disciplineZoneSwingEffect: number
-        disciplineChaseSwingEffect: number
 
         zoneContactBase: number
         chaseContactBase: number
 
-        zoneContactPerStrike: number
-        zoneContactPerBall: number
+        behaviorByCount: PitchCountBehaviorTarget[]
 
-        chaseContactPerStrike: number
-        chaseContactPerBall: number
+    },
 
-        twoStrikeZoneContactBonus: number
-        twoStrikeChaseContactBonus: number
+    
+    tuning: {
 
-        pitchQualityContactEffect: number
-        contactSkillEffect: number
-
-        foulRateBase: number
-        twoStrikeFoulBonus: number
-
-        fullPitchQualityBonus: number
-        fullTeamDefenseBonus: number
-        fullFielderDefenseBonus: number        
-        
         groundballDoublePenalty:number
         groundballTriplePenalty: number
         groundballHRPenalty: number
@@ -486,8 +455,22 @@ interface LeagueAverage {
         lineDriveOutToSingleWindow: number
         lineDriveOutToSingleBoost:number
 
-        lineDriveSingleToDoubleFactor:number    
+        lineDriveSingleToDoubleFactor:number   
 
+        pitchQualityZoneSwingEffect: number
+        pitchQualityChaseSwingEffect: number
+
+        disciplineZoneSwingEffect: number
+        disciplineChaseSwingEffect: number
+
+
+        pitchQualityContactEffect: number
+        contactSkillEffect: number
+
+        fullPitchQualityBonus: number
+        fullTeamDefenseBonus: number
+        fullFielderDefenseBonus: number        
+        
     }
 
 
@@ -980,6 +963,21 @@ interface PowerRollInput {
 class InningEndingEvent extends Error {}
 
 
+interface PitchCountBehaviorTarget {
+    balls: number
+    strikes: number
+
+    zoneSwingPercent: number
+    chaseSwingPercent: number
+
+    zoneContactPercent: number
+    chaseContactPercent: number
+
+    foulContactPercent: number
+    inPlayPercentOfContact: number
+    inPlayPercentOfFairContact: number
+}
+
 interface PitchEnvironmentTarget {
     season: number
 
@@ -998,6 +996,14 @@ interface PitchEnvironmentTarget {
         swingAtBallsPercent: number
         inZoneContactPercent: number
         outZoneContactPercent: number
+
+        zoneSwingBase: number
+        chaseSwingBase: number
+
+        zoneContactBase: number
+        chaseContactBase: number
+
+        behaviorByCount: PitchCountBehaviorTarget[]
     }
 
     battedBall: {
@@ -1147,24 +1153,12 @@ interface PitchEnvironmentTarget {
         }
     }
 
-
     pitchEnvironmentTuning?: PitchEnvironmentTuning
 }
 
 interface PitchEnvironmentTuning {
 
     tuning?: {
-        zoneSwingBase: number
-        chaseSwingBase: number
-
-        zoneSwingPerStrike: number
-        zoneSwingPerBall: number
-
-        chaseSwingPerStrike: number
-        chaseSwingPerBall: number
-
-        threeBallZoneSwingPenalty: number
-        threeBallChaseSwingPenalty: number
 
         pitchQualityZoneSwingEffect: number
         pitchQualityChaseSwingEffect: number
@@ -1172,23 +1166,8 @@ interface PitchEnvironmentTuning {
         disciplineZoneSwingEffect: number
         disciplineChaseSwingEffect: number
 
-        zoneContactBase: number
-        chaseContactBase: number
-
-        zoneContactPerStrike: number
-        zoneContactPerBall: number
-
-        chaseContactPerStrike: number
-        chaseContactPerBall: number
-
-        twoStrikeZoneContactBonus: number
-        twoStrikeChaseContactBonus: number
-
         pitchQualityContactEffect: number
         contactSkillEffect: number
-
-        foulRateBase: number
-        twoStrikeFoulBonus: number
 
         fullPitchQualityBonus: number
         fullTeamDefenseBonus: number
@@ -1569,6 +1548,29 @@ interface PlayerPitchCountZoneRaw {
     total: number
 }
 
+interface PlayerPitchCountBehaviorRaw {
+    balls: number
+    strikes: number
+
+    zonePitches: number
+    chasePitches: number
+
+    zoneSwings: number
+    chaseSwings: number
+
+    zoneContact: number
+    chaseContact: number
+
+    zoneMisses: number
+    chaseMisses: number
+
+    zoneFouls: number
+    chaseFouls: number
+
+    zoneBallsInPlay: number
+    chaseBallsInPlay: number
+}
+
 interface PlayerImportRaw {
     playerId: string
     firstName: string
@@ -1621,6 +1623,7 @@ interface PlayerImportRaw {
         ballsInPlay: number
 
         inZoneByCount: PlayerPitchCountZoneRaw[]
+        behaviorByCount: PlayerPitchCountBehaviorRaw[]
 
         exitVelocity: ExitVelocityStat
     }
@@ -1660,6 +1663,7 @@ interface PlayerImportRaw {
         ballsInPlayAllowed: number
 
         inZoneByCount: PlayerPitchCountZoneRaw[]
+        behaviorByCount: PlayerPitchCountBehaviorRaw[]
 
         pitchTypes: Partial<Record<PitchType, PitchTypeMovementStat>>
     }
@@ -1708,6 +1712,7 @@ interface PlayerImportRaw {
     }
 }
 
+
 const LEAGUE_AVERAGE_FIELDER_CHANCE_R: FielderChance = {
     first: 8,
     second: 13,
@@ -1737,110 +1742,6 @@ const LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE: ShallowDeepChance = {
     normal: 60,
     deep: 20
 }
-
-// const PITCH_ENVIRONMENT_TUNINGS: Record<number, PitchEnvironmentTuning> = {
-//     2025: {
-        
-//         tuning: {
-//             zoneSwingBase: 47,
-//             chaseSwingBase: 16,
-
-//             zoneSwingPerStrike: 20.9,
-//             zoneSwingPerBall: 5,
-
-//             chaseSwingPerStrike: 11,
-//             chaseSwingPerBall: 2.85,
-
-//             threeBallZoneSwingPenalty: 22.5,
-//             threeBallChaseSwingPenalty: 22.5,
-
-//             pitchQualityZoneSwingEffect: 5,
-//             pitchQualityChaseSwingEffect: 6,
-
-//             disciplineZoneSwingEffect: 6.25,
-//             disciplineChaseSwingEffect: 8.25,
-
-//             zoneContactBase: 81.3,
-//             chaseContactBase: 54.25,
-
-//             zoneContactPerStrike: 0.5,
-//             zoneContactPerBall: 0,
-
-//             chaseContactPerStrike: 0.5,
-//             chaseContactPerBall: 0,
-
-//             twoStrikeZoneContactBonus: 2.5,
-//             twoStrikeChaseContactBonus: 1.45,
-
-//             pitchQualityContactEffect: 8.5,
-//             contactSkillEffect: 12,
-
-//             foulRateBase: 50.25,
-//             twoStrikeFoulBonus: 3.25,
-
-//             fullPitchQualityBonus: 12,
-//             fullTeamDefenseBonus: 0,
-//             fullFielderDefenseBonus: 2,
-
-//             groundballDoublePenalty: 3,
-//             groundballTriplePenalty: 12,
-//             groundballHRPenalty: 10,
-
-//             flyballHRPenalty: 1,
-
-//             lineDriveOutToSingleWindow: 84,
-//             lineDriveOutToSingleBoost: 72,
-
-//             lineDriveSingleToDoubleFactor: 0.44,
-
-//             groundballOutcomeBoost: 6,
-//             flyballOutcomeBoost: 2,
-//             lineDriveOutcomeBoost: 32
-
-//         },
-
-//         ratingTuning: {
-//             hitting: {
-//                 overallPlateDisciplineScale: 75,
-//                 splitPlateDisciplineScale: 28,
-
-//                 overallContactScale: 186,
-//                 splitContactScale: 12,
-//                 contactSkillScale: 28,
-//                 contactDecisionScale: 18,
-//                 contactEvScale: 74,
-
-//                 overallGapPowerScale: 92,
-//                 splitGapPowerScale: 30,
-
-//                 overallHrPowerScale: 110,
-//                 splitHrPowerScale: 38,
-//                 hrEvScale: 40
-//             },
-
-//             pitching: {
-//                 minFastball: 89,
-//                 maxFastball: 103,
-
-//                 veloScale: 185,
-//                 kScale: 84,
-//                 baselinePowerScale: 70,
-
-//                 overallControlScale: 95,
-//                 splitControlScale: 26,
-//                 strikeoutControlHelpScale: 6,
-
-//                 overallMovementScale: 50,
-//                 splitMovementScale: 6,
-//                 arsenalMovementScale: 36,
-
-//                 contactSuppressionScale: 22,
-//                 missBatScale: 18
-//             }
-//         },
-
-//     }
-// }
 
 export {
     LEAGUE_AVERAGE_FIELDER_CHANCE_R, LEAGUE_AVERAGE_FIELDER_CHANCE_L, LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE, StolenBaseByCount,  PitchCount, InZoneByCount,  PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance,
