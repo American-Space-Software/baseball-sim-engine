@@ -1,12 +1,9 @@
 import assert from "assert"
 import {
     StatService,
-    PlayerImporterService,
     simService,
     BaseResult,
     Contact,
-    Handedness,
-    PitchType,
     PlayResult,
     Position,
     ShallowDeep,
@@ -17,68 +14,57 @@ import type {
     PitchEnvironmentTarget,
     PitchEnvironmentTuning,
     PlayerImportBaseline,
-    Game,
-    StartGameCommand,
-    Player,
-    Team,
-    Lineup,
-    RotationPitcher,
-    HitResultCount,
-    PitchResultCount
+    Game
 } from "../src/index.js"
 
 import { DownloaderService } from "./service/downloader-service.js"
+import { PlayerImporterService } from "./service/player-importer-service.js"
 
-
-let rng = new seedrandom(4)
 const statService = new StatService()
 const downloaderservice = new DownloaderService("test/data", 1000)
-let importBaseline:PlayerImportBaseline
-let pitchEnvironment:PitchEnvironmentTarget
+let importBaseline: PlayerImportBaseline
+let pitchEnvironment: PitchEnvironmentTarget
 let pitchEnvironmentTuning: PitchEnvironmentTuning
 let tunedPitchEnvironment: PitchEnvironmentTarget
 
-
 let season = 2025
-
 
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
 
-const playerImporterService = new PlayerImporterService(simService, statService)
+const playerImporterService = new PlayerImporterService(simService, statService, downloaderservice)
 
-console.log(JSON.stringify(players.get("592450")))
+const evaluationSeed = 4
+const tuningSeed = 4
+const evaluationGames = 50
 
-describe("PlayerImporter", async () => {
 
+describe("Baseball Sim Engine", async () => {
 
     it("should calculate pitch environment target for season", async () => {
-        
         pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
-
-        console.log("=== GENERATED PITCH ENVIRONMENT TARGET ===")
-        console.log(JSON.stringify(pitchEnvironment, null, 2))
-
         assert.ok(pitchEnvironment)
     })
 
     it("should infer pitch environment tunings from target", async () => {
+        const tuningRng = new seedrandom(tuningSeed)
 
-        pitchEnvironmentTuning = playerImporterService.getTuningsForPitchEnvironment(pitchEnvironment, rng, {
-            maxIterations: 10,
-            gamesPerIteration: 250
+        pitchEnvironmentTuning = playerImporterService.getTuningsForPitchEnvironment(pitchEnvironment, tuningRng, {
+            maxIterations: 100,
+            minIterations: 50,
+            maxStallIterations: 25,
+            gamesPerIteration: evaluationGames
         })
 
-        
-        tunedPitchEnvironment = {
+        tunedPitchEnvironment = JSON.parse(JSON.stringify({
             ...pitchEnvironment,
             pitchEnvironmentTuning
-        }
+        }))
 
-        console.log("=== INFERRED PITCH ENVIRONMENT TUNING ===")
-        console.log(JSON.stringify(pitchEnvironmentTuning, null, 2))
+        console.log("=== FINAL TUNING ID ===")
+        console.log(tunedPitchEnvironment.pitchEnvironmentTuning?._id)
 
-        // console.log("=== TUNED PITCH ENVIRONMENT ===")
-        // console.log(JSON.stringify(tunedPitchEnvironment, null, 2))
+        console.log("=== FINAL TUNING ===")
+        console.log(JSON.stringify(tunedPitchEnvironment.pitchEnvironmentTuning, null, 2))
 
         assert.ok(pitchEnvironmentTuning)
         assert.ok(tunedPitchEnvironment)
@@ -86,228 +72,98 @@ describe("PlayerImporter", async () => {
 
     it("should sim a game", async () => {
 
-        const startedGame: Game = playerImporterService.buildStartedBaselineGame(tunedPitchEnvironment, "game-1")
+        const gameRng = new seedrandom(evaluationSeed)
+        const startedGame: Game = playerImporterService.buildStartedBaselineGame(JSON.parse(JSON.stringify(tunedPitchEnvironment)), "game-1")
 
         while (!startedGame.isComplete) {
-            simService.simPitch(startedGame, rng)
+            simService.simPitch(startedGame, gameRng)
         }
 
         assert.equal(startedGame.isComplete, true)
     })
 
-    it("should print aggregate stats over 250 games", async () => {
+    it("should print aggregate stats over 70 games", async () => {
+        
+        const evaluationEnvironment = JSON.parse(JSON.stringify(tunedPitchEnvironment))
+        const evaluationRng = new seedrandom(evaluationSeed)
 
-        const aggregateRng = new seedrandom(4)
-        const NUM_GAMES = 250
-        const target = tunedPitchEnvironment
+        const before = JSON.stringify(evaluationEnvironment)
 
-        let totalHit: HitResultCount = {} as any
-        let totalPitch: PitchResultCount = {} as any
+        const evaluation = playerImporterService.evaluatePitchEnvironment(evaluationEnvironment, evaluationRng, evaluationGames)
 
-        let paLengthCounts: Record<number, number> = {}
-        let paTotal = 0
+        const after = JSON.stringify(evaluationEnvironment)
 
-        let countStateCounts: Record<string, number> = {}
-        let countStateTerminal: Record<string, number> = {}
-        // ----------------------------
-
-        const normalize = (v: number) => v / 100
-
-        for (let i = 0; i < NUM_GAMES; i++) {
-
-            const game = playerImporterService.buildStartedBaselineGame(target, `aggregate-${i}`)
-
-            while (!game.isComplete) {
-                simService.simPitch(game, aggregateRng)
-            }
-
-            simService.finishGame(game)
-
-            const players = [
-                ...game.away.players,
-                ...game.home.players
-            ]
-
-            for (const p of players) {
-                if (p.hitResult) {
-                    totalHit = mergeHitResults(totalHit, p.hitResult)
-                }
-
-                if (p.pitchResult) {
-                    totalPitch = mergePitchResults(totalPitch, p.pitchResult)
-                }
-            }
-
-            const allPlays = game.halfInnings.flatMap(h => h.plays)
-
-            for (const play of allPlays) {
-
-                const pitches = play.pitchLog?.pitches || []
-                const pitchCount = pitches.length
-
-                if (pitchCount > 0) {
-                    paLengthCounts[pitchCount] = (paLengthCounts[pitchCount] || 0) + 1
-                    paTotal++
-                }
-
-                // track all count states seen
-                for (const pitch of pitches) {
-                    const c = pitch.count
-                    if (!c) continue
-
-                    const key = `${c.balls}-${c.strikes}`
-                    countStateCounts[key] = (countStateCounts[key] || 0) + 1
-                }
-
-                // track terminal count
-                const finalPitch = pitches[pitches.length - 1]
-                if (finalPitch?.count) {
-                    const key = `${finalPitch.count.balls}-${finalPitch.count.strikes}`
-                    countStateTerminal[key] = (countStateTerminal[key] || 0) + 1
-                }
-            }
-            // --------------------------------
+        if (before !== after) {
+            console.log("MUTATION DETECTED")
         }
 
-        const hitterStatLine = statService.hitResultToHitterStatLine(totalHit)
-        const pitcherStatLine = statService.pitchResultToPitcherStatLine(totalPitch)
+        console.log("=== EVALUATION TUNING ID ===")
+        console.log(evaluationEnvironment.pitchEnvironmentTuning?._id)
 
-        const totalTeamGames = hitterStatLine.games / 9
+        console.log("=== EVALUATION SCORE ===")
+        console.log(evaluation.score)
 
-        const teamRunsPerGame = hitterStatLine.runs / totalTeamGames
-        const teamHitsPerGame = hitterStatLine.hits / totalTeamGames
-        const teamHomeRunsPerGame = hitterStatLine.homeRuns / totalTeamGames
-        const teamBBPerGame = hitterStatLine.bb / totalTeamGames
-        const teamSOPerGame = hitterStatLine.so / totalTeamGames
-
-        const sbSuccessPercent = hitterStatLine.sbAttempts > 0 ? hitterStatLine.sb / hitterStatLine.sbAttempts : 0
-        const csPercent = (hitterStatLine.csDefense + hitterStatLine.cs) > 0 ? hitterStatLine.csDefense / (hitterStatLine.csDefense + hitterStatLine.cs) : 0
-
-        console.log("=== TARGET PITCH ENVIRONMENT ===")
-        console.log(JSON.stringify(target, null, 2))
-
-        console.log("=== TARGET PITCH ===")
+        console.log("=== CORE DIFFS ===")
         console.log({
-            inZonePercent: target.pitch.inZonePercent,
-            strikePercent: target.pitch.strikePercent,
-            ballPercent: target.pitch.ballPercent,
-            swingPercent: target.pitch.swingPercent,
-            foulContactPercent: target.pitch.foulContactPercent,
-            pitchesPerPA: target.pitch.pitchesPerPA
+            pitchesPerPA: evaluation.diff.pitchesPerPA,
+            swingAtStrikesPercent: evaluation.diff.swingAtStrikesPercent,
+            swingAtBallsPercent: evaluation.diff.swingAtBallsPercent,
+            inZoneContactPercent: evaluation.diff.inZoneContactPercent,
+            outZoneContactPercent: evaluation.diff.outZoneContactPercent,
+            avg: evaluation.diff.avg,
+            obp: evaluation.diff.obp,
+            slg: evaluation.diff.slg,
+            babip: evaluation.diff.babip,
+            bbPercent: evaluation.diff.bbPercent,
+            singlePercent: evaluation.diff.singlePercent,
+            homeRunPercent: evaluation.diff.homeRunPercent,
+            teamRunsPerGame: evaluation.diff.teamRunsPerGame,
+            teamHitsPerGame: evaluation.diff.teamHitsPerGame,
+            teamHomeRunsPerGame: evaluation.diff.teamHomeRunsPerGame,
+            teamBBPerGame: evaluation.diff.teamBBPerGame
         })
 
-        console.log("=== TARGET SWING ===")
+        console.log("=== CORE ACTUAL ===")
         console.log({
-            swingAtStrikesPercent: target.swing.swingAtStrikesPercent,
-            swingAtBallsPercent: target.swing.swingAtBallsPercent,
-            inZoneContactPercent: target.swing.inZoneContactPercent,
-            outZoneContactPercent: target.swing.outZoneContactPercent
+            pitchesPerPA: evaluation.actual.pitchesPerPA,
+            swingAtStrikesPercent: evaluation.actual.swingAtStrikesPercent,
+            swingAtBallsPercent: evaluation.actual.swingAtBallsPercent,
+            inZoneContactPercent: evaluation.actual.inZoneContactPercent,
+            outZoneContactPercent: evaluation.actual.outZoneContactPercent,
+            avg: evaluation.actual.avg,
+            obp: evaluation.actual.obp,
+            slg: evaluation.actual.slg,
+            babip: evaluation.actual.babip,
+            bbPercent: evaluation.actual.bbPercent,
+            singlePercent: evaluation.actual.singlePercent,
+            homeRunPercent: evaluation.actual.homeRunPercent,
+            teamRunsPerGame: evaluation.actual.teamRunsPerGame,
+            teamHitsPerGame: evaluation.actual.teamHitsPerGame,
+            teamHomeRunsPerGame: evaluation.actual.teamHomeRunsPerGame,
+            teamBBPerGame: evaluation.actual.teamBBPerGame
         })
 
-        console.log("=== ACTUAL PITCH ===")
+        console.log("=== CORE TARGET ===")
         console.log({
-            inZonePercent: hitterStatLine.inZonePercent,
-            strikePercent: hitterStatLine.strikePercent,
-            ballPercent: hitterStatLine.ballPercent,
-            swingPercent: hitterStatLine.swingPercent,
-            foulContactPercent: pitcherStatLine.foulContactPercent,
-            pitchesPerPA: hitterStatLine.pitchesPerPA
+            pitchesPerPA: evaluation.target.pitchesPerPA,
+            swingAtStrikesPercent: evaluation.target.swingAtStrikesPercent,
+            swingAtBallsPercent: evaluation.target.swingAtBallsPercent,
+            inZoneContactPercent: evaluation.target.inZoneContactPercent,
+            outZoneContactPercent: evaluation.target.outZoneContactPercent,
+            avg: evaluation.target.avg,
+            obp: evaluation.target.obp,
+            slg: evaluation.target.slg,
+            babip: evaluation.target.babip,
+            bbPercent: evaluation.target.bbPercent,
+            singlePercent: evaluation.target.singlePercent,
+            homeRunPercent: evaluation.target.homeRunPercent,
+            teamRunsPerGame: evaluation.target.teamRunsPerGame,
+            teamHitsPerGame: evaluation.target.teamHitsPerGame,
+            teamHomeRunsPerGame: evaluation.target.teamHomeRunsPerGame,
+            teamBBPerGame: evaluation.target.teamBBPerGame
         })
 
-        console.log("=== ACTUAL SWING ===")
-        console.log({
-            calledStrikesPercent: hitterStatLine.calledStrikesPercent,
-            swingingStrikesPercent: hitterStatLine.swingingStrikesPercent,
-            swingAtStrikesPercent: hitterStatLine.swingAtStrikesPercent,
-            swingAtBallsPercent: hitterStatLine.swingAtBallsPercent,
-            inZoneContactPercent: hitterStatLine.inZoneContactPercent,
-            outZoneContactPercent: hitterStatLine.outZoneContactPercent
-        })
-
-        console.log("=== ACTUAL HITS ===")
-        console.log({
-            singlePercent: hitterStatLine.singlePercent,
-            doublePercent: hitterStatLine.doublePercent,
-            triplePercent: hitterStatLine.triplePercent,
-            homeRunPercent: hitterStatLine.homeRunPercent,
-            bbPercent: hitterStatLine.bbPercent,
-            soPercent: hitterStatLine.soPercent,
-            hbpPercent: hitterStatLine.hbpPercent,
-            groundBallPercent: hitterStatLine.groundBallPercent,
-            flyBallPercent: hitterStatLine.flyBallPercent,
-            ldPercent: hitterStatLine.ldPercent,
-            sbPerGame: hitterStatLine.sbPerGame,
-            sbAttemptsPerGame: hitterStatLine.sbAttemptsPerGame,
-            sbSuccessPercent
-        })
-
-        console.log("=== ACTUAL RUNNING ===")
-        console.log({
-            sb: hitterStatLine.sb,
-            cs: hitterStatLine.cs,
-            sbAttempts: hitterStatLine.sbAttempts,
-            sbSuccessPercent
-        })
-
-        console.log("=== ACTUAL DEFENSE ===")
-        console.log({
-            errors: hitterStatLine.e,
-            assists: hitterStatLine.assists,
-            putouts: hitterStatLine.po,
-            doublePlays: hitterStatLine.doublePlays,
-            outfieldAssists: hitterStatLine.outfieldAssists,
-            catcherCaughtStealing: hitterStatLine.csDefense,
-            catcherCSPercent: csPercent,
-            passedBalls: hitterStatLine.passedBalls
-        })
-
-        console.log("=== PA LENGTH DISTRIBUTION ===")
-        const sortedPALengths = Object.entries(paLengthCounts)
-            .sort((a, b) => Number(a[0]) - Number(b[0]))
-            .map(([len, count]) => ({
-                pitches: Number(len),
-                percent: (count / paTotal)
-            }))
-        console.log(sortedPALengths)
-
-        console.log("=== COUNT STATE FREQUENCY ===")
-        console.log(countStateCounts)
-
-        console.log("=== TERMINAL COUNT STATES ===")
-        console.log(countStateTerminal)
-        // ---------------------------
-
-        console.log("=== TARGET TEAM ===")
-        console.log(target.team)
-
-        console.log("=== TEAM PER GAME ===")
-        console.log({
-            teamRunsPerGame,
-            teamHitsPerGame,
-            teamHomeRunsPerGame,
-            teamBBPerGame,
-            teamSOPerGame
-        })
-
-        const round3 = (n: number) => Number(n.toFixed(3))
-
-        console.log("=== TARGET OFFENSE ===")
-        console.log({
-            avg: round3(target.outcome.avg),
-            obp: round3(target.outcome.obp),
-            slg: round3(target.outcome.slg),
-            ops: round3(target.outcome.ops),
-            babip: round3(target.outcome.babip)
-        })
-
-        console.log("=== ACTUAL OFFENSE ===")
-        console.log({
-            avg: round3(hitterStatLine.avg),
-            obp: round3(hitterStatLine.obp),
-            slg: round3(hitterStatLine.slg),
-            ops: round3(hitterStatLine.ops),
-            babip: round3(hitterStatLine.babip)
-        })
+        assert.ok(evaluation)
     })
 
     it("inning can end during runner events; stop further processing but keep events", async () => {
@@ -471,59 +327,4 @@ describe("PlayerImporter", async () => {
         assert.equal(scored, false)
     })
 
-
-        // it("should calculate player import baseline based on pitch environment", async () => {
-    
-        //     pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(2025)
-    
-        //     importBaseline = simService.getPlayerImportBaseline(pitchEnvironment, rng)
-    
-        //     assert.ok(importBaseline)
-    
-        //     console.log(importBaseline)
-    
-        // })
-    
-        // it("should download 2025 stats and build import data for listed players", async () => {
-    
-        //     for (let playerId of playerIds) {
-        //         getPlayerImport(playerId)
-        //     }
-    
-        // })
-    
-    
-    
-        // it("should download 2025 stats and build import data for all players", async () => {
-    
-        //     const players = await downloaderservice.buildSeasonPlayerImports(2025, undefined, true)
-    
-        //     assert.ok(players.size > 0)
-        //     console.log(players.size)
-        // })
-
 })
-
-function mergeHitResults(total: any, current: any): any {
-    total = total || {}
-
-    for (const key of Object.keys(current)) {
-        if (typeof current[key] === "number") {
-            total[key] = (total[key] || 0) + current[key]
-        }
-    }
-
-    return total
-}
-
-function mergePitchResults(total: any, current: any): any {
-    total = total || {}
-
-    for (const key of Object.keys(current)) {
-        if (typeof current[key] === "number") {
-            total[key] = (total[key] || 0) + current[key]
-        }
-    }
-
-    return total
-}

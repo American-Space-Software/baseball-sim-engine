@@ -11,20 +11,17 @@ const MIN_CHANGE = -.5
 const MAX_CHANGE = .5
 
 
-const DEFAULT_SEASON = 2025
-
-
 class SimService {
 
     constructor(
         private rollChartService:RollChartService,
         private gameRolls:SimRolls,
-        private matchup:Matchup,
         private runnerActions:RunnerActions,
         private gameInfo:GameInfo,
+        private defaultLeagueAverage:LeagueAverage
     ) {}
 
-    initGame(game:Game) {
+    public initGame(game:Game) {
 
         game.currentInning = 1
         game.isTopInning = true
@@ -48,7 +45,7 @@ class SimService {
 
     }
 
-    startGame(command:StartGameCommand) : Game {
+    public startGame(command:StartGameCommand) : Game {
 
         let game = command.game
 
@@ -57,10 +54,14 @@ class SimService {
         GameInfo.validateGameLineup(command.homeLineup, command.homeStartingPitcher)
 
         //Use what gets passed in or just use default config
-        game.leagueAverages = command.leagueAverages //?? PlayerImporterService.pitchEnvironmentTargetToLeagueAverage(PlayerImporterService.getPitchEnvironmentTargetForSeason(DEFAULT_SEASON))
+        game.leagueAverages = JSON.parse(JSON.stringify(command.leagueAverages ?? this.defaultLeagueAverage))
 
-        game.away = this.gameInfo.buildTeamInfoFromTeam(command.leagueAverages, command.away, command.awayLineup,  command.awayPlayers, command.awayStartingPitcher, command.away.colors.color1, command.away.colors.color2, HomeAway.AWAY, 1, command.awayTeamOptions)            
-        game.home = this.gameInfo.buildTeamInfoFromTeam(command.leagueAverages, command.home, command.homeLineup, command.homePlayers, command.homeStartingPitcher, command.home.colors.color1, command.home.colors.color2, HomeAway.HOME, 1 + command.awayPlayers.length, command.homeTeamOptions)
+        if (!game.leagueAverages) {
+            throw new Error("No league averages provided to start game.")
+        }
+
+        game.away = this.gameInfo.buildTeamInfoFromTeam(game.leagueAverages, command.away, command.awayLineup,  command.awayPlayers, command.awayStartingPitcher, command.away.colors.color1, command.away.colors.color2, HomeAway.AWAY, 1, command.awayTeamOptions)            
+        game.home = this.gameInfo.buildTeamInfoFromTeam(game.leagueAverages, command.home, command.homeLineup, command.homePlayers, command.homeStartingPitcher, command.home.colors.color1, command.home.colors.color2, HomeAway.HOME, 1 + command.awayPlayers.length, command.homeTeamOptions)
 
         game.startDate = command.date
         game.count = {
@@ -74,7 +75,7 @@ class SimService {
         return game 
     }
 
-    finishGame(game:Game) : void {
+    public finishGame(game:Game) : void {
 
         let homeWin = game.score.home > game.score.away
 
@@ -115,7 +116,66 @@ class SimService {
 
     }    
 
-    createPlay(playIndex:number,
+    public simPitch(game:Game, rng:any) {
+
+        let command:SimPitchCommand = this.createSimPitchCommand(game, rng)
+
+
+        if (!command.play) {
+
+            let runner1B = command.offense.players.find( p => p._id == command.offense.runner1BId)
+            let runner2B = command.offense.players.find( p => p._id == command.offense.runner2BId)
+            let runner3B = command.offense.players.find( p => p._id == command.offense.runner3BId)
+
+            command.play = this.createPlay(
+                game.playIndex, 
+                command.hitter, 
+                command.pitcher, 
+                command.catcher, 
+                runner1B, 
+                runner2B, 
+                runner3B, 
+                command.matchupHandedness, 
+                game.count.outs, 
+                game.score, 
+                game.currentInning, 
+                game.isTopInning
+          )
+
+          //Add play to half inning
+          command.halfInning.plays.push(command.play)
+
+          //Just add the play.
+          return
+
+        }
+
+
+        let result:SimPitchResult
+
+        let continueAtBat = true
+        let isInningEndingEvent = false
+
+        //Do matchup
+        try {
+            result = this.simPitchRolls(command, command.play.pitchLog.pitches?.length || 0)
+            continueAtBat = result.continueAtBat
+        } catch(ex) {
+            //Ignore inning ending events errors.
+            if (!(ex instanceof InningEndingEvent)) throw ex
+            continueAtBat = false
+            isInningEndingEvent = true
+        }
+
+
+        if (!continueAtBat) {
+            this.finishPlay(game, command, isInningEndingEvent)
+        }
+        
+
+    }
+
+    private createPlay(playIndex:number,
                hitter:GamePlayer, 
                pitcher:GamePlayer, 
                catcher:GamePlayer, 
@@ -193,7 +253,7 @@ class SimService {
 
     }
 
-    createSimPitchCommand(game:Game, rng:any) {
+    private createSimPitchCommand(game:Game, rng:any) {
         
         let halfInning:HalfInning = game.halfInnings.find(i => i.num == game.currentInning && i.top == game.isTopInning)
 
@@ -264,66 +324,7 @@ class SimService {
         }
     }
 
-    simPitch(game:Game, rng:any) {
-
-        let command:SimPitchCommand = this.createSimPitchCommand(game, rng)
-
-
-        if (!command.play) {
-
-            let runner1B = command.offense.players.find( p => p._id == command.offense.runner1BId)
-            let runner2B = command.offense.players.find( p => p._id == command.offense.runner2BId)
-            let runner3B = command.offense.players.find( p => p._id == command.offense.runner3BId)
-
-            command.play = this.createPlay(
-                game.playIndex, 
-                command.hitter, 
-                command.pitcher, 
-                command.catcher, 
-                runner1B, 
-                runner2B, 
-                runner3B, 
-                command.matchupHandedness, 
-                game.count.outs, 
-                game.score, 
-                game.currentInning, 
-                game.isTopInning
-          )
-
-          //Add play to half inning
-          command.halfInning.plays.push(command.play)
-
-          //Just add the play.
-          return
-
-        }
-
-
-        let result:SimPitchResult
-
-        let continueAtBat = true
-        let isInningEndingEvent = false
-
-        //Do matchup
-        try {
-            result = this.simPitchRolls(command, command.play.pitchLog.pitches?.length || 0)
-            continueAtBat = result.continueAtBat
-        } catch(ex) {
-            //Ignore inning ending events errors.
-            if (!(ex instanceof InningEndingEvent)) throw ex
-            continueAtBat = false
-            isInningEndingEvent = true
-        }
-
-
-        if (!continueAtBat) {
-            this.finishPlay(game, command, isInningEndingEvent)
-        }
-        
-
-    }
-
-    simPitchRolls(command: SimPitchCommand, pitchIndex: number): SimPitchResult {
+    private simPitchRolls(command: SimPitchCommand, pitchIndex: number): SimPitchResult {
 
         const pitches = command.pitcher.pitchRatings.pitches
         const weights = [50, 25, 15, 5, 5]
@@ -467,7 +468,7 @@ class SimService {
         return result
     }
 
-    private getPitchAnomalyResult(  gameRNG, locationQuality: number ): { result: PitchCall, isWP?: boolean, isPB?: boolean } | null {
+    private getPitchAnomalyResult( gameRNG: () => number, locationQuality: number ): { result: PitchCall, isWP?: boolean, isPB?: boolean } | null {
 
         // Only truly bad location can trigger anomalies
         if (locationQuality >= 5) return null
@@ -490,7 +491,7 @@ class SimService {
         return null
     }
 
-    finishPlay(game:Game, command:SimPitchCommand, isInningEndingEvent:boolean) {
+    private finishPlay(game:Game, command:SimPitchCommand, isInningEndingEvent:boolean) {
 
         let fielderPlayer:GamePlayer
 
@@ -730,7 +731,7 @@ class SimService {
 
     }
 
-    getOfficialPlayResult(playResult: PlayResult, contact: Contact, shallowDeep: ShallowDeep, fielder: Position, runnerEvents: RunnerEvent[]) {
+    private getOfficialPlayResult(playResult: PlayResult, contact: Contact, shallowDeep: ShallowDeep, fielder: Position, runnerEvents: RunnerEvent[]) {
 
         switch (playResult) {
 
@@ -784,7 +785,7 @@ class SimService {
 
     }
 
-    getUpcomingMatchup(game:Game) : UpcomingMatchup {
+    private getUpcomingMatchup(game:Game) : UpcomingMatchup {
 
         if (game.isTopInning) {
 
@@ -812,9 +813,6 @@ class SimService {
 
 class Matchup {
 
-    constructor(
-        private gamePlayers:GamePlayers
-    ) {}
 
     static getMatchupHandedness(hitter:GamePlayer, pitcher:GamePlayer): MatchupHandedness {
 
@@ -876,10 +874,10 @@ class RunnerActions {
     
     initRunnerEvents(pitcher:GamePlayer, hitter:GamePlayer, runner1B:GamePlayer, runner2B:GamePlayer, runner3B:GamePlayer, pitchIndex:number) {
 
-        let hitterRA: RunnerEvent 
-        let runner1bRA:RunnerEvent
-        let runner2bRA:RunnerEvent
-        let runner3bRA:RunnerEvent
+        let hitterRA: RunnerEvent|undefined
+        let runner1bRA:RunnerEvent|undefined
+        let runner2bRA:RunnerEvent|undefined
+        let runner3bRA:RunnerEvent|undefined
 
         if (hitter) {
             hitterRA = {
@@ -1121,7 +1119,7 @@ class RunnerActions {
 
     }
 
-    runnersTagWithThrow(gameRNG, runnerResult:RunnerResult, leagueAverages:LeagueAverage, allEvents:RunnerEvent[], runnerEvents:RunnerEvent[], defensiveCredits:DefensiveCredit[], defense:TeamInfo, offense:TeamInfo, pitcher:GamePlayer, fielderPlayer:GamePlayer, runner1bRA:RunnerEvent, runner2bRA:RunnerEvent, runner3bRA:RunnerEvent, chanceRunnerSafe:number, pitchIndex:number ) {
+    runnersTagWithThrow(gameRNG: () => number, runnerResult:RunnerResult, leagueAverages:LeagueAverage, allEvents:RunnerEvent[], runnerEvents:RunnerEvent[], defensiveCredits:DefensiveCredit[], defense:TeamInfo, offense:TeamInfo, pitcher:GamePlayer, fielderPlayer:GamePlayer, runner1bRA:RunnerEvent, runner2bRA:RunnerEvent, runner3bRA:RunnerEvent, chanceRunnerSafe:number, pitchIndex:number ) {
 
         let hitterRA = runnerEvents.find(re => re.movement.start == BaseResult.HOME)
 
@@ -1362,7 +1360,7 @@ class RunnerActions {
 
     }    
 
-    stealBases(runner1B: GamePlayer, runner2B: GamePlayer, runner3B: GamePlayer, gameRNG, runnerResult: RunnerResult, allEvents: RunnerEvent[], runnerEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], leagueAverages: LeagueAverage, catcher: GamePlayer, defense: TeamInfo, offense: TeamInfo, pitcher: GamePlayer, pitchIndex: number, pitchCount: PitchCount) {
+    stealBases(runner1B: GamePlayer, runner2B: GamePlayer, runner3B: GamePlayer, gameRNG: () => number, runnerResult: RunnerResult, allEvents: RunnerEvent[], runnerEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], leagueAverages: LeagueAverage, catcher: GamePlayer, defense: TeamInfo, offense: TeamInfo, pitcher: GamePlayer, pitchIndex: number, pitchCount: PitchCount) {
 
         let runners = [runner1B, runner2B, runner3B].filter(r => r != undefined)
 
@@ -1522,7 +1520,7 @@ class RunnerActions {
 
     }    
 
-    getRunnerEvents(gameRNG, runnerResult:RunnerResult, halfInningRunnerEvents:RunnerEvent[], defensiveCredits:DefensiveCredit[], leagueAverages: LeagueAverage, playResult: PlayResult, 
+    getRunnerEvents(gameRNG: () => number, runnerResult:RunnerResult, halfInningRunnerEvents:RunnerEvent[], defensiveCredits:DefensiveCredit[], leagueAverages: LeagueAverage, playResult: PlayResult, 
                     contact: Contact|undefined, shallowDeep: ShallowDeep|undefined, hitter:GamePlayer, fielderPlayer: GamePlayer|undefined, 
                     runner1B:GamePlayer|undefined, runner2B:GamePlayer|undefined, runner3B:GamePlayer|undefined, offense:TeamInfo, defense:TeamInfo, pitcher:GamePlayer, pitchIndex:number) : RunnerEvent[] {
         
@@ -2272,16 +2270,17 @@ class SimRolls {
         private rollChartService:RollChartService
     ) {}
 
-    getIntentZone(rng) {
+    getIntentZone(rng: () => number) {
         const index = Math.floor(rng() * ALL_PITCH_ZONES.length)
         return ALL_PITCH_ZONES[index]
     }
 
-    getHitQuality(gameRNG, leagueAverages: LeagueAverage, pitchQualityChange: number, teamDefenseChange: number, fielderDefenseChange: number, contact: Contact, guessPitch: boolean, powerRollChart: RollChart): number {
+    getHitQuality(gameRNG: () => number, leagueAverages: LeagueAverage, pitchQualityChange: number, teamDefenseChange: number, fielderDefenseChange: number, contact: Contact, guessPitch: boolean, powerRollChart: RollChart): number {
 
         const singleStart = this.rollChartService.getFirstRollIndex(powerRollChart, PlayResult.SINGLE)
         const doubleStart = this.rollChartService.getFirstRollIndex(powerRollChart, PlayResult.DOUBLE)
         const tripleStart = this.rollChartService.getFirstRollIndex(powerRollChart, PlayResult.TRIPLE)
+        const hrStart = this.rollChartService.getFirstRollIndex(powerRollChart, PlayResult.HR)
 
         const doubleBandSize = Math.max(1, tripleStart - doubleStart)
         const lowDoubleTarget = doubleStart + Math.floor(doubleBandSize * 0.33)
@@ -2312,44 +2311,36 @@ class SimRolls {
                 break
         }
 
-        roll = Math.max(0, Math.min(999, roll))
+        if (contact === Contact.GROUNDBALL) {
+            if (roll >= doubleStart && roll < tripleStart) {
+                roll -= leagueAverages.tuning.groundballDoublePenalty
+            } else if (roll >= tripleStart && roll < hrStart) {
+                roll -= leagueAverages.tuning.groundballTriplePenalty
+            } else if (roll >= hrStart) {
+                roll -= leagueAverages.tuning.groundballHRPenalty
+            }
+        }
 
-        const currentResult = powerRollChart.entries.get(Math.round(roll))
+        if (contact === Contact.FLY_BALL) {
+            if (roll >= hrStart) {
+                roll -= leagueAverages.tuning.flyballHRPenalty
+            }
+        }
 
-        switch (contact) {
-            case Contact.GROUNDBALL:
-                if (currentResult === PlayResult.DOUBLE) {
-                    roll -= leagueAverages.tuning.groundballDoublePenalty
-                } else if (currentResult === PlayResult.TRIPLE) {
-                    roll -= leagueAverages.tuning.groundballTriplePenalty
-                } else if (currentResult === PlayResult.HR) {
-                    roll -= leagueAverages.tuning.groundballHRPenalty
-                }
-                break
+        if (contact === Contact.LINE_DRIVE) {
+            if (roll < singleStart && roll >= singleStart - leagueAverages.tuning.lineDriveOutToSingleWindow) {
+                roll += leagueAverages.tuning.lineDriveOutToSingleBoost
+            }
 
-            case Contact.FLY_BALL:
-                if (currentResult === PlayResult.HR) {
-                    roll -= leagueAverages.tuning.flyballHRPenalty
-                }
-                break
-
-            case Contact.LINE_DRIVE:
-                if (currentResult === PlayResult.OUT) {
-                    if (roll >= singleStart - leagueAverages.tuning.lineDriveOutToSingleWindow) {
-                        roll += leagueAverages.tuning.lineDriveOutToSingleBoost
-                    }
-                }
-
-                if (currentResult === PlayResult.SINGLE) {
-                    roll += (lowDoubleTarget - roll) * leagueAverages.tuning.lineDriveSingleToDoubleFactor
-                }
-                break
+            if (roll >= singleStart && roll < doubleStart) {
+                roll += (lowDoubleTarget - roll) * leagueAverages.tuning.lineDriveSingleToDoubleFactor
+            }
         }
 
         return Math.max(0, Math.min(999, Math.round(roll)))
     }
 
-    getSwingResult(gameRNG, hitterChange: HitterChange, leagueAverage: LeagueAverage, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult {
+    getSwingResult(gameRNG: () => number, hitterChange: HitterChange, leagueAverage: LeagueAverage, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult {
 
         let pitchQualityChange = PlayerChange.getChange(leagueAverage.pitchQuality, pitchQuality)
 
@@ -2414,7 +2405,7 @@ class SimRolls {
         return SwingResult.NO_SWING
     }
 
-    isInZone(gameRNG, locationQuality:number, inZoneRate:number) {
+    isInZone(gameRNG: () => number, locationQuality:number, inZoneRate:number) {
 
         //90% of the chance should be a coin-flip (better location doesn't necessarily mean a strike)
         //and also with pitchers with poor location skills they'll walk like 80% of players making it unplayable.
@@ -2425,7 +2416,7 @@ class SimRolls {
         return chance >= (99 - inZoneRate)
     }
 
-    getFielder(gameRNG, leagueAverages: LeagueAverage, hitterHandedness:Handedness): Position {
+    getFielder(gameRNG: () => number, leagueAverages: LeagueAverage, hitterHandedness:Handedness): Position {
 
         let rollChart = this.rollChartService.getFielderChanceRollChart(hitterHandedness == Handedness.R ? leagueAverages.fielderChanceR : leagueAverages.fielderChanceL)
 
@@ -2441,7 +2432,7 @@ class SimRolls {
 
     }    
 
-    getThrowResult(gameRNG, overallSafeChance:number) : ThrowRoll {
+    getThrowResult(gameRNG: () => number, overallSafeChance:number) : ThrowRoll {
 
         let roll = Rolls.getRoll(gameRNG, 1, 100)
 
@@ -2461,7 +2452,7 @@ class SimRolls {
         }
     }    
 
-    getStealResult(gameRNG) {
+    getStealResult(gameRNG: () => number) {
 
         //Don't steal every time. 
         return Rolls.getRoll(gameRNG, 0, 999)
@@ -2469,7 +2460,7 @@ class SimRolls {
     }
 
 
-    getPowerQuality(gameRNG, powerChange: number): number {
+    getPowerQuality(gameRNG: () => number, powerChange: number): number {
 
         let roll =  Rolls.getRollUnrounded(gameRNG, 0, 100)
 
@@ -2485,7 +2476,7 @@ class SimRolls {
 
     }
 
-    getLocationQuality(gameRNG, controlChange: number): number {
+    getLocationQuality(gameRNG: () => number, controlChange: number): number {
 
         let roll = Rolls.getRollUnrounded(gameRNG, 0, 100)
 
@@ -2500,7 +2491,7 @@ class SimRolls {
 
     }
 
-    getMovementQuality(gameRNG, movementChange: number): number {
+    getMovementQuality(gameRNG: () => number, movementChange: number): number {
         
         let roll =  Rolls.getRollUnrounded(gameRNG, 0, 100)
 
@@ -3481,7 +3472,7 @@ class Rolls {
 
         //Source 
     // https://github.com/trekhleb/javascript-algorithms/blob/master/src/algorithms/statistics/weighted-random/weightedRandom.js
-    static weightedRandom(gameRNG, items, weights) {
+    static weightedRandom(gameRNG: () => number, items, weights) {
 
         if (items.length !== weights.length) {
             throw new Error('Items and weights must be of the same size')

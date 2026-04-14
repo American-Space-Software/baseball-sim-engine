@@ -1,13 +1,29 @@
-import { Position, PitchType, Handedness } from "./enums.js"
-import { Game, HitResultCount, HitterStatLine, HittingRatings, LeagueAverage, Lineup, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchRatings, PitchResultCount, PitchTypeMovementStat, Player, PlayerFromStatsCommand, PlayerImportBaseline, PlayerImportRaw, RotationPitcher, Team } from "./interfaces.js"
-import { SimService } from "./sim-service.js"
-import { StatService } from "./stat-service.js"
+import { Position, PitchType, Handedness } from "../../src/service/enums.js"
+import { Game, HitResultCount, HitterStatLine, HittingRatings, LeagueAverage, Lineup, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchRatings, PitchResultCount, PitchTypeMovementStat, Player, PlayerFromStatsCommand, PlayerImportBaseline, PlayerImportRaw, RotationPitcher, Team } from "../../src/service/interfaces.js"
+import { SimService } from "../../src/service/sim-service.js"
+import { StatService } from "../../src/service/stat-service.js"
+import { v4 as uuidv4 } from 'uuid'
+
+import fs from "fs"
+import path from "path"
+import seedrandom from "seedrandom"
+import { DownloaderService } from "./downloader-service.js"
+
+const defaultTuningConfig = {
+    maxIterations: 100,
+    minIterations: 40,
+    maxStallIterations: 25,
+    gamesPerIteration: 70,
+    printDiagnostics: true
+}
+
 
 class PlayerImporterService {
 
     constructor(
         private simService: SimService, 
-        private statService: StatService
+        private statService: StatService,
+        private downloaderService:DownloaderService
     ) { }
 
     static buildLeagueAverageRatings(laRating: number) {
@@ -46,11 +62,14 @@ class PlayerImporterService {
     }
 
     static pitchEnvironmentTargetToLeagueAverage(target: PitchEnvironmentTarget): LeagueAverage {
-        return {
+        if (!target.pitchEnvironmentTuning?.tuning) {
+            throw new Error("Missing pitchEnvironmentTuning.tuning on target")
+        }
+
+        return JSON.parse(JSON.stringify({
             ...this.buildLeagueAverageRatings(100),
 
             foulRate: target.pitch.foulContactPercent,
-
 
             pitchQuality: 50,
 
@@ -68,16 +87,13 @@ class PlayerImporterService {
             swing: {
                 zoneSwingBase: target.swing.zoneSwingBase,
                 chaseSwingBase: target.swing.chaseSwingBase,
-
                 zoneContactBase: target.swing.zoneContactBase,
                 chaseContactBase: target.swing.chaseContactBase,
-
                 behaviorByCount: target.swing.behaviorByCount
             },
 
-
-            tuning: target.pitchEnvironmentTuning?.tuning
-        }
+            tuning: { ...target.pitchEnvironmentTuning.tuning }
+        }))
     }
 
     static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>): PitchEnvironmentTarget {
@@ -1484,7 +1500,67 @@ class PlayerImporterService {
         }
     }
 
-    getPlayerImportBaseline(pitchEnvironment: PitchEnvironmentTarget, rng: Function): PlayerImportBaseline {
+
+    public async exportPitchEnvironmentTargetForSeasons(baseDataDir: string, seasons: number[]): Promise<Record<number, PitchEnvironmentTarget>> {
+
+        const results: Record<number, PitchEnvironmentTarget> = {}
+
+        for (const season of seasons) {
+
+            const seasonDir = path.join(baseDataDir, String(season))
+
+            const resultsPath = path.join(seasonDir, "_results.json")
+            const outputPath = path.join(seasonDir, "_pitch_environment_tuning.json")
+
+            const raw = await fs.promises.readFile(resultsPath, "utf8")
+            const parsed = JSON.parse(raw)
+
+            const players = new Map<string, PlayerImportRaw>()
+
+            if (Array.isArray(parsed)) {
+                for (const row of parsed) {
+                    if (row?.playerId) {
+                        players.set(String(row.playerId), row as PlayerImportRaw)
+                    }
+                }
+            } else if (parsed && Array.isArray(parsed.players)) {
+                for (const row of parsed.players) {
+                    if (row?.playerId) {
+                        players.set(String(row.playerId), row as PlayerImportRaw)
+                    }
+                }
+            } else if (parsed && typeof parsed === "object") {
+                for (const [playerId, row] of Object.entries(parsed)) {
+                    if ((row as any)?.playerId) {
+                        players.set(String((row as any).playerId), row as PlayerImportRaw)
+                    } else if (row && typeof row === "object") {
+                        players.set(String(playerId), { ...(row as any), playerId: String(playerId) } as PlayerImportRaw)
+                    }
+                }
+            }
+
+            if (players.size === 0) {
+                throw new Error(`No player import rows found in ${resultsPath}`)
+            }
+
+            const pitchEnvironmentTarget = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
+            const rng = seedrandom(String(season))
+            const pitchEnvironmentTuning = this.getTuningsForPitchEnvironment(pitchEnvironmentTarget, rng, defaultTuningConfig)
+
+            const fullPitchEnvironmentTarget: PitchEnvironmentTarget = {
+                ...pitchEnvironmentTarget,
+                pitchEnvironmentTuning
+            } as PitchEnvironmentTarget
+
+            await fs.promises.writeFile(outputPath, JSON.stringify(fullPitchEnvironmentTarget, null, 2) + "\n", "utf8")
+
+            results[season] = fullPitchEnvironmentTarget
+        }
+
+        return results
+    }
+    
+    public getPlayerImportBaseline(pitchEnvironment: PitchEnvironmentTarget, rng: Function): PlayerImportBaseline {
 
         const importReference = pitchEnvironment.importReference
 
@@ -1654,14 +1730,14 @@ class PlayerImporterService {
         return baseline
     }
 
-    getTuningsForPitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, rng: Function, options?: any): PitchEnvironmentTuning {
-
+    public getTuningsForPitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, rng: Function, options?: any): PitchEnvironmentTuning {
         let candidate = this.seedPitchEnvironmentTuning(pitchEnvironment)
 
         const maxIterations = options?.maxIterations ?? 1000
+        const minIterations = options?.minIterations ?? Math.min(40, maxIterations)
         const gamesPerIteration = options?.gamesPerIteration ?? 250
         const printDiagnostics = options?.printDiagnostics ?? true
-        const maxStallIterations = options?.maxStallIterations ?? 10
+        const maxStallIterations = options?.maxStallIterations ?? 25
 
         const clamp = (num: number, min: number, max: number): number => Math.max(min, Math.min(max, num))
         const round = (num: number, digits: number = 2): number => Number(num.toFixed(digits))
@@ -1671,31 +1747,34 @@ class PlayerImporterService {
             { key: "pitchQualityChaseSwingEffect", step: 0.25, min: 0, max: 20, digits: 2 },
             { key: "disciplineZoneSwingEffect", step: 0.25, min: 0, max: 20, digits: 2 },
             { key: "disciplineChaseSwingEffect", step: 0.25, min: 0, max: 20, digits: 2 },
-
             { key: "pitchQualityContactEffect", step: 0.25, min: 0, max: 20, digits: 2 },
             { key: "contactSkillEffect", step: 0.25, min: 0, max: 25, digits: 2 },
-
             { key: "fullPitchQualityBonus", step: 0.2, min: 0, max: 20, digits: 2 },
             { key: "fullTeamDefenseBonus", step: 0.2, min: 0, max: 20, digits: 2 },
             { key: "fullFielderDefenseBonus", step: 0.2, min: 0, max: 20, digits: 2 },
-
             { key: "groundballDoublePenalty", step: 0.2, min: 0, max: 12, digits: 2 },
             { key: "groundballTriplePenalty", step: 0.25, min: 0, max: 20, digits: 2 },
             { key: "groundballHRPenalty", step: 0.25, min: 0, max: 20, digits: 2 },
-
             { key: "groundballOutcomeBoost", step: 0.2, min: 0, max: 12, digits: 2 },
             { key: "flyballOutcomeBoost", step: 0.15, min: 0, max: 8, digits: 2 },
             { key: "lineDriveOutcomeBoost", step: 0.5, min: 0, max: 60, digits: 2 },
-
             { key: "flyballHRPenalty", step: 0.15, min: 0, max: 20, digits: 2 },
-
             { key: "lineDriveOutToSingleWindow", step: 1.0, min: 0, max: 150, digits: 2 },
             { key: "lineDriveOutToSingleBoost", step: 1.5, min: 0, max: 150, digits: 2 },
             { key: "lineDriveSingleToDoubleFactor", step: 0.015, min: 0, max: 1, digits: 3 }
         ]
 
+        const evaluateCandidate = (candidateToEvaluate: PitchEnvironmentTuning): { actual: any, target: any, diff: any, score: number } => {
+            const candidatePitchEnvironment: PitchEnvironmentTarget = JSON.parse(JSON.stringify({
+                ...pitchEnvironment,
+                pitchEnvironmentTuning: candidateToEvaluate
+            }))
+            const evaluationRng = new seedrandom(4)
+            return this.evaluatePitchEnvironment(candidatePitchEnvironment, evaluationRng, gamesPerIteration)
+        }
+
         let bestCandidate: PitchEnvironmentTuning = JSON.parse(JSON.stringify(candidate))
-        let bestResult = this.simulatePitchEnvironmentCandidate(pitchEnvironment, bestCandidate, rng, gamesPerIteration)
+        let bestResult = evaluateCandidate(bestCandidate)
         let stallIterations = 0
 
         if (printDiagnostics) {
@@ -1703,8 +1782,7 @@ class PlayerImporterService {
         }
 
         for (let iteration = 0; iteration < maxIterations; iteration++) {
-
-            if (this.isPitchEnvironmentCloseEnough(bestResult.diff)) {
+            if (iteration >= minIterations && this.isPitchEnvironmentCloseEnough(bestResult.diff)) {
                 if (printDiagnostics) {
                     this.printPitchEnvironmentIterationDiagnostics("close-enough", iteration, bestCandidate, bestResult)
                 }
@@ -1718,8 +1796,9 @@ class PlayerImporterService {
 
             for (const knob of knobs) {
                 for (const direction of [-1, 1]) {
-
                     const trial: PitchEnvironmentTuning = JSON.parse(JSON.stringify(bestCandidate))
+                    trial._id = uuidv4()
+
                     const currentValue = (trial.tuning as any)[knob.key] as number
                     const rawStep = knob.step * direction * decay
                     const nextValue = round(clamp(currentValue + rawStep, knob.min, knob.max), knob.digits)
@@ -1730,7 +1809,7 @@ class PlayerImporterService {
 
                     ;(trial.tuning as any)[knob.key] = nextValue
 
-                    const trialResult = this.simulatePitchEnvironmentCandidate(pitchEnvironment, trial, rng, gamesPerIteration)
+                    const trialResult = evaluateCandidate(trial)
 
                     if (printDiagnostics) {
                         this.printPitchEnvironmentIterationDiagnostics(`${knob.key}${direction > 0 ? "+" : "-"}`, iteration, trial, trialResult)
@@ -1761,6 +1840,10 @@ class PlayerImporterService {
                 this.printPitchEnvironmentIterationDiagnostics(`stall-${stallIterations}`, iteration, bestCandidate, bestResult)
             }
 
+            if (iteration + 1 < minIterations) {
+                continue
+            }
+
             if (stallIterations >= maxStallIterations) {
                 if (printDiagnostics) {
                     this.printPitchEnvironmentIterationDiagnostics("stopped", iteration, bestCandidate, bestResult)
@@ -1769,160 +1852,82 @@ class PlayerImporterService {
             }
         }
 
+        console.log(`FINAL_TUNING_ID=${bestCandidate._id}`)
+
         return bestCandidate
     }
 
-    private seedPitchEnvironmentTuning(pitchEnvironment: PitchEnvironmentTarget): PitchEnvironmentTuning {
-        const safeDiv = (num: number, den: number): number => den > 0 ? num / den : 0
-        const clamp = (num: number, min: number, max: number): number => Math.max(min, Math.min(max, num))
-        const round = (num: number, digits: number = 2): number => Number(num.toFixed(digits))
+    public buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId: string = "baseline-game"): Game {
+        
+        const leagueAverages = PlayerImporterService.pitchEnvironmentTargetToLeagueAverage(pitchEnvironment)
 
-        return {
-            tuning: {
-                pitchQualityZoneSwingEffect: 5,
-                pitchQualityChaseSwingEffect: 6,
+        const awayPlayers = this.buildBaselinePlayers()
+        const homePlayers = this.buildBaselinePlayers()
 
-                disciplineZoneSwingEffect: 6.25,
-                disciplineChaseSwingEffect: 8.25,
+        const awayLineup = this.buildBaselineLineup(awayPlayers)
+        const homeLineup = this.buildBaselineLineup(homePlayers)
 
-                pitchQualityContactEffect: 8.5,
-                contactSkillEffect: 12,
+        const awayStartingPitcher: RotationPitcher = {
+            _id: awayPlayers.find(p => p.primaryPosition === Position.PITCHER)!._id,
+            stamina: 1
+        }
 
-                fullPitchQualityBonus: 8,
-                fullTeamDefenseBonus: 0,
-                fullFielderDefenseBonus: 2,
+        const homeStartingPitcher: RotationPitcher = {
+            _id: homePlayers.find(p => p.primaryPosition === Position.PITCHER)!._id,
+            stamina: 1
+        }
 
-                groundballDoublePenalty: round(clamp(2 + ((pitchEnvironment.battedBall.contactRollInput.groundball - 35) * 0.10), 1, 8)),
-                groundballTriplePenalty: round(clamp(8 + ((pitchEnvironment.battedBall.contactRollInput.groundball - 35) * 0.18), 4, 18)),
-                groundballHRPenalty: round(clamp(6 + ((pitchEnvironment.battedBall.contactRollInput.groundball - 35) * 0.16), 2, 18)),
-
-                flyballHRPenalty: round(clamp(1 + ((pitchEnvironment.battedBall.contactRollInput.flyBall - 30) * 0.08), 0, 8)),
-
-                lineDriveOutToSingleWindow: round(clamp(36 + ((pitchEnvironment.battedBall.contactRollInput.lineDrive - 20) * 1.8), 20, 100)),
-                lineDriveOutToSingleBoost: round(clamp(30 + ((pitchEnvironment.battedBall.contactRollInput.lineDrive - 20) * 1.6), 15, 90)),
-
-                lineDriveSingleToDoubleFactor: round(clamp(0.45 + ((pitchEnvironment.outcome.slg - pitchEnvironment.outcome.avg) * 0.55), 0.2, 0.7), 3),
-
-                groundballOutcomeBoost: round(clamp((pitchEnvironment.battedBall.contactRollInput.groundball - 38) * 0.25, 0, 8)),
-                flyballOutcomeBoost: round(clamp((pitchEnvironment.battedBall.contactRollInput.flyBall - 30) * 0.10, 0, 4)),
-                lineDriveOutcomeBoost: round(clamp((pitchEnvironment.battedBall.contactRollInput.lineDrive - 18) * 0.9, 4, 36))
-            },
-
-            ratingTuning: {
-                hitting: {
-                    overallPlateDisciplineScale: 75,
-                    splitPlateDisciplineScale: 28,
-
-                    overallContactScale: 186,
-                    splitContactScale: 12,
-                    contactSkillScale: 28,
-                    contactDecisionScale: 18,
-                    contactEvScale: 74,
-
-                    overallGapPowerScale: 92,
-                    splitGapPowerScale: 30,
-
-                    overallHrPowerScale: 110,
-                    splitHrPowerScale: 38,
-                    hrEvScale: 40
-                },
-
-                pitching: {
-                    minFastball: 89,
-                    maxFastball: 103,
-
-                    veloScale: 185,
-                    kScale: 84,
-                    baselinePowerScale: 70,
-
-                    overallControlScale: 95,
-                    splitControlScale: 26,
-                    strikeoutControlHelpScale: 6,
-
-                    overallMovementScale: 50,
-                    splitMovementScale: 6,
-                    arsenalMovementScale: 36,
-
-                    contactSuppressionScale: 22,
-                    missBatScale: 18
-                }
+        const awayTeam: Team = {
+            _id: `${gameId}-away`,
+            name: "Away",
+            abbrev: "AWAY",
+            colors: {
+                color1: "#ff0000",
+                color2: "#ffffff"
             }
         }
-    }
 
-    private simulatePitchEnvironmentCandidate(pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning, rng: Function, games: number = 50): { actual: any, target: any, diff: any, score: number } {
+        const homeTeam: Team = {
+            _id: `${gameId}-home`,
+            name: "Home",
+            abbrev: "HOME",
+            colors: {
+                color1: "#0000ff",
+                color2: "#ffffff"
+            }
+        }
+
+        const game: Game = { _id: gameId } as Game
+
+        this.simService.initGame(game)
+
+        return this.simService.startGame({
+            game,
+            away: awayTeam,
+            awayTeamOptions: {},
+            awayPlayers,
+            awayLineup,
+            awayStartingPitcher,
+
+            home: homeTeam,
+            homeTeamOptions: {},
+            homePlayers,
+            homeLineup,
+            homeStartingPitcher,
+
+            leagueAverages,
+            date: new Date()
+        })
+    }    
+
+    public evaluatePitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, rng: Function, games: number = 50): { actual: any, target: any, diff: any, score: number } {
         const normalize = (v: number): number => v / 100
-
-        const candidatePitchEnvironment: PitchEnvironmentTarget = {
-            ...pitchEnvironment,
-            tuning: candidate.tuning,
-            ratingTuning: candidate.ratingTuning,
-            pitchEnvironmentTuning: candidate
-        } as PitchEnvironmentTarget
-
-        const leagueAverages = PlayerImporterService.pitchEnvironmentTargetToLeagueAverage(candidatePitchEnvironment)
 
         let totalHit: HitResultCount = {} as HitResultCount
         let totalPitch: PitchResultCount = {} as PitchResultCount
 
         for (let i = 0; i < games; i++) {
-            const awayPlayers = this.buildBaselinePlayers()
-            const homePlayers = this.buildBaselinePlayers()
-
-            const awayLineup = this.buildBaselineLineup(awayPlayers)
-            const homeLineup = this.buildBaselineLineup(homePlayers)
-
-            const awayStartingPitcher: RotationPitcher = {
-                _id: awayPlayers.find(p => p.primaryPosition === Position.PITCHER)!._id,
-                stamina: 1
-            }
-
-            const homeStartingPitcher: RotationPitcher = {
-                _id: homePlayers.find(p => p.primaryPosition === Position.PITCHER)!._id,
-                stamina: 1
-            }
-
-            const awayTeam: Team = {
-                _id: `tune-away-${i}`,
-                name: "Away",
-                abbrev: "AWAY",
-                colors: {
-                    color1: "#ff0000",
-                    color2: "#ffffff"
-                }
-            }
-
-            const homeTeam: Team = {
-                _id: `tune-home-${i}`,
-                name: "Home",
-                abbrev: "HOME",
-                colors: {
-                    color1: "#0000ff",
-                    color2: "#ffffff"
-                }
-            }
-
-            const game: Game = { _id: `tune-${i}` } as Game
-
-            this.simService.initGame(game)
-
-            const startedGame = this.simService.startGame({
-                game,
-                away: awayTeam,
-                awayTeamOptions: {},
-                awayPlayers,
-                awayLineup,
-                awayStartingPitcher,
-
-                home: homeTeam,
-                homeTeamOptions: {},
-                homePlayers,
-                homeLineup,
-                homeStartingPitcher,
-
-                leagueAverages,
-                date: new Date()
-            })
+            const startedGame = this.buildStartedBaselineGame(pitchEnvironment, `eval-${i}`)
 
             while (!startedGame.isComplete) {
                 this.simService.simPitch(startedGame, rng)
@@ -2072,59 +2077,84 @@ class PlayerImporterService {
         const lowSide = (n: number): number => Math.max(0, n)
         const highSide = (n: number): number => Math.max(0, -n)
 
+        const contactShapeGap = Math.abs(diff.inZoneContactPercent - diff.outZoneContactPercent)
+        const contactShapeDirectionPenalty =
+            Math.max(0, actual.inZoneContactPercent - target.inZoneContactPercent) * Math.max(0, target.outZoneContactPercent - actual.outZoneContactPercent)
+
+        const singleBabipCouplingPenalty =
+            lowSide(diff.singlePercent) * 900 +
+            lowSide(diff.babip) * 1100 +
+            lowSide(diff.singlePercent) * lowSide(diff.babip) * 4000
+
+        const disguisedPowerPenalty =
+            Math.max(0, actual.slg - target.slg) * (
+                lowSide(diff.avg) * 900 +
+                lowSide(diff.babip) * 1100 +
+                lowSide(diff.singlePercent) * 1200
+            )
+
+        const processMismatchPenalty =
+            contactShapeGap * 700 +
+            contactShapeDirectionPenalty * 2200 +
+            Math.max(0, actual.inZoneContactPercent - target.inZoneContactPercent) * 260 +
+            Math.max(0, target.outZoneContactPercent - actual.outZoneContactPercent) * 320 +
+            Math.max(0, target.swingAtStrikesPercent - actual.swingAtStrikesPercent) * 180 +
+            Math.max(0, target.swingAtBallsPercent - actual.swingAtBallsPercent) * 180
+
         const primaryScore =
-            abs(diff.avg) * 520 +
-            abs(diff.obp) * 640 +
-            abs(diff.slg) * 760 +
-            abs(diff.ops) * 380 +
-            abs(diff.babip) * 520 +
+            abs(diff.avg) * 650 +
+            abs(diff.obp) * 760 +
+            abs(diff.slg) * 820 +
+            abs(diff.ops) * 420 +
+            abs(diff.babip) * 760 +
             abs(diff.bbPercent) * 360 +
             abs(diff.soPercent) * 300 +
-            abs(diff.homeRunPercent) * 340 +
-            abs(diff.teamRunsPerGame) * 140
+            abs(diff.homeRunPercent) * 360 +
+            abs(diff.teamRunsPerGame) * 145
 
         const secondaryScore =
-            abs(diff.teamHitsPerGame) * 38 +
-            abs(diff.teamHomeRunsPerGame) * 42 +
+            abs(diff.teamHitsPerGame) * 55 +
+            abs(diff.teamHomeRunsPerGame) * 46 +
             abs(diff.teamBBPerGame) * 30 +
             abs(diff.teamSOPerGame) * 22 +
-            abs(diff.singlePercent) * 75 +
-            abs(diff.doublePercent) * 55 +
-            abs(diff.triplePercent) * 18
+            abs(diff.singlePercent) * 180 +
+            abs(diff.doublePercent) * 65 +
+            abs(diff.triplePercent) * 20
 
         const processScore =
             abs(diff.pitchesPerPA) * 80 +
             abs(diff.swingPercent) * 40 +
-            abs(diff.swingAtStrikesPercent) * 35 +
-            abs(diff.swingAtBallsPercent) * 35 +
-            abs(diff.inZoneContactPercent) * 30 +
-            abs(diff.outZoneContactPercent) * 35 +
+            abs(diff.swingAtStrikesPercent) * 55 +
+            abs(diff.swingAtBallsPercent) * 55 +
+            abs(diff.inZoneContactPercent) * 65 +
+            abs(diff.outZoneContactPercent) * 75 +
             abs(diff.foulContactPercent) * 18 +
             abs(diff.inZonePercent) * 8 +
             abs(diff.strikePercent) * 8 +
             abs(diff.ballPercent) * 8
 
         const shapePenalty =
-            abs(diff.groundBallPercent) * 12 +
-            abs(diff.flyBallPercent) * 12 +
-            abs(diff.ldPercent) * 12
+            abs(diff.groundBallPercent) * 16 +
+            abs(diff.flyBallPercent) * 16 +
+            abs(diff.ldPercent) * 16
 
         const offenseFloorPenalty =
-            lowSide(diff.avg) * 900 +
-            lowSide(diff.obp) * 1050 +
-            lowSide(diff.slg) * 1300 +
-            lowSide(diff.ops) * 650 +
-            lowSide(diff.babip) * 900 +
+            lowSide(diff.avg) * 1200 +
+            lowSide(diff.obp) * 1300 +
+            lowSide(diff.slg) * 1450 +
+            lowSide(diff.ops) * 700 +
+            lowSide(diff.babip) * 1400 +
+            lowSide(diff.singlePercent) * 1600 +
             lowSide(diff.homeRunPercent) * 700 +
-            lowSide(diff.teamRunsPerGame) * 260 +
-            lowSide(diff.teamHitsPerGame) * 110
+            lowSide(diff.teamRunsPerGame) * 280 +
+            lowSide(diff.teamHitsPerGame) * 180
 
         const strikeoutPenalty =
             highSide(diff.soPercent) * 520 +
             highSide(diff.teamSOPerGame) * 48
 
         const falseProgressPenalty =
-            Math.max(0, target.pitchesPerPA - actual.pitchesPerPA < 0 ? actual.pitchesPerPA - target.pitchesPerPA : 0) * (
+            Math.max(0, target.pitchesPerPA - actual.pitchesPerPA) * (
                 lowSide(diff.avg) * 240 +
                 lowSide(diff.slg) * 320 +
                 lowSide(diff.babip) * 260 +
@@ -2138,10 +2168,93 @@ class PlayerImporterService {
             shapePenalty +
             offenseFloorPenalty +
             strikeoutPenalty +
-            falseProgressPenalty
+            falseProgressPenalty +
+            processMismatchPenalty +
+            singleBabipCouplingPenalty +
+            disguisedPowerPenalty
 
         return { actual, target, diff, score }
     }
+
+    private seedPitchEnvironmentTuning(pitchEnvironment: PitchEnvironmentTarget): PitchEnvironmentTuning {
+        const safeDiv = (num: number, den: number): number => den > 0 ? num / den : 0
+        const clamp = (num: number, min: number, max: number): number => Math.max(min, Math.min(max, num))
+        const round = (num: number, digits: number = 2): number => Number(num.toFixed(digits))
+
+        return {
+            _id: uuidv4(),
+            tuning: {
+                pitchQualityZoneSwingEffect: 5,
+                pitchQualityChaseSwingEffect: 6,
+
+                disciplineZoneSwingEffect: 6.25,
+                disciplineChaseSwingEffect: 8.25,
+
+                pitchQualityContactEffect: 8.5,
+                contactSkillEffect: 12,
+
+                fullPitchQualityBonus: 8,
+                fullTeamDefenseBonus: 0,
+                fullFielderDefenseBonus: 2,
+
+                groundballDoublePenalty: round(clamp(2 + ((pitchEnvironment.battedBall.contactRollInput.groundball - 35) * 0.10), 1, 8)),
+                groundballTriplePenalty: round(clamp(8 + ((pitchEnvironment.battedBall.contactRollInput.groundball - 35) * 0.18), 4, 18)),
+                groundballHRPenalty: round(clamp(6 + ((pitchEnvironment.battedBall.contactRollInput.groundball - 35) * 0.16), 2, 18)),
+
+                flyballHRPenalty: round(clamp(1 + ((pitchEnvironment.battedBall.contactRollInput.flyBall - 30) * 0.08), 0, 8)),
+
+                lineDriveOutToSingleWindow: round(clamp(36 + ((pitchEnvironment.battedBall.contactRollInput.lineDrive - 20) * 1.8), 20, 100)),
+                lineDriveOutToSingleBoost: round(clamp(30 + ((pitchEnvironment.battedBall.contactRollInput.lineDrive - 20) * 1.6), 15, 90)),
+
+                lineDriveSingleToDoubleFactor: round(clamp(0.45 + ((pitchEnvironment.outcome.slg - pitchEnvironment.outcome.avg) * 0.55), 0.2, 0.7), 3),
+
+                groundballOutcomeBoost: round(clamp((pitchEnvironment.battedBall.contactRollInput.groundball - 38) * 0.25, 0, 8)),
+                flyballOutcomeBoost: round(clamp((pitchEnvironment.battedBall.contactRollInput.flyBall - 30) * 0.10, 0, 4)),
+                lineDriveOutcomeBoost: round(clamp((pitchEnvironment.battedBall.contactRollInput.lineDrive - 18) * 0.9, 4, 36))
+            },
+
+            ratingTuning: {
+                hitting: {
+                    overallPlateDisciplineScale: 75,
+                    splitPlateDisciplineScale: 28,
+
+                    overallContactScale: 186,
+                    splitContactScale: 12,
+                    contactSkillScale: 28,
+                    contactDecisionScale: 18,
+                    contactEvScale: 74,
+
+                    overallGapPowerScale: 92,
+                    splitGapPowerScale: 30,
+
+                    overallHrPowerScale: 110,
+                    splitHrPowerScale: 38,
+                    hrEvScale: 40
+                },
+
+                pitching: {
+                    minFastball: 89,
+                    maxFastball: 103,
+
+                    veloScale: 185,
+                    kScale: 84,
+                    baselinePowerScale: 70,
+
+                    overallControlScale: 95,
+                    splitControlScale: 26,
+                    strikeoutControlHelpScale: 6,
+
+                    overallMovementScale: 50,
+                    splitMovementScale: 6,
+                    arsenalMovementScale: 36,
+
+                    contactSuppressionScale: 22,
+                    missBatScale: 18
+                }
+            }
+        }
+    }
+
 
     private isPitchEnvironmentCloseEnough(diff: any): boolean {
         return (
@@ -2179,7 +2292,8 @@ class PlayerImporterService {
 
         console.log(
             `L${iteration} ${stage[0]} | ` +
-            `S=${r(result.score,1)} ` +
+            `S=${r(result.score, 1)} ` +
+            `id=${candidate._id} ` +
             `P=${r(result.actual.pitchesPerPA)}(${r(result.diff.pitchesPerPA)}) ` +
             `Zs=${r(result.actual.swingAtStrikesPercent)}(${r(result.diff.swingAtStrikesPercent)}) ` +
             `Cs=${r(result.actual.swingAtBallsPercent)}(${r(result.diff.swingAtBallsPercent)}) ` +
@@ -2188,7 +2302,7 @@ class PlayerImporterService {
             `A=${r(result.actual.avg)}(${r(result.diff.avg)}) ` +
             `S=${r(result.actual.slg)}(${r(result.diff.slg)}) ` +
             `B=${r(result.actual.babip)}(${r(result.diff.babip)}) ` +
-            `R=${r(result.actual.teamRunsPerGame)}(${r(result.diff.teamRunsPerGame)})`
+            `R=${r(result.actual.teamRunsPerGame)}(${r(result.diff.teamRunsPerGame)}) ` 
         )
     }
 
@@ -2220,68 +2334,6 @@ class PlayerImporterService {
         }
 
         return total
-    }
-
-    public buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId: string = "baseline-game"): Game {
-        const leagueAverages = PlayerImporterService.pitchEnvironmentTargetToLeagueAverage(pitchEnvironment)
-
-        const awayPlayers = this.buildBaselinePlayers()
-        const homePlayers = this.buildBaselinePlayers()
-
-        const awayLineup = this.buildBaselineLineup(awayPlayers)
-        const homeLineup = this.buildBaselineLineup(homePlayers)
-
-        const awayStartingPitcher: RotationPitcher = {
-            _id: awayPlayers.find(p => p.primaryPosition === Position.PITCHER)!._id,
-            stamina: 1
-        }
-
-        const homeStartingPitcher: RotationPitcher = {
-            _id: homePlayers.find(p => p.primaryPosition === Position.PITCHER)!._id,
-            stamina: 1
-        }
-
-        const awayTeam: Team = {
-            _id: `${gameId}-away`,
-            name: "Away",
-            abbrev: "AWAY",
-            colors: {
-                color1: "#ff0000",
-                color2: "#ffffff"
-            }
-        }
-
-        const homeTeam: Team = {
-            _id: `${gameId}-home`,
-            name: "Home",
-            abbrev: "HOME",
-            colors: {
-                color1: "#0000ff",
-                color2: "#ffffff"
-            }
-        }
-
-        const game: Game = { _id: gameId } as Game
-
-        this.simService.initGame(game)
-
-        return this.simService.startGame({
-            game,
-            away: awayTeam,
-            awayTeamOptions: {},
-            awayPlayers,
-            awayLineup,
-            awayStartingPitcher,
-
-            home: homeTeam,
-            homeTeamOptions: {},
-            homePlayers,
-            homeLineup,
-            homeStartingPitcher,
-
-            leagueAverages,
-            date: new Date()
-        })
     }
 
     private buildBaselinePlayer(id: string, position: Position): Player {

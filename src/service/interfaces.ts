@@ -44,7 +44,7 @@ interface SimPitchCommand {
 }
 
 interface RunnerThrowCommand {
-    gameRNG:Function
+    gameRNG: () => number
     runnerResult:RunnerResult
     allEvents:RunnerEvent[]
     runnerEvents:RunnerEvent[]
@@ -1157,6 +1157,8 @@ interface PitchEnvironmentTarget {
 }
 
 interface PitchEnvironmentTuning {
+
+    _id:string
 
     tuning?: {
 
