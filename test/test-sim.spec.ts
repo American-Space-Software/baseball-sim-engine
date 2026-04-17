@@ -8,70 +8,64 @@ import {
     Position,
     ShallowDeep,
     ThrowResult
-} from "../src/index.js"
+} from "../src/sim/index.js"
 import seedrandom from "seedrandom"
 import type {
     PitchEnvironmentTarget,
     PitchEnvironmentTuning,
     PlayerImportBaseline,
-    Game
-} from "../src/index.js"
+    Game,
+    PlayerImportRaw
+} from "../src/sim/index.js"
 
-import { DownloaderService } from "./service/downloader-service.js"
-import { PlayerImporterService } from "./service/player-importer-service.js"
+import { PlayerImporterService } from "../src/importer/service/player-importer-service.js"
+import { importPitchEnvironmentTarget } from "../src/importer/index.js"
+import { DownloaderService } from "../src/importer/service/downloader-service.js"
 
 const statService = new StatService()
-const downloaderservice = new DownloaderService("test/data", 1000)
-let importBaseline: PlayerImportBaseline
 let pitchEnvironment: PitchEnvironmentTarget
-let pitchEnvironmentTuning: PitchEnvironmentTuning
 let tunedPitchEnvironment: PitchEnvironmentTarget
 
 let season = 2025
+let baseDataDir = "data"
+
+const playerImporterService = new PlayerImporterService(simService, statService, {} as any)
+const downloaderservice = new DownloaderService("data", 1000)
 
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
 
-const playerImporterService = new PlayerImporterService(simService, statService, downloaderservice)
-
 const evaluationSeed = 4
-const tuningSeed = 4
 const evaluationGames = 50
 
+let options = { workers: 25 }
 
 describe("Baseball Sim Engine", async () => {
 
     it("should calculate pitch environment target for season", async () => {
+
         pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
+
         assert.ok(pitchEnvironment)
+
+        // console.log("=== PITCH ENVIRONMENT TARGET ===")
+        // console.log(JSON.stringify(pitchEnvironment))
     })
 
     it("should infer pitch environment tunings from target", async () => {
-        const tuningRng = new seedrandom(tuningSeed)
 
-        pitchEnvironmentTuning = playerImporterService.getTuningsForPitchEnvironment(pitchEnvironment, tuningRng, {
-            maxIterations: 100,
-            minIterations: 50,
-            maxStallIterations: 25,
-            gamesPerIteration: evaluationGames
-        })
-
-        tunedPitchEnvironment = JSON.parse(JSON.stringify({
-            ...pitchEnvironment,
-            pitchEnvironmentTuning
-        }))
+        tunedPitchEnvironment = await importPitchEnvironmentTarget(season, baseDataDir, options)
 
         console.log("=== FINAL TUNING ID ===")
         console.log(tunedPitchEnvironment.pitchEnvironmentTuning?._id)
 
-        console.log("=== FINAL TUNING ===")
-        console.log(JSON.stringify(tunedPitchEnvironment.pitchEnvironmentTuning, null, 2))
+        console.log("=== FINAL TUNED PITCH ENVIRONMENT ===")
+        console.log(JSON.stringify(tunedPitchEnvironment, null, 2))
 
-        assert.ok(pitchEnvironmentTuning)
         assert.ok(tunedPitchEnvironment)
+        assert.ok(players)
     })
 
     it("should sim a game", async () => {
-
         const gameRng = new seedrandom(evaluationSeed)
         const startedGame: Game = playerImporterService.buildStartedBaselineGame(JSON.parse(JSON.stringify(tunedPitchEnvironment)), "game-1")
 
@@ -83,7 +77,6 @@ describe("Baseball Sim Engine", async () => {
     })
 
     it("should print aggregate stats over 70 games", async () => {
-        
         const evaluationEnvironment = JSON.parse(JSON.stringify(tunedPitchEnvironment))
         const evaluationRng = new seedrandom(evaluationSeed)
 
@@ -166,9 +159,10 @@ describe("Baseball Sim Engine", async () => {
         assert.ok(evaluation)
     })
 
+
     it("inning can end during runner events; stop further processing but keep events", async () => {
         const game = playerImporterService.buildStartedBaselineGame(tunedPitchEnvironment, "game-runner-events")
-        const laRatings = game.leagueAverages
+        const laRatings = game.pitchEnvironmentTarget
 
         const awayTeam = game.away
         const homeTeam = game.home
@@ -244,7 +238,7 @@ describe("Baseball Sim Engine", async () => {
 
     it("Ground ball to infielder with runner on 3B and 2 outs must record the batter out at 1B (throw if needed), no run", async () => {
         const game = playerImporterService.buildStartedBaselineGame(tunedPitchEnvironment, "game-runner-events")
-        const laRatings = game.leagueAverages
+        const laRatings = game.pitchEnvironmentTarget
 
         const awayTeam = game.away
         const homeTeam = game.home
@@ -325,6 +319,6 @@ describe("Baseball Sim Engine", async () => {
 
         const scored = inPlayRunnerEvents.some(e => e?.movement?.end === BaseResult.HOME && !e?.movement?.isOut)
         assert.equal(scored, false)
-    })
+    })    
 
 })

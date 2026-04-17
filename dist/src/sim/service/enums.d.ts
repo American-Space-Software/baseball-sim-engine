@@ -72,7 +72,8 @@ declare enum Position {
     SHORTSTOP = "SS",
     LEFT_FIELD = "LF",
     CENTER_FIELD = "CF",
-    RIGHT_FIELD = "RF"
+    RIGHT_FIELD = "RF",
+    DESIGNATED_HITTER = "DH"
 }
 declare enum OfficialPlayResult {
     INTENT_WALK = "Intent Walk",

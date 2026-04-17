@@ -1,6 +1,6 @@
 import Big from 'big.js'
 
-import { ContactProfile, ContactTypeRollInput, FielderChanceRollInput,  HitterChange, HittingRatings, LeagueAverage, PitcherChange, PitchRatings, PowerRollInput, RollChart, ShallowDeepRollInput } from "./interfaces.js"
+import { ContactProfile, ContactTypeRollInput, FielderChanceRollInput,  HitterChange, HittingRatings,  PitchEnvironmentTarget, PitcherChange, PitchRatings, PowerRollInput, RollChart, ShallowDeepRollInput } from "./interfaces.js"
 import { Contact, PlayResult, Position, ShallowDeep } from './enums.js'
 import { PlayerChange } from './sim-service.js'
 
@@ -319,10 +319,10 @@ class RollChartService {
 
 
 
-    public buildHitterPowerRollInput(leagueAverage:LeagueAverage, hitterChange:HitterChange): PowerRollInput {
+    public buildHitterPowerRollInput(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterChange:HitterChange): PowerRollInput {
 
         //Start with league average
-        let input:PowerRollInput = JSON.parse(JSON.stringify(leagueAverage.powerRollInput))
+        let input:PowerRollInput = JSON.parse(JSON.stringify(pitchEnvironmentTarget.battedBall.powerRollInput))
 
         const out = (current:number) => {
 
@@ -413,9 +413,9 @@ class RollChartService {
 
     }
 
-    public buildPitcherPowerRollInput(leagueAverage:LeagueAverage, pitcherChange:PitcherChange): PowerRollInput {
+    public buildPitcherPowerRollInput(pitchEnvironmentTarget:PitchEnvironmentTarget, pitcherChange:PitcherChange): PowerRollInput {
 
-        let input:PowerRollInput = JSON.parse(JSON.stringify(leagueAverage.powerRollInput))
+        let input:PowerRollInput = JSON.parse(JSON.stringify(pitchEnvironmentTarget.battedBall.powerRollInput))
 
         const out = (current:number) => {
 
@@ -584,14 +584,14 @@ class RollChartService {
 
     }
 
-    getMatchupPowerRollChart(leagueAverage:LeagueAverage, hitterChange:HitterChange, pitcherChange:PitcherChange, applyPlayerChanges:boolean) : RollChart {
+    getMatchupPowerRollChart(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterChange:HitterChange, pitcherChange:PitcherChange, applyPlayerChanges:boolean) : RollChart {
 
-        let leagueAvgChart: RollChart = this.getPowerRollChart(leagueAverage.powerRollInput)
+        let leagueAvgChart: RollChart = this.getPowerRollChart(pitchEnvironmentTarget.battedBall.powerRollInput)
 
         if (!applyPlayerChanges) return leagueAvgChart
 
-        let hitter:RollChart = this.getPowerRollChart(this.buildHitterPowerRollInput(leagueAverage, hitterChange))
-        let pitcher:RollChart = this.getPowerRollChart(this.buildPitcherPowerRollInput(leagueAverage, pitcherChange))
+        let hitter:RollChart = this.getPowerRollChart(this.buildHitterPowerRollInput(pitchEnvironmentTarget, hitterChange))
+        let pitcher:RollChart = this.getPowerRollChart(this.buildPitcherPowerRollInput(pitchEnvironmentTarget, pitcherChange))
 
         let hitterDiffChart: RollChart = this.diffRollChart(leagueAvgChart, hitter)
         let pitcherDiffChart: RollChart = this.diffRollChart(leagueAvgChart, pitcher)
@@ -600,9 +600,9 @@ class RollChartService {
 
     }
 
-    getMatchupContactRollChart(leagueAverage:LeagueAverage, hitterContactProfile:ContactProfile, pitcherContactProfile:ContactProfile, applyPlayerChanges:boolean): RollChart {
+    getMatchupContactRollChart(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterContactProfile:ContactProfile, pitcherContactProfile:ContactProfile, applyPlayerChanges:boolean): RollChart {
 
-        let leagueAvgChart: RollChart = this.getContactTypeRollChart(leagueAverage.contactTypeRollInput)
+        let leagueAvgChart: RollChart = this.getContactTypeRollChart(pitchEnvironmentTarget.battedBall.contactRollInput)
 
         if (!applyPlayerChanges) return leagueAvgChart
 

@@ -1,12 +1,10 @@
-import { Position, PitchType, Handedness } from "../../src/service/enums.js"
-import { Game, HitResultCount, HitterStatLine, HittingRatings, LeagueAverage, Lineup, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchRatings, PitchResultCount, PitchTypeMovementStat, Player, PlayerFromStatsCommand, PlayerImportBaseline, PlayerImportRaw, RotationPitcher, Team } from "../../src/service/interfaces.js"
-import { SimService } from "../../src/service/sim-service.js"
-import { StatService } from "../../src/service/stat-service.js"
+import { Position, PitchType, Handedness } from "../../sim/service/enums.js"
+import { Game, HitResultCount, HitterStatLine, HittingRatings,  Lineup, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchRatings, PitchResultCount, PitchTypeMovementStat, Player, PlayerFromStatsCommand, PlayerImportBaseline, PlayerImportRaw, RotationPitcher, Team } from "../../sim/service/interfaces.js"
+import { SimService } from "../../sim/service/sim-service.js"
+import { StatService } from "../../sim/service/stat-service.js"
 import { v4 as uuidv4 } from 'uuid'
 
-import fs from "fs"
-import path from "path"
-import seedrandom from "seedrandom"
+
 import { DownloaderService } from "./downloader-service.js"
 
 const defaultTuningConfig = {
@@ -25,76 +23,6 @@ class PlayerImporterService {
         private statService: StatService,
         private downloaderService:DownloaderService
     ) { }
-
-    static buildLeagueAverageRatings(laRating: number) {
-        return {
-            hittingRatings: {
-                speed: laRating,
-                steals: laRating,
-                arm: laRating,
-                defense: laRating,
-                vsL: {
-                    contact: laRating,
-                    gapPower: laRating,
-                    homerunPower: laRating,
-                    plateDiscipline: laRating
-                },
-                vsR: {
-                    contact: laRating,
-                    gapPower: laRating,
-                    homerunPower: laRating,
-                    plateDiscipline: laRating
-                }
-            },
-
-            pitchRatings: {
-                power: laRating,
-                vsL: {
-                    control: laRating,
-                    movement: laRating
-                },
-                vsR: {
-                    control: laRating,
-                    movement: laRating
-                }
-            }
-        }
-    }
-
-    static pitchEnvironmentTargetToLeagueAverage(target: PitchEnvironmentTarget): LeagueAverage {
-        if (!target.pitchEnvironmentTuning?.tuning) {
-            throw new Error("Missing pitchEnvironmentTuning.tuning on target")
-        }
-
-        return JSON.parse(JSON.stringify({
-            ...this.buildLeagueAverageRatings(100),
-
-            foulRate: target.pitch.foulContactPercent,
-
-            pitchQuality: 50,
-
-            contactTypeRollInput: target.battedBall.contactRollInput,
-            powerRollInput: target.battedBall.powerRollInput,
-
-            fielderChanceL: target.fielderChance.vsL,
-            fielderChanceR: target.fielderChance.vsR,
-
-            shallowDeepChance: target.fielderChance.shallowDeep,
-
-            inZoneByCount: target.pitch.inZoneByCount,
-            steal: target.steal,
-
-            swing: {
-                zoneSwingBase: target.swing.zoneSwingBase,
-                chaseSwingBase: target.swing.chaseSwingBase,
-                zoneContactBase: target.swing.zoneContactBase,
-                chaseContactBase: target.swing.chaseContactBase,
-                behaviorByCount: target.swing.behaviorByCount
-            },
-
-            tuning: { ...target.pitchEnvironmentTuning.tuning }
-        }))
-    }
 
     static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>): PitchEnvironmentTarget {
 
@@ -204,35 +132,8 @@ class PlayerImporterService {
             vsR: { battersFaced: 0, outs: 0, hitsAllowed: 0, doublesAllowed: 0, triplesAllowed: 0, homeRunsAllowed: 0, bbAllowed: 0, so: 0, hbpAllowed: 0 }
         }
 
-        const inZoneByCountSeed = [
-            { balls: 0, strikes: 0, inZone: 0, total: 0 },
-            { balls: 0, strikes: 1, inZone: 0, total: 0 },
-            { balls: 0, strikes: 2, inZone: 0, total: 0 },
-            { balls: 1, strikes: 0, inZone: 0, total: 0 },
-            { balls: 1, strikes: 1, inZone: 0, total: 0 },
-            { balls: 1, strikes: 2, inZone: 0, total: 0 },
-            { balls: 2, strikes: 0, inZone: 0, total: 0 },
-            { balls: 2, strikes: 1, inZone: 0, total: 0 },
-            { balls: 2, strikes: 2, inZone: 0, total: 0 },
-            { balls: 3, strikes: 0, inZone: 0, total: 0 },
-            { balls: 3, strikes: 1, inZone: 0, total: 0 },
-            { balls: 3, strikes: 2, inZone: 0, total: 0 }
-        ]
-
-        const behaviorByCountSeed = [
-            { balls: 0, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 0, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 0, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 1, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 1, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 1, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 2, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 2, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 2, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 3, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 3, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
-            { balls: 3, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 }
-        ]
+        const inZoneByCountSeed = this.createInZoneByCountSeed()
+        const behaviorByCountSeed = this.createBehaviorByCountSeed()
 
         const inZoneByCountMap = new Map<string, { balls: number, strikes: number, inZone: number, total: number }>()
         for (const bucket of inZoneByCountSeed) {
@@ -243,6 +144,12 @@ class PlayerImporterService {
         for (const bucket of behaviorByCountSeed) {
             behaviorByCountMap.set(`${bucket.balls}-${bucket.strikes}`, bucket)
         }
+
+        const outcomeByEvLaMap = new Map<string, { evBin: number, laBin: number, count: number, out: number, single: number, double: number, triple: number, hr: number }>()
+        const xyByTrajectoryMap = new Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", xBin: number, yBin: number, count: number }>()
+        const xyByTrajectoryEvLaMap = new Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", evBin: number, laBin: number, xBin: number, yBin: number, count: number }>()
+        const sprayByTrajectoryMap = new Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", sprayBin: number, count: number }>()
+        const sprayByTrajectoryEvLaMap = new Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", evBin: number, laBin: number, sprayBin: number, count: number }>()
 
         const positionSeeds: Record<Position, number> = {
             [Position.PITCHER]: 0,
@@ -257,193 +164,84 @@ class PlayerImporterService {
             [Position.DESIGNATED_HITTER]: 0
         }
 
-        for (const player of allPlayers) {
-            hitterTotals.games += player.hitting.games
-            hitterTotals.pa += player.hitting.pa
-            hitterTotals.ab += player.hitting.ab
-            hitterTotals.hits += player.hitting.hits
-            hitterTotals.doubles += player.hitting.doubles
-            hitterTotals.triples += player.hitting.triples
-            hitterTotals.homeRuns += player.hitting.homeRuns
-            hitterTotals.bb += player.hitting.bb
-            hitterTotals.so += player.hitting.so
-            hitterTotals.hbp += player.hitting.hbp
-            hitterTotals.groundBalls += player.hitting.groundBalls
-            hitterTotals.flyBalls += player.hitting.flyBalls
-            hitterTotals.lineDrives += player.hitting.lineDrives
-            hitterTotals.popups += player.hitting.popups
-            hitterTotals.pitchesSeen += player.hitting.pitchesSeen
-            hitterTotals.ballsSeen += player.hitting.ballsSeen
-            hitterTotals.strikesSeen += player.hitting.strikesSeen
-            hitterTotals.swings += player.hitting.swings
-            hitterTotals.swingAtBalls += player.hitting.swingAtBalls
-            hitterTotals.swingAtStrikes += player.hitting.swingAtStrikes
-            hitterTotals.calledStrikes += player.hitting.calledStrikes
-            hitterTotals.swingingStrikes += player.hitting.swingingStrikes
-            hitterTotals.inZonePitches += player.hitting.inZonePitches
-            hitterTotals.inZoneContact += player.hitting.inZoneContact
-            hitterTotals.outZoneContact += player.hitting.outZoneContact
-            hitterTotals.fouls += player.hitting.fouls
-            hitterTotals.ballsInPlay += player.hitting.ballsInPlay
+        const createMomentStat = () => ({ count: 0, total: 0, totalSquared: 0, avg: 0 })
+        const createTrajectoryMoment = () => ({
+            count: 0,
+            totalExitVelocity: 0,
+            totalExitVelocitySquared: 0,
+            avgExitVelocity: 0,
+            totalLaunchAngle: 0,
+            totalLaunchAngleSquared: 0,
+            avgLaunchAngle: 0,
+            totalDistance: 0,
+            totalDistanceSquared: 0,
+            avgDistance: 0
+        })
 
-            pitcherTotals.games += player.pitching.games
-            pitcherTotals.starts += player.pitching.starts
-            pitcherTotals.battersFaced += player.pitching.battersFaced
-            pitcherTotals.outs += player.pitching.outs
-            pitcherTotals.hitsAllowed += player.pitching.hitsAllowed
-            pitcherTotals.doublesAllowed += player.pitching.doublesAllowed
-            pitcherTotals.triplesAllowed += player.pitching.triplesAllowed
-            pitcherTotals.homeRunsAllowed += player.pitching.homeRunsAllowed
-            pitcherTotals.bbAllowed += player.pitching.bbAllowed
-            pitcherTotals.so += player.pitching.so
-            pitcherTotals.hbpAllowed += player.pitching.hbpAllowed
-            pitcherTotals.groundBallsAllowed += player.pitching.groundBallsAllowed
-            pitcherTotals.flyBallsAllowed += player.pitching.flyBallsAllowed
-            pitcherTotals.lineDrivesAllowed += player.pitching.lineDrivesAllowed
-            pitcherTotals.popupsAllowed += player.pitching.popupsAllowed
-            pitcherTotals.pitchesThrown += player.pitching.pitchesThrown
-            pitcherTotals.ballsThrown += player.pitching.ballsThrown
-            pitcherTotals.strikesThrown += player.pitching.strikesThrown
-            pitcherTotals.swingsInduced += player.pitching.swingsInduced
-            pitcherTotals.swingAtBallsAllowed += player.pitching.swingAtBallsAllowed
-            pitcherTotals.swingAtStrikesAllowed += player.pitching.swingAtStrikesAllowed
-            pitcherTotals.inZoneContactAllowed += player.pitching.inZoneContactAllowed
-            pitcherTotals.outZoneContactAllowed += player.pitching.outZoneContactAllowed
-            pitcherTotals.foulsAllowed += player.pitching.foulsAllowed
-            pitcherTotals.ballsInPlayAllowed += player.pitching.ballsInPlayAllowed
-
-            runningTotals.sb += player.running.sb
-            runningTotals.cs += player.running.cs
-            runningTotals.sbAttempts += player.running.sbAttempts
-            runningTotals.timesOnFirst += player.running.timesOnFirst
-            runningTotals.extraBaseTaken += player.running.extraBaseTaken
-            runningTotals.extraBaseOpportunities += player.running.extraBaseOpportunities
-
-            fieldingTotals.errors += player.fielding.errors
-            fieldingTotals.assists += player.fielding.assists
-            fieldingTotals.putouts += player.fielding.putouts
-            fieldingTotals.chances += player.fielding.chances
-            fieldingTotals.doublePlays += player.fielding.doublePlays
-            fieldingTotals.doublePlayOpportunities += player.fielding.doublePlayOpportunities
-            fieldingTotals.outfieldAssists += player.fielding.outfieldAssists
-            fieldingTotals.catcherCaughtStealing += player.fielding.catcherCaughtStealing
-            fieldingTotals.catcherStolenBasesAllowed += player.fielding.catcherStolenBasesAllowed
-            fieldingTotals.passedBalls += player.fielding.passedBalls
-            fieldingTotals.throwsAttempted += player.fielding.throwsAttempted
-            fieldingTotals.successfulThrowOuts += player.fielding.successfulThrowOuts
-            fieldingTotals.groundBallsFielded += player.fielding.groundBallsFielded ?? 0
-            fieldingTotals.flyBallsFielded += player.fielding.flyBallsFielded ?? 0
-            fieldingTotals.lineDrivesFielded += player.fielding.lineDrivesFielded ?? 0
-            fieldingTotals.popupsFielded += player.fielding.popupsFielded ?? 0
-
-            splitHittingTotals.vsL.pa += player.splits.hitting.vsL.pa
-            splitHittingTotals.vsL.ab += player.splits.hitting.vsL.ab
-            splitHittingTotals.vsL.hits += player.splits.hitting.vsL.hits
-            splitHittingTotals.vsL.doubles += player.splits.hitting.vsL.doubles
-            splitHittingTotals.vsL.triples += player.splits.hitting.vsL.triples
-            splitHittingTotals.vsL.homeRuns += player.splits.hitting.vsL.homeRuns
-            splitHittingTotals.vsL.bb += player.splits.hitting.vsL.bb
-            splitHittingTotals.vsL.so += player.splits.hitting.vsL.so
-            splitHittingTotals.vsL.hbp += player.splits.hitting.vsL.hbp
-            splitHittingTotals.vsL.exitVelocityWeighted += player.splits.hitting.vsL.exitVelocity * player.splits.hitting.vsL.pa
-
-            splitHittingTotals.vsR.pa += player.splits.hitting.vsR.pa
-            splitHittingTotals.vsR.ab += player.splits.hitting.vsR.ab
-            splitHittingTotals.vsR.hits += player.splits.hitting.vsR.hits
-            splitHittingTotals.vsR.doubles += player.splits.hitting.vsR.doubles
-            splitHittingTotals.vsR.triples += player.splits.hitting.vsR.triples
-            splitHittingTotals.vsR.homeRuns += player.splits.hitting.vsR.homeRuns
-            splitHittingTotals.vsR.bb += player.splits.hitting.vsR.bb
-            splitHittingTotals.vsR.so += player.splits.hitting.vsR.so
-            splitHittingTotals.vsR.hbp += player.splits.hitting.vsR.hbp
-            splitHittingTotals.vsR.exitVelocityWeighted += player.splits.hitting.vsR.exitVelocity * player.splits.hitting.vsR.pa
-
-            splitPitchingTotals.vsL.battersFaced += player.splits.pitching.vsL.battersFaced
-            splitPitchingTotals.vsL.outs += player.splits.pitching.vsL.outs
-            splitPitchingTotals.vsL.hitsAllowed += player.splits.pitching.vsL.hitsAllowed
-            splitPitchingTotals.vsL.doublesAllowed += player.splits.pitching.vsL.doublesAllowed
-            splitPitchingTotals.vsL.triplesAllowed += player.splits.pitching.vsL.triplesAllowed
-            splitPitchingTotals.vsL.homeRunsAllowed += player.splits.pitching.vsL.homeRunsAllowed
-            splitPitchingTotals.vsL.bbAllowed += player.splits.pitching.vsL.bbAllowed
-            splitPitchingTotals.vsL.so += player.splits.pitching.vsL.so
-            splitPitchingTotals.vsL.hbpAllowed += player.splits.pitching.vsL.hbpAllowed
-
-            splitPitchingTotals.vsR.battersFaced += player.splits.pitching.vsR.battersFaced
-            splitPitchingTotals.vsR.outs += player.splits.pitching.vsR.outs
-            splitPitchingTotals.vsR.hitsAllowed += player.splits.pitching.vsR.hitsAllowed
-            splitPitchingTotals.vsR.doublesAllowed += player.splits.pitching.vsR.doublesAllowed
-            splitPitchingTotals.vsR.triplesAllowed += player.splits.pitching.vsR.triplesAllowed
-            splitPitchingTotals.vsR.homeRunsAllowed += player.splits.pitching.vsR.homeRunsAllowed
-            splitPitchingTotals.vsR.bbAllowed += player.splits.pitching.vsR.bbAllowed
-            splitPitchingTotals.vsR.so += player.splits.pitching.vsR.so
-            splitPitchingTotals.vsR.hbpAllowed += player.splits.pitching.vsR.hbpAllowed
-
-            for (const rawBucket of player.hitting.inZoneByCount ?? []) {
-                const balls = Number(rawBucket?.balls ?? 0)
-                const strikes = Number(rawBucket?.strikes ?? 0)
-
-                if (balls < 0 || balls > 3 || strikes < 0 || strikes > 2) continue
-
-                const bucket = inZoneByCountMap.get(`${balls}-${strikes}`)
-                if (!bucket) continue
-
-                bucket.inZone += Number(rawBucket?.inZone ?? 0)
-                bucket.total += Number(rawBucket?.total ?? 0)
-            }
-
-            for (const rawBucket of player.hitting.behaviorByCount ?? []) {
-                const balls = Number(rawBucket?.balls ?? 0)
-                const strikes = Number(rawBucket?.strikes ?? 0)
-
-                if (balls < 0 || balls > 3 || strikes < 0 || strikes > 2) continue
-
-                const bucket = behaviorByCountMap.get(`${balls}-${strikes}`)
-                if (!bucket) continue
-
-                bucket.zonePitches += Number(rawBucket?.zonePitches ?? 0)
-                bucket.chasePitches += Number(rawBucket?.chasePitches ?? 0)
-                bucket.zoneSwings += Number(rawBucket?.zoneSwings ?? 0)
-                bucket.chaseSwings += Number(rawBucket?.chaseSwings ?? 0)
-                bucket.zoneContact += Number(rawBucket?.zoneContact ?? 0)
-                bucket.chaseContact += Number(rawBucket?.chaseContact ?? 0)
-                bucket.zoneMisses += Number(rawBucket?.zoneMisses ?? 0)
-                bucket.chaseMisses += Number(rawBucket?.chaseMisses ?? 0)
-                bucket.zoneFouls += Number(rawBucket?.zoneFouls ?? 0)
-                bucket.chaseFouls += Number(rawBucket?.chaseFouls ?? 0)
-                bucket.zoneBallsInPlay += Number(rawBucket?.zoneBallsInPlay ?? 0)
-                bucket.chaseBallsInPlay += Number(rawBucket?.chaseBallsInPlay ?? 0)
-            }
-
-            const positionStats = player.fielding.positionStats ?? {}
-
-            for (const [positionKey, stats] of Object.entries(positionStats)) {
-                const pos = positionKey as Position
-                const ps: any = stats ?? {}
-
-                if (pos === Position.DESIGNATED_HITTER) continue
-
-                const fieldedBalls = Number(ps.fieldedBalls ?? 0)
-                const assists = Number(ps.assists ?? 0)
-                const putouts = Number(ps.putouts ?? 0)
-                const errors = Number(ps.errors ?? 0)
-
-                let seed = fieldedBalls + assists + errors
-
-                if (pos === Position.CATCHER) {
-                    seed += Number(player.fielding.catcherCaughtStealing ?? 0) + Number(player.fielding.passedBalls ?? 0)
-                } else if (pos === Position.FIRST_BASE) {
-                    seed += putouts * 0.05
-                } else {
-                    seed += putouts * 0.15
-                }
-
-                if (pos === Position.LEFT_FIELD || pos === Position.CENTER_FIELD || pos === Position.RIGHT_FIELD) {
-                    seed += Number(ps.assists ?? 0) * 2
-                }
-
-                positionSeeds[pos] += seed
+        const hittingPhysicsTotals = {
+            exitVelocity: createMomentStat(),
+            launchAngle: createMomentStat(),
+            distance: createMomentStat(),
+            byTrajectory: {
+                groundBall: createTrajectoryMoment(),
+                flyBall: createTrajectoryMoment(),
+                lineDrive: createTrajectoryMoment(),
+                popup: createTrajectoryMoment()
             }
         }
+
+        const pitchingPhysicsTotals = {
+            velocity: createMomentStat(),
+            horizontalBreak: createMomentStat(),
+            verticalBreak: createMomentStat(),
+            byPitchType: {} as Record<string, { count: number, total: number, totalSquared: number, avg: number, totalHorizontalBreak: number, totalHorizontalBreakSquared: number, avgHorizontalBreak: number, totalVerticalBreak: number, totalVerticalBreakSquared: number, avgVerticalBreak: number }>
+        }
+
+        for (const player of allPlayers) {
+            this.accumulatePitchEnvironmentTotalsForPlayer(player, hitterTotals, pitcherTotals, runningTotals, fieldingTotals, splitHittingTotals, splitPitchingTotals)
+            this.accumulatePitchEnvironmentCountBuckets(player, inZoneByCountMap, behaviorByCountMap)
+            this.accumulatePitchEnvironmentBattedBallBuckets(player, outcomeByEvLaMap, xyByTrajectoryMap, xyByTrajectoryEvLaMap, sprayByTrajectoryMap, sprayByTrajectoryEvLaMap)
+            this.accumulatePitchEnvironmentPhysics(player, hittingPhysicsTotals, pitchingPhysicsTotals)
+            this.accumulatePitchEnvironmentPositionSeeds(player, positionSeeds)
+        }
+
+        this.finalizePitchEnvironmentPhysicsTotals(hittingPhysicsTotals, pitchingPhysicsTotals)
+
+        const finalizedOutcomeByEvLa = this.finalizeOutcomeByEvLa(outcomeByEvLaMap)
+
+        const finalizedXyByTrajectory = Array
+            .from(xyByTrajectoryMap.values())
+            .sort((a, b) => {
+                if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
+                if (a.xBin !== b.xBin) return a.xBin - b.xBin
+                return a.yBin - b.yBin
+            })
+
+        const finalizedXyByTrajectoryEvLa = Array
+            .from(xyByTrajectoryEvLaMap.values())
+            .sort((a, b) => {
+                if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
+                if (a.evBin !== b.evBin) return a.evBin - b.evBin
+                if (a.laBin !== b.laBin) return a.laBin - b.laBin
+                if (a.xBin !== b.xBin) return a.xBin - b.xBin
+                return a.yBin - b.yBin
+            })
+
+        const finalizedSprayByTrajectory = Array
+            .from(sprayByTrajectoryMap.values())
+            .sort((a, b) => {
+                if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
+                return a.sprayBin - b.sprayBin
+            })
+
+        const finalizedSprayByTrajectoryEvLa = Array
+            .from(sprayByTrajectoryEvLaMap.values())
+            .sort((a, b) => {
+                if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
+                if (a.evBin !== b.evBin) return a.evBin - b.evBin
+                if (a.laBin !== b.laBin) return a.laBin - b.laBin
+                return a.sprayBin - b.sprayBin
+            })
 
         const totalTeamGames = safeDiv(pitcherTotals.outs, 27)
         const singles = hitterTotals.hits - hitterTotals.doubles - hitterTotals.triples - hitterTotals.homeRuns
@@ -564,6 +362,7 @@ class PlayerImporterService {
         const measuredOutZoneContactPercent = round(safeDiv(hitterTotals.outZoneContact, hitterTotals.swingAtBalls) * 100, 1)
 
         const target: PitchEnvironmentTarget = {
+            avgRating: 100,
             season,
 
             pitch: {
@@ -601,6 +400,15 @@ class PlayerImporterService {
                     doubles: powerRollInputRaw.doubles,
                     triples: powerRollInputRaw.triples,
                     hr: powerRollInputRaw.hr
+                },
+                outcomeByEvLa: finalizedOutcomeByEvLa,
+                xy: {
+                    byTrajectory: finalizedXyByTrajectory,
+                    byTrajectoryEvLa: finalizedXyByTrajectoryEvLa
+                },
+                spray: {
+                    byTrajectory: finalizedSprayByTrajectory,
+                    byTrajectoryEvLa: finalizedSprayByTrajectoryEvLa
                 }
             },
 
@@ -690,7 +498,33 @@ class PlayerImporterService {
                     outZoneContact: scaleTo(hitterTotals.outZoneContact, hitterTotals.pa, 1000),
 
                     fouls: scaleTo(hitterTotals.fouls, hitterTotals.pa, 1000),
-                    ballsInPlay: scaleTo(hitterTotals.ballsInPlay, hitterTotals.pa, 1000)
+                    ballsInPlay: scaleTo(hitterTotals.ballsInPlay, hitterTotals.pa, 1000),
+                    physics: {
+                        exitVelocity: {
+                            count: hittingPhysicsTotals.exitVelocity.count,
+                            total: hittingPhysicsTotals.exitVelocity.total,
+                            totalSquared: hittingPhysicsTotals.exitVelocity.totalSquared,
+                            avg: hittingPhysicsTotals.exitVelocity.avg
+                        },
+                        launchAngle: {
+                            count: hittingPhysicsTotals.launchAngle.count,
+                            total: hittingPhysicsTotals.launchAngle.total,
+                            totalSquared: hittingPhysicsTotals.launchAngle.totalSquared,
+                            avg: hittingPhysicsTotals.launchAngle.avg
+                        },
+                        distance: {
+                            count: hittingPhysicsTotals.distance.count,
+                            total: hittingPhysicsTotals.distance.total,
+                            totalSquared: hittingPhysicsTotals.distance.totalSquared,
+                            avg: hittingPhysicsTotals.distance.avg
+                        },
+                        byTrajectory: {
+                            groundBall: { ...hittingPhysicsTotals.byTrajectory.groundBall },
+                            flyBall: { ...hittingPhysicsTotals.byTrajectory.flyBall },
+                            lineDrive: { ...hittingPhysicsTotals.byTrajectory.lineDrive },
+                            popup: { ...hittingPhysicsTotals.byTrajectory.popup }
+                        }
+                    }
                 },
 
                 pitcher: {
@@ -725,7 +559,28 @@ class PlayerImporterService {
                     outZoneContactAllowed: scaleTo(pitcherTotals.outZoneContactAllowed, pitcherTotals.battersFaced, 1000),
 
                     foulsAllowed: scaleTo(pitcherTotals.foulsAllowed, pitcherTotals.battersFaced, 1000),
-                    ballsInPlayAllowed: scaleTo(pitcherTotals.ballsInPlayAllowed, pitcherTotals.battersFaced, 1000)
+                    ballsInPlayAllowed: scaleTo(pitcherTotals.ballsInPlayAllowed, pitcherTotals.battersFaced, 1000),
+                    physics: {
+                        velocity: {
+                            count: pitchingPhysicsTotals.velocity.count,
+                            total: pitchingPhysicsTotals.velocity.total,
+                            totalSquared: pitchingPhysicsTotals.velocity.totalSquared,
+                            avg: pitchingPhysicsTotals.velocity.avg
+                        },
+                        horizontalBreak: {
+                            count: pitchingPhysicsTotals.horizontalBreak.count,
+                            total: pitchingPhysicsTotals.horizontalBreak.total,
+                            totalSquared: pitchingPhysicsTotals.horizontalBreak.totalSquared,
+                            avg: pitchingPhysicsTotals.horizontalBreak.avg
+                        },
+                        verticalBreak: {
+                            count: pitchingPhysicsTotals.verticalBreak.count,
+                            total: pitchingPhysicsTotals.verticalBreak.total,
+                            totalSquared: pitchingPhysicsTotals.verticalBreak.totalSquared,
+                            avg: pitchingPhysicsTotals.verticalBreak.avg
+                        },
+                        byPitchType: { ...pitchingPhysicsTotals.byPitchType }
+                    }
                 },
 
                 fielding: {
@@ -808,6 +663,413 @@ class PlayerImporterService {
         }
 
         return target
+    }
+
+    private static createInZoneByCountSeed(): { balls: number, strikes: number, inZone: number, total: number }[] {
+        return [
+            { balls: 0, strikes: 0, inZone: 0, total: 0 },
+            { balls: 0, strikes: 1, inZone: 0, total: 0 },
+            { balls: 0, strikes: 2, inZone: 0, total: 0 },
+            { balls: 1, strikes: 0, inZone: 0, total: 0 },
+            { balls: 1, strikes: 1, inZone: 0, total: 0 },
+            { balls: 1, strikes: 2, inZone: 0, total: 0 },
+            { balls: 2, strikes: 0, inZone: 0, total: 0 },
+            { balls: 2, strikes: 1, inZone: 0, total: 0 },
+            { balls: 2, strikes: 2, inZone: 0, total: 0 },
+            { balls: 3, strikes: 0, inZone: 0, total: 0 },
+            { balls: 3, strikes: 1, inZone: 0, total: 0 },
+            { balls: 3, strikes: 2, inZone: 0, total: 0 }
+        ]
+    }
+
+    private static createBehaviorByCountSeed(): { balls: number, strikes: number, zonePitches: number, chasePitches: number, zoneSwings: number, chaseSwings: number, zoneContact: number, chaseContact: number, zoneMisses: number, chaseMisses: number, zoneFouls: number, chaseFouls: number, zoneBallsInPlay: number, chaseBallsInPlay: number }[] {
+        return [
+            { balls: 0, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 0, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 0, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 1, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 1, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 1, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 2, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 2, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 2, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 3, strikes: 0, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 3, strikes: 1, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 },
+            { balls: 3, strikes: 2, zonePitches: 0, chasePitches: 0, zoneSwings: 0, chaseSwings: 0, zoneContact: 0, chaseContact: 0, zoneMisses: 0, chaseMisses: 0, zoneFouls: 0, chaseFouls: 0, zoneBallsInPlay: 0, chaseBallsInPlay: 0 }
+        ]
+    }
+
+    private static accumulatePitchEnvironmentTotalsForPlayer(player: PlayerImportRaw, hitterTotals: any, pitcherTotals: any, runningTotals: any, fieldingTotals: any, splitHittingTotals: any, splitPitchingTotals: any): void {
+        if (player.hitting) {
+            const h = player.hitting
+            hitterTotals.pa += h.pa
+            hitterTotals.ab += h.ab
+            hitterTotals.hits += h.hits
+            hitterTotals.doubles += h.doubles
+            hitterTotals.triples += h.triples
+            hitterTotals.homeRuns += h.homeRuns
+            hitterTotals.bb += h.bb
+            hitterTotals.so += h.so
+            hitterTotals.hbp += h.hbp
+            hitterTotals.groundBalls += h.groundBalls
+            hitterTotals.flyBalls += h.flyBalls
+            hitterTotals.lineDrives += h.lineDrives
+            hitterTotals.popups += h.popups
+            hitterTotals.pitchesSeen += h.pitchesSeen
+            hitterTotals.ballsSeen += h.ballsSeen
+            hitterTotals.strikesSeen += h.strikesSeen
+            hitterTotals.swings += h.swings
+            hitterTotals.swingAtBalls += h.swingAtBalls
+            hitterTotals.swingAtStrikes += h.swingAtStrikes
+            hitterTotals.calledStrikes += h.calledStrikes
+            hitterTotals.swingingStrikes += h.swingingStrikes
+            hitterTotals.inZonePitches += h.inZonePitches
+            hitterTotals.inZoneContact += h.inZoneContact
+            hitterTotals.outZoneContact += h.outZoneContact
+            hitterTotals.fouls += h.fouls
+            hitterTotals.ballsInPlay += h.ballsInPlay
+        }
+
+        if (player.pitching) {
+            const p = player.pitching
+            pitcherTotals.battersFaced += p.battersFaced
+            pitcherTotals.outs += p.outs
+            pitcherTotals.hitsAllowed += p.hitsAllowed
+            pitcherTotals.doublesAllowed += p.doublesAllowed
+            pitcherTotals.triplesAllowed += p.triplesAllowed
+            pitcherTotals.homeRunsAllowed += p.homeRunsAllowed
+            pitcherTotals.bbAllowed += p.bbAllowed
+            pitcherTotals.so += p.so
+            pitcherTotals.hbpAllowed += p.hbpAllowed
+            pitcherTotals.groundBallsAllowed += p.groundBallsAllowed
+            pitcherTotals.flyBallsAllowed += p.flyBallsAllowed
+            pitcherTotals.lineDrivesAllowed += p.lineDrivesAllowed
+            pitcherTotals.popupsAllowed += p.popupsAllowed
+            pitcherTotals.pitchesThrown += p.pitchesThrown
+            pitcherTotals.ballsThrown += p.ballsThrown
+            pitcherTotals.strikesThrown += p.strikesThrown
+            pitcherTotals.swingsInduced += p.swingsInduced
+            pitcherTotals.swingAtBallsAllowed += p.swingAtBallsAllowed
+            pitcherTotals.swingAtStrikesAllowed += p.swingAtStrikesAllowed
+            pitcherTotals.inZoneContactAllowed += p.inZoneContactAllowed
+            pitcherTotals.outZoneContactAllowed += p.outZoneContactAllowed
+            pitcherTotals.foulsAllowed += p.foulsAllowed
+            pitcherTotals.ballsInPlayAllowed += p.ballsInPlayAllowed
+        }
+
+        if (player.running) {
+            const r = player.running
+            runningTotals.sb += r.sb
+            runningTotals.cs += r.cs
+            runningTotals.sbAttempts += r.sbAttempts
+            runningTotals.timesOnFirst += r.timesOnFirst
+            runningTotals.extraBaseTaken += r.extraBaseTaken
+            runningTotals.extraBaseOpportunities += r.extraBaseOpportunities
+        }
+
+        if (player.fielding) {
+            const f = player.fielding
+            fieldingTotals.errors += f.errors
+            fieldingTotals.assists += f.assists
+            fieldingTotals.putouts += f.putouts
+            fieldingTotals.chances += f.chances
+            fieldingTotals.doublePlays += f.doublePlays
+            fieldingTotals.doublePlayOpportunities += f.doublePlayOpportunities
+            fieldingTotals.outfieldAssists += f.outfieldAssists
+            fieldingTotals.catcherCaughtStealing += f.catcherCaughtStealing
+            fieldingTotals.catcherStolenBasesAllowed += f.catcherStolenBasesAllowed
+            fieldingTotals.passedBalls += f.passedBalls
+            fieldingTotals.throwsAttempted += f.throwsAttempted
+            fieldingTotals.successfulThrowOuts += f.successfulThrowOuts
+        }
+
+        if (player.splits?.hitting) {
+            splitHittingTotals.vsL.pa += player.splits.hitting.vsL.pa
+            splitHittingTotals.vsR.pa += player.splits.hitting.vsR.pa
+        }
+
+        if (player.splits?.pitching) {
+            splitPitchingTotals.vsL.battersFaced += player.splits.pitching.vsL.battersFaced
+            splitPitchingTotals.vsR.battersFaced += player.splits.pitching.vsR.battersFaced
+        }
+    }
+
+    private static accumulatePitchEnvironmentCountBuckets(player: PlayerImportRaw, inZoneByCountMap: Map<string, any>, behaviorByCountMap: Map<string, any>): void {
+        this.accumulateInZoneByCountBuckets(player, inZoneByCountMap)
+        this.accumulateBehaviorByCountBuckets(player, behaviorByCountMap)
+    }
+
+    private static accumulatePitchEnvironmentBattedBallBuckets(player: PlayerImportRaw, outcomeByEvLaMap: Map<string, any>, xyByTrajectoryMap: Map<string, any>, xyByTrajectoryEvLaMap: Map<string, any>, sprayByTrajectoryMap: Map<string, any>, sprayByTrajectoryEvLaMap: Map<string, any>): void {
+
+        for (const bucket of player.hitting.outcomeByEvLa ?? []) {
+            const key = `${bucket.evBin}:${bucket.laBin}`
+            let existing = outcomeByEvLaMap.get(key)
+            if (!existing) {
+                existing = { ...bucket }
+                outcomeByEvLaMap.set(key, existing)
+            } else {
+                existing.count += bucket.count
+                existing.out += bucket.out
+                existing.single += bucket.single
+                existing.double += bucket.double
+                existing.triple += bucket.triple
+                existing.hr += bucket.hr
+            }
+        }
+
+        for (const bucket of player.hitting.xyByTrajectory ?? []) {
+            const key = `${bucket.trajectory}:${bucket.xBin}:${bucket.yBin}`
+            let existing = xyByTrajectoryMap.get(key)
+            if (!existing) {
+                existing = { ...bucket }
+                xyByTrajectoryMap.set(key, existing)
+            } else {
+                existing.count += bucket.count
+            }
+        }
+
+        for (const bucket of player.hitting.xyByTrajectoryEvLa ?? []) {
+            const key = `${bucket.trajectory}:${bucket.evBin}:${bucket.laBin}:${bucket.xBin}:${bucket.yBin}`
+            let existing = xyByTrajectoryEvLaMap.get(key)
+            if (!existing) {
+                existing = { ...bucket }
+                xyByTrajectoryEvLaMap.set(key, existing)
+            } else {
+                existing.count += bucket.count
+            }
+        }
+
+        for (const bucket of player.hitting.sprayByTrajectory ?? []) {
+            const key = `${bucket.trajectory}:${bucket.sprayBin}`
+            let existing = sprayByTrajectoryMap.get(key)
+            if (!existing) {
+                existing = { ...bucket }
+                sprayByTrajectoryMap.set(key, existing)
+            } else {
+                existing.count += bucket.count
+            }
+        }
+
+        for (const bucket of player.hitting.sprayByTrajectoryEvLa ?? []) {
+            const key = `${bucket.trajectory}:${bucket.evBin}:${bucket.laBin}:${bucket.sprayBin}`
+            let existing = sprayByTrajectoryEvLaMap.get(key)
+            if (!existing) {
+                existing = { ...bucket }
+                sprayByTrajectoryEvLaMap.set(key, existing)
+            } else {
+                existing.count += bucket.count
+            }
+        }
+    }
+
+    private static accumulatePitchEnvironmentPhysics(player: PlayerImportRaw, hittingPhysicsTotals: any, pitchingPhysicsTotals: any): void {
+        const addMomentStat = (target: { count: number, total: number, totalSquared: number, avg: number }, stat?: { count?: number, totalExitVelo?: number, avgExitVelo?: number, totalLaunchAngle?: number, avgLaunchAngle?: number, totalDistance?: number, avgDistance?: number }, totalKey?: "totalExitVelo" | "totalLaunchAngle" | "totalDistance", avgKey?: "avgExitVelo" | "avgLaunchAngle" | "avgDistance"): void => {
+            if (!stat || !totalKey || !avgKey) return
+
+            const count = Number(stat.count ?? 0)
+            const total = Number(stat[totalKey] ?? 0)
+            const avg = Number(stat[avgKey] ?? 0)
+
+            if (count <= 0 || !Number.isFinite(total) || !Number.isFinite(avg)) return
+
+            target.count += count
+            target.total += total
+            target.totalSquared += count * avg * avg
+            target.avg = target.count > 0 ? Number((target.total / target.count).toFixed(3)) : 0
+        }
+
+        const addTrajectoryPhysics = (target: { count: number, totalExitVelocity: number, totalExitVelocitySquared: number, avgExitVelocity: number, totalLaunchAngle: number, totalLaunchAngleSquared: number, avgLaunchAngle: number, totalDistance: number, totalDistanceSquared: number, avgDistance: number }, stat?: { exitVelocity?: { count?: number, totalExitVelo?: number, avgExitVelo?: number }, launchAngle?: { count?: number, totalLaunchAngle?: number, avgLaunchAngle?: number }, distance?: { count?: number, totalDistance?: number, avgDistance?: number } }): void => {
+            if (!stat) return
+
+            const evCount = Number(stat.exitVelocity?.count ?? 0)
+            const evTotal = Number(stat.exitVelocity?.totalExitVelo ?? 0)
+            const evAvg = Number(stat.exitVelocity?.avgExitVelo ?? 0)
+
+            const laCount = Number(stat.launchAngle?.count ?? 0)
+            const laTotal = Number(stat.launchAngle?.totalLaunchAngle ?? 0)
+            const laAvg = Number(stat.launchAngle?.avgLaunchAngle ?? 0)
+
+            const distCount = Number(stat.distance?.count ?? 0)
+            const distTotal = Number(stat.distance?.totalDistance ?? 0)
+            const distAvg = Number(stat.distance?.avgDistance ?? 0)
+
+            target.count += Math.max(evCount, laCount, distCount)
+
+            if (evCount > 0 && Number.isFinite(evTotal) && Number.isFinite(evAvg)) {
+                target.totalExitVelocity += evTotal
+                target.totalExitVelocitySquared += evCount * evAvg * evAvg
+            }
+
+            if (laCount > 0 && Number.isFinite(laTotal) && Number.isFinite(laAvg)) {
+                target.totalLaunchAngle += laTotal
+                target.totalLaunchAngleSquared += laCount * laAvg * laAvg
+            }
+
+            if (distCount > 0 && Number.isFinite(distTotal) && Number.isFinite(distAvg)) {
+                target.totalDistance += distTotal
+                target.totalDistanceSquared += distCount * distAvg * distAvg
+            }
+        }
+
+        const addPitchTypeMoments = (pitchTypeKey: string, stat?: PitchTypeMovementStat): void => {
+            if (!stat) return
+
+            const count = Number(stat.count ?? 0)
+            if (count <= 0) return
+
+            const totalMph = Number(stat.totalMph ?? 0)
+            const avgMph = Number(stat.avgMph ?? 0)
+            const totalHorizontalBreak = Number(stat.totalHorizontalBreak ?? 0)
+            const avgHorizontalBreak = Number(stat.avgHorizontalBreak ?? 0)
+            const totalVerticalBreak = Number(stat.totalVerticalBreak ?? 0)
+            const avgVerticalBreak = Number(stat.avgVerticalBreak ?? 0)
+
+            const current = pitchingPhysicsTotals.byPitchType[pitchTypeKey] ?? {
+                count: 0,
+                total: 0,
+                totalSquared: 0,
+                avg: 0,
+                totalHorizontalBreak: 0,
+                totalHorizontalBreakSquared: 0,
+                avgHorizontalBreak: 0,
+                totalVerticalBreak: 0,
+                totalVerticalBreakSquared: 0,
+                avgVerticalBreak: 0
+            }
+
+            current.count += count
+            current.total += totalMph
+            current.totalSquared += count * avgMph * avgMph
+            current.totalHorizontalBreak += totalHorizontalBreak
+            current.totalHorizontalBreakSquared += count * avgHorizontalBreak * avgHorizontalBreak
+            current.totalVerticalBreak += totalVerticalBreak
+            current.totalVerticalBreakSquared += count * avgVerticalBreak * avgVerticalBreak
+
+            current.avg = current.count > 0 ? Number((current.total / current.count).toFixed(3)) : 0
+            current.avgHorizontalBreak = current.count > 0 ? Number((current.totalHorizontalBreak / current.count).toFixed(3)) : 0
+            current.avgVerticalBreak = current.count > 0 ? Number((current.totalVerticalBreak / current.count).toFixed(3)) : 0
+
+            pitchingPhysicsTotals.byPitchType[pitchTypeKey] = current
+
+            pitchingPhysicsTotals.velocity.count += count
+            pitchingPhysicsTotals.velocity.total += totalMph
+            pitchingPhysicsTotals.velocity.totalSquared += count * avgMph * avgMph
+
+            pitchingPhysicsTotals.horizontalBreak.count += count
+            pitchingPhysicsTotals.horizontalBreak.total += totalHorizontalBreak
+            pitchingPhysicsTotals.horizontalBreak.totalSquared += count * avgHorizontalBreak * avgHorizontalBreak
+
+            pitchingPhysicsTotals.verticalBreak.count += count
+            pitchingPhysicsTotals.verticalBreak.total += totalVerticalBreak
+            pitchingPhysicsTotals.verticalBreak.totalSquared += count * avgVerticalBreak * avgVerticalBreak
+        }
+
+        addMomentStat(hittingPhysicsTotals.exitVelocity, player.hitting.exitVelocity, "totalExitVelo", "avgExitVelo")
+        addMomentStat(hittingPhysicsTotals.launchAngle, player.hitting.launchAngle, "totalLaunchAngle", "avgLaunchAngle")
+        addMomentStat(hittingPhysicsTotals.distance, player.hitting.distance, "totalDistance", "avgDistance")
+
+        addTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.groundBall, player.hitting.physicsByTrajectory?.groundBall)
+        addTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.flyBall, player.hitting.physicsByTrajectory?.flyBall)
+        addTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.lineDrive, player.hitting.physicsByTrajectory?.lineDrive)
+        addTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.popup, player.hitting.physicsByTrajectory?.popup)
+
+        for (const [pitchTypeKey, pitchTypeStat] of Object.entries(player.pitching.pitchTypes ?? {})) {
+            addPitchTypeMoments(pitchTypeKey, pitchTypeStat as PitchTypeMovementStat)
+        }
+    }
+
+    private static accumulatePitchEnvironmentPositionSeeds(player: PlayerImportRaw, positionSeeds: any): void {
+        for (const pos in player.fielding?.gamesAtPosition ?? {}) {
+            positionSeeds[pos] = (positionSeeds[pos] ?? 0) + player.fielding.gamesAtPosition[pos]
+        }
+    }    
+
+    private static accumulateInZoneByCountBuckets(player: PlayerImportRaw, inZoneByCountMap: Map<string, { balls: number, strikes: number, inZone: number, total: number }>): void {
+        for (const rawBucket of player.hitting.inZoneByCount ?? []) {
+            const balls = Number(rawBucket?.balls ?? 0)
+            const strikes = Number(rawBucket?.strikes ?? 0)
+
+            if (balls < 0 || balls > 3 || strikes < 0 || strikes > 2) continue
+
+            const bucket = inZoneByCountMap.get(`${balls}-${strikes}`)
+            if (!bucket) continue
+
+            bucket.inZone += Number(rawBucket?.inZone ?? 0)
+            bucket.total += Number(rawBucket?.total ?? 0)
+        }
+    }
+
+    private static accumulateBehaviorByCountBuckets(player: PlayerImportRaw, behaviorByCountMap: Map<string, { balls: number, strikes: number, zonePitches: number, chasePitches: number, zoneSwings: number, chaseSwings: number, zoneContact: number, chaseContact: number, zoneMisses: number, chaseMisses: number, zoneFouls: number, chaseFouls: number, zoneBallsInPlay: number, chaseBallsInPlay: number }>): void {
+        for (const rawBucket of player.hitting.behaviorByCount ?? []) {
+            const balls = Number(rawBucket?.balls ?? 0)
+            const strikes = Number(rawBucket?.strikes ?? 0)
+
+            if (balls < 0 || balls > 3 || strikes < 0 || strikes > 2) continue
+
+            const bucket = behaviorByCountMap.get(`${balls}-${strikes}`)
+            if (!bucket) continue
+
+            bucket.zonePitches += Number(rawBucket?.zonePitches ?? 0)
+            bucket.chasePitches += Number(rawBucket?.chasePitches ?? 0)
+            bucket.zoneSwings += Number(rawBucket?.zoneSwings ?? 0)
+            bucket.chaseSwings += Number(rawBucket?.chaseSwings ?? 0)
+            bucket.zoneContact += Number(rawBucket?.zoneContact ?? 0)
+            bucket.chaseContact += Number(rawBucket?.chaseContact ?? 0)
+            bucket.zoneMisses += Number(rawBucket?.zoneMisses ?? 0)
+            bucket.chaseMisses += Number(rawBucket?.chaseMisses ?? 0)
+            bucket.zoneFouls += Number(rawBucket?.zoneFouls ?? 0)
+            bucket.chaseFouls += Number(rawBucket?.chaseFouls ?? 0)
+            bucket.zoneBallsInPlay += Number(rawBucket?.zoneBallsInPlay ?? 0)
+            bucket.chaseBallsInPlay += Number(rawBucket?.chaseBallsInPlay ?? 0)
+        }
+    }
+
+    private static finalizePitchEnvironmentPhysicsTotals(hittingPhysicsTotals: any, pitchingPhysicsTotals: any): void {
+        const finalizeMomentStat = (target: { count: number, total: number, totalSquared: number, avg: number }) => {
+            target.avg = target.count > 0 ? Number((target.total / target.count).toFixed(3)) : 0
+            target.total = Number(target.total.toFixed(3))
+            target.totalSquared = Number(target.totalSquared.toFixed(3))
+            return target
+        }
+
+        const finalizeTrajectoryPhysics = (target: { count: number, totalExitVelocity: number, totalExitVelocitySquared: number, avgExitVelocity: number, totalLaunchAngle: number, totalLaunchAngleSquared: number, avgLaunchAngle: number, totalDistance: number, totalDistanceSquared: number, avgDistance: number }) => {
+            target.avgExitVelocity = target.count > 0 ? Number((target.totalExitVelocity / target.count).toFixed(3)) : 0
+            target.avgLaunchAngle = target.count > 0 ? Number((target.totalLaunchAngle / target.count).toFixed(3)) : 0
+            target.avgDistance = target.count > 0 ? Number((target.totalDistance / target.count).toFixed(3)) : 0
+            target.totalExitVelocity = Number(target.totalExitVelocity.toFixed(3))
+            target.totalExitVelocitySquared = Number(target.totalExitVelocitySquared.toFixed(3))
+            target.totalLaunchAngle = Number(target.totalLaunchAngle.toFixed(3))
+            target.totalLaunchAngleSquared = Number(target.totalLaunchAngleSquared.toFixed(3))
+            target.totalDistance = Number(target.totalDistance.toFixed(3))
+            target.totalDistanceSquared = Number(target.totalDistanceSquared.toFixed(3))
+            return target
+        }
+
+        finalizeMomentStat(hittingPhysicsTotals.exitVelocity)
+        finalizeMomentStat(hittingPhysicsTotals.launchAngle)
+        finalizeMomentStat(hittingPhysicsTotals.distance)
+
+        finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.groundBall)
+        finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.flyBall)
+        finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.lineDrive)
+        finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.popup)
+
+        finalizeMomentStat(pitchingPhysicsTotals.velocity)
+        finalizeMomentStat(pitchingPhysicsTotals.horizontalBreak)
+        finalizeMomentStat(pitchingPhysicsTotals.verticalBreak)
+
+        for (const pitchTypeKey of Object.keys(pitchingPhysicsTotals.byPitchType)) {
+            const stat = pitchingPhysicsTotals.byPitchType[pitchTypeKey]
+            stat.avg = stat.count > 0 ? Number((stat.total / stat.count).toFixed(3)) : 0
+            stat.avgHorizontalBreak = stat.count > 0 ? Number((stat.totalHorizontalBreak / stat.count).toFixed(3)) : 0
+            stat.avgVerticalBreak = stat.count > 0 ? Number((stat.totalVerticalBreak / stat.count).toFixed(3)) : 0
+            stat.total = Number(stat.total.toFixed(3))
+            stat.totalSquared = Number(stat.totalSquared.toFixed(3))
+            stat.totalHorizontalBreak = Number(stat.totalHorizontalBreak.toFixed(3))
+            stat.totalHorizontalBreakSquared = Number(stat.totalHorizontalBreakSquared.toFixed(3))
+            stat.totalVerticalBreak = Number(stat.totalVerticalBreak.toFixed(3))
+            stat.totalVerticalBreakSquared = Number(stat.totalVerticalBreakSquared.toFixed(3))
+        }
     }
 
     static clampRating(value: number, min = 50, max = 200): number {
@@ -1435,7 +1697,6 @@ class PlayerImporterService {
     }
 
     static createPlayerFromStatsCommand(pitchEnvironment: PitchEnvironmentTarget, leagueImportBaseline: PlayerImportBaseline, playerImportBaseline: PlayerImportBaseline, playerImportRaw: PlayerImportRaw): PlayerFromStatsCommand {
-        const leagueAverages = PlayerImporterService.pitchEnvironmentTargetToLeagueAverage(pitchEnvironment)
 
         const hasHittingSample = playerImportRaw.hitting.pa > 0
         const hasPitchingSample = playerImportRaw.pitching.battersFaced > 0
@@ -1493,78 +1754,74 @@ class PlayerImporterService {
                 }
             },
 
-            leagueAverages,
             playerImportBaseline,
             leagueImportBaseline,
             pitchEnvironmentTarget: pitchEnvironment
         }
     }
 
+    // public async exportPitchEnvironmentTargetForSeasons(baseDataDir: string, seasons: number[]): Promise<Record<number, PitchEnvironmentTarget>> {
 
-    public async exportPitchEnvironmentTargetForSeasons(baseDataDir: string, seasons: number[]): Promise<Record<number, PitchEnvironmentTarget>> {
+    //     const results: Record<number, PitchEnvironmentTarget> = {}
 
-        const results: Record<number, PitchEnvironmentTarget> = {}
+    //     for (const season of seasons) {
 
-        for (const season of seasons) {
+    //         const seasonDir = path.join(baseDataDir, String(season))
 
-            const seasonDir = path.join(baseDataDir, String(season))
+    //         const resultsPath = path.join(seasonDir, "_results.json")
+    //         const outputPath = path.join(seasonDir, "_pitch_environment_tuning.json")
 
-            const resultsPath = path.join(seasonDir, "_results.json")
-            const outputPath = path.join(seasonDir, "_pitch_environment_tuning.json")
+    //         const raw = await fs.promises.readFile(resultsPath, "utf8")
+    //         const parsed = JSON.parse(raw)
 
-            const raw = await fs.promises.readFile(resultsPath, "utf8")
-            const parsed = JSON.parse(raw)
+    //         const players = new Map<string, PlayerImportRaw>()
 
-            const players = new Map<string, PlayerImportRaw>()
+    //         if (Array.isArray(parsed)) {
+    //             for (const row of parsed) {
+    //                 if (row?.playerId) {
+    //                     players.set(String(row.playerId), row as PlayerImportRaw)
+    //                 }
+    //             }
+    //         } else if (parsed && Array.isArray(parsed.players)) {
+    //             for (const row of parsed.players) {
+    //                 if (row?.playerId) {
+    //                     players.set(String(row.playerId), row as PlayerImportRaw)
+    //                 }
+    //             }
+    //         } else if (parsed && typeof parsed === "object") {
+    //             for (const [playerId, row] of Object.entries(parsed)) {
+    //                 if ((row as any)?.playerId) {
+    //                     players.set(String((row as any).playerId), row as PlayerImportRaw)
+    //                 } else if (row && typeof row === "object") {
+    //                     players.set(String(playerId), { ...(row as any), playerId: String(playerId) } as PlayerImportRaw)
+    //                 }
+    //             }
+    //         }
 
-            if (Array.isArray(parsed)) {
-                for (const row of parsed) {
-                    if (row?.playerId) {
-                        players.set(String(row.playerId), row as PlayerImportRaw)
-                    }
-                }
-            } else if (parsed && Array.isArray(parsed.players)) {
-                for (const row of parsed.players) {
-                    if (row?.playerId) {
-                        players.set(String(row.playerId), row as PlayerImportRaw)
-                    }
-                }
-            } else if (parsed && typeof parsed === "object") {
-                for (const [playerId, row] of Object.entries(parsed)) {
-                    if ((row as any)?.playerId) {
-                        players.set(String((row as any).playerId), row as PlayerImportRaw)
-                    } else if (row && typeof row === "object") {
-                        players.set(String(playerId), { ...(row as any), playerId: String(playerId) } as PlayerImportRaw)
-                    }
-                }
-            }
+    //         if (players.size === 0) {
+    //             throw new Error(`No player import rows found in ${resultsPath}`)
+    //         }
 
-            if (players.size === 0) {
-                throw new Error(`No player import rows found in ${resultsPath}`)
-            }
+    //         const pitchEnvironmentTarget = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
+    //         const rng = seedrandom(String(season))
+    //         const pitchEnvironmentTuning = await this.getTuningsForPitchEnvironment(pitchEnvironmentTarget, rng, defaultTuningConfig)
 
-            const pitchEnvironmentTarget = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
-            const rng = seedrandom(String(season))
-            const pitchEnvironmentTuning = this.getTuningsForPitchEnvironment(pitchEnvironmentTarget, rng, defaultTuningConfig)
+    //         const fullPitchEnvironmentTarget: PitchEnvironmentTarget = {
+    //             ...pitchEnvironmentTarget,
+    //             pitchEnvironmentTuning
+    //         } as PitchEnvironmentTarget
 
-            const fullPitchEnvironmentTarget: PitchEnvironmentTarget = {
-                ...pitchEnvironmentTarget,
-                pitchEnvironmentTuning
-            } as PitchEnvironmentTarget
+    //         await fs.promises.writeFile(outputPath, JSON.stringify(fullPitchEnvironmentTarget, null, 2) + "\n", "utf8")
 
-            await fs.promises.writeFile(outputPath, JSON.stringify(fullPitchEnvironmentTarget, null, 2) + "\n", "utf8")
+    //         results[season] = fullPitchEnvironmentTarget
+    //     }
 
-            results[season] = fullPitchEnvironmentTarget
-        }
-
-        return results
-    }
+    //     return results
+    // }
     
     public getPlayerImportBaseline(pitchEnvironment: PitchEnvironmentTarget, rng: Function): PlayerImportBaseline {
 
         const importReference = pitchEnvironment.importReference
-
-        const leagueAverages = PlayerImporterService.pitchEnvironmentTargetToLeagueAverage(pitchEnvironment)
 
         const safeDiv = (num: number, den: number): number => den > 0 ? num / den : 0
 
@@ -1602,7 +1859,6 @@ class PlayerImporterService {
                 }
             },
 
-            leagueAverages,
             playerImportBaseline: {} as PlayerImportBaseline,
             leagueImportBaseline: {} as PlayerImportBaseline,
             pitchEnvironmentTarget: pitchEnvironment
@@ -1667,7 +1923,7 @@ class PlayerImporterService {
                 homeLineup,
                 homeStartingPitcher,
 
-                leagueAverages,
+                pitchEnvironmentTarget: pitchEnvironment,
                 date: new Date()
             })
 
@@ -1730,137 +1986,9 @@ class PlayerImporterService {
         return baseline
     }
 
-    public getTuningsForPitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, rng: Function, options?: any): PitchEnvironmentTuning {
-        let candidate = this.seedPitchEnvironmentTuning(pitchEnvironment)
-
-        const maxIterations = options?.maxIterations ?? 1000
-        const minIterations = options?.minIterations ?? Math.min(40, maxIterations)
-        const gamesPerIteration = options?.gamesPerIteration ?? 250
-        const printDiagnostics = options?.printDiagnostics ?? true
-        const maxStallIterations = options?.maxStallIterations ?? 25
-
-        const clamp = (num: number, min: number, max: number): number => Math.max(min, Math.min(max, num))
-        const round = (num: number, digits: number = 2): number => Number(num.toFixed(digits))
-
-        const knobs = [
-            { key: "pitchQualityZoneSwingEffect", step: 0.25, min: 0, max: 20, digits: 2 },
-            { key: "pitchQualityChaseSwingEffect", step: 0.25, min: 0, max: 20, digits: 2 },
-            { key: "disciplineZoneSwingEffect", step: 0.25, min: 0, max: 20, digits: 2 },
-            { key: "disciplineChaseSwingEffect", step: 0.25, min: 0, max: 20, digits: 2 },
-            { key: "pitchQualityContactEffect", step: 0.25, min: 0, max: 20, digits: 2 },
-            { key: "contactSkillEffect", step: 0.25, min: 0, max: 25, digits: 2 },
-            { key: "fullPitchQualityBonus", step: 0.2, min: 0, max: 20, digits: 2 },
-            { key: "fullTeamDefenseBonus", step: 0.2, min: 0, max: 20, digits: 2 },
-            { key: "fullFielderDefenseBonus", step: 0.2, min: 0, max: 20, digits: 2 },
-            { key: "groundballDoublePenalty", step: 0.2, min: 0, max: 12, digits: 2 },
-            { key: "groundballTriplePenalty", step: 0.25, min: 0, max: 20, digits: 2 },
-            { key: "groundballHRPenalty", step: 0.25, min: 0, max: 20, digits: 2 },
-            { key: "groundballOutcomeBoost", step: 0.2, min: 0, max: 12, digits: 2 },
-            { key: "flyballOutcomeBoost", step: 0.15, min: 0, max: 8, digits: 2 },
-            { key: "lineDriveOutcomeBoost", step: 0.5, min: 0, max: 60, digits: 2 },
-            { key: "flyballHRPenalty", step: 0.15, min: 0, max: 20, digits: 2 },
-            { key: "lineDriveOutToSingleWindow", step: 1.0, min: 0, max: 150, digits: 2 },
-            { key: "lineDriveOutToSingleBoost", step: 1.5, min: 0, max: 150, digits: 2 },
-            { key: "lineDriveSingleToDoubleFactor", step: 0.015, min: 0, max: 1, digits: 3 }
-        ]
-
-        const evaluateCandidate = (candidateToEvaluate: PitchEnvironmentTuning): { actual: any, target: any, diff: any, score: number } => {
-            const candidatePitchEnvironment: PitchEnvironmentTarget = JSON.parse(JSON.stringify({
-                ...pitchEnvironment,
-                pitchEnvironmentTuning: candidateToEvaluate
-            }))
-            const evaluationRng = new seedrandom(4)
-            return this.evaluatePitchEnvironment(candidatePitchEnvironment, evaluationRng, gamesPerIteration)
-        }
-
-        let bestCandidate: PitchEnvironmentTuning = JSON.parse(JSON.stringify(candidate))
-        let bestResult = evaluateCandidate(bestCandidate)
-        let stallIterations = 0
-
-        if (printDiagnostics) {
-            this.printPitchEnvironmentIterationDiagnostics("seed", -1, bestCandidate, bestResult)
-        }
-
-        for (let iteration = 0; iteration < maxIterations; iteration++) {
-            if (iteration >= minIterations && this.isPitchEnvironmentCloseEnough(bestResult.diff)) {
-                if (printDiagnostics) {
-                    this.printPitchEnvironmentIterationDiagnostics("close-enough", iteration, bestCandidate, bestResult)
-                }
-                break
-            }
-
-            const decay = Math.max(0.35, 1 - (iteration / 120))
-
-            let iterationBestCandidate: PitchEnvironmentTuning | undefined
-            let iterationBestResult: { actual: any, target: any, diff: any, score: number } | undefined
-
-            for (const knob of knobs) {
-                for (const direction of [-1, 1]) {
-                    const trial: PitchEnvironmentTuning = JSON.parse(JSON.stringify(bestCandidate))
-                    trial._id = uuidv4()
-
-                    const currentValue = (trial.tuning as any)[knob.key] as number
-                    const rawStep = knob.step * direction * decay
-                    const nextValue = round(clamp(currentValue + rawStep, knob.min, knob.max), knob.digits)
-
-                    if (nextValue === currentValue) {
-                        continue
-                    }
-
-                    ;(trial.tuning as any)[knob.key] = nextValue
-
-                    const trialResult = evaluateCandidate(trial)
-
-                    if (printDiagnostics) {
-                        this.printPitchEnvironmentIterationDiagnostics(`${knob.key}${direction > 0 ? "+" : "-"}`, iteration, trial, trialResult)
-                    }
-
-                    if (!iterationBestResult || trialResult.score < iterationBestResult.score) {
-                        iterationBestCandidate = trial
-                        iterationBestResult = trialResult
-                    }
-                }
-            }
-
-            if (iterationBestCandidate && iterationBestResult && iterationBestResult.score < bestResult.score) {
-                bestCandidate = iterationBestCandidate
-                bestResult = iterationBestResult
-                stallIterations = 0
-
-                if (printDiagnostics) {
-                    this.printPitchEnvironmentIterationDiagnostics("accepted", iteration, bestCandidate, bestResult)
-                }
-
-                continue
-            }
-
-            stallIterations++
-
-            if (printDiagnostics) {
-                this.printPitchEnvironmentIterationDiagnostics(`stall-${stallIterations}`, iteration, bestCandidate, bestResult)
-            }
-
-            if (iteration + 1 < minIterations) {
-                continue
-            }
-
-            if (stallIterations >= maxStallIterations) {
-                if (printDiagnostics) {
-                    this.printPitchEnvironmentIterationDiagnostics("stopped", iteration, bestCandidate, bestResult)
-                }
-                break
-            }
-        }
-
-        console.log(`FINAL_TUNING_ID=${bestCandidate._id}`)
-
-        return bestCandidate
-    }
 
     public buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId: string = "baseline-game"): Game {
         
-        const leagueAverages = PlayerImporterService.pitchEnvironmentTargetToLeagueAverage(pitchEnvironment)
-
         const awayPlayers = this.buildBaselinePlayers()
         const homePlayers = this.buildBaselinePlayers()
 
@@ -1915,7 +2043,7 @@ class PlayerImporterService {
             homeLineup,
             homeStartingPitcher,
 
-            leagueAverages,
+            pitchEnvironmentTarget: pitchEnvironment,
             date: new Date()
         })
     }    
@@ -2102,15 +2230,11 @@ class PlayerImporterService {
             Math.max(0, target.swingAtBallsPercent - actual.swingAtBallsPercent) * 180
 
         const primaryScore =
-            abs(diff.avg) * 650 +
-            abs(diff.obp) * 760 +
-            abs(diff.slg) * 820 +
-            abs(diff.ops) * 420 +
-            abs(diff.babip) * 760 +
-            abs(diff.bbPercent) * 360 +
-            abs(diff.soPercent) * 300 +
-            abs(diff.homeRunPercent) * 360 +
-            abs(diff.teamRunsPerGame) * 145
+            abs(diff.avg) * 1400 +
+            abs(diff.babip) * 1200 +
+            abs(diff.obp) * 900 +
+            abs(diff.slg) * 700 +
+            abs(diff.ops) * 200
 
         const secondaryScore =
             abs(diff.teamHitsPerGame) * 55 +
@@ -2139,15 +2263,11 @@ class PlayerImporterService {
             abs(diff.ldPercent) * 16
 
         const offenseFloorPenalty =
-            lowSide(diff.avg) * 1200 +
-            lowSide(diff.obp) * 1300 +
-            lowSide(diff.slg) * 1450 +
-            lowSide(diff.ops) * 700 +
-            lowSide(diff.babip) * 1400 +
-            lowSide(diff.singlePercent) * 1600 +
-            lowSide(diff.homeRunPercent) * 700 +
-            lowSide(diff.teamRunsPerGame) * 280 +
-            lowSide(diff.teamHitsPerGame) * 180
+            lowSide(diff.avg) * 2600 +
+            lowSide(diff.babip) * 2400 +
+            lowSide(diff.obp) * 1200 +
+            lowSide(diff.slg) * 900 +
+            lowSide(diff.singlePercent) * 2000
 
         const strikeoutPenalty =
             highSide(diff.soPercent) * 520 +
@@ -2176,41 +2296,41 @@ class PlayerImporterService {
         return { actual, target, diff, score }
     }
 
-    private seedPitchEnvironmentTuning(pitchEnvironment: PitchEnvironmentTarget): PitchEnvironmentTuning {
-        const safeDiv = (num: number, den: number): number => den > 0 ? num / den : 0
-        const clamp = (num: number, min: number, max: number): number => Math.max(min, Math.min(max, num))
-        const round = (num: number, digits: number = 2): number => Number(num.toFixed(digits))
+    public seedPitchEnvironmentTuning(pitchEnvironment: PitchEnvironmentTarget): PitchEnvironmentTuning {
 
         return {
             _id: uuidv4(),
             tuning: {
+                contactQualityEvScale: 0.7,
+                contactQualityLaScale: 0.35,
+                contactQualityDistanceScale: 0.08,
+
                 pitchQualityZoneSwingEffect: 5,
                 pitchQualityChaseSwingEffect: 6,
 
                 disciplineZoneSwingEffect: 6.25,
                 disciplineChaseSwingEffect: 8.25,
 
-                pitchQualityContactEffect: 8.5,
-                contactSkillEffect: 12,
+                pitchQualityContactEffect: 7.5,
+                contactSkillEffect: 10.5,
 
-                fullPitchQualityBonus: 8,
-                fullTeamDefenseBonus: 0,
-                fullFielderDefenseBonus: 2,
+                fullPitchQualityBonus: 35,
+                fullTeamDefenseBonus: 80,
+                fullFielderDefenseBonus: 45,
 
-                groundballDoublePenalty: round(clamp(2 + ((pitchEnvironment.battedBall.contactRollInput.groundball - 35) * 0.10), 1, 8)),
-                groundballTriplePenalty: round(clamp(8 + ((pitchEnvironment.battedBall.contactRollInput.groundball - 35) * 0.18), 4, 18)),
-                groundballHRPenalty: round(clamp(6 + ((pitchEnvironment.battedBall.contactRollInput.groundball - 35) * 0.16), 2, 18)),
+                groundballDoublePenalty: 10,
+                groundballTriplePenalty: 24,
+                groundballHRPenalty: 24,
 
-                flyballHRPenalty: round(clamp(1 + ((pitchEnvironment.battedBall.contactRollInput.flyBall - 30) * 0.08), 0, 8)),
+                flyballHRPenalty: 6,
 
-                lineDriveOutToSingleWindow: round(clamp(36 + ((pitchEnvironment.battedBall.contactRollInput.lineDrive - 20) * 1.8), 20, 100)),
-                lineDriveOutToSingleBoost: round(clamp(30 + ((pitchEnvironment.battedBall.contactRollInput.lineDrive - 20) * 1.6), 15, 90)),
+                lineDriveOutToSingleWindow: 18,
+                lineDriveOutToSingleBoost: 10,
+                lineDriveSingleToDoubleFactor: 0.24,
 
-                lineDriveSingleToDoubleFactor: round(clamp(0.45 + ((pitchEnvironment.outcome.slg - pitchEnvironment.outcome.avg) * 0.55), 0.2, 0.7), 3),
-
-                groundballOutcomeBoost: round(clamp((pitchEnvironment.battedBall.contactRollInput.groundball - 38) * 0.25, 0, 8)),
-                flyballOutcomeBoost: round(clamp((pitchEnvironment.battedBall.contactRollInput.flyBall - 30) * 0.10, 0, 4)),
-                lineDriveOutcomeBoost: round(clamp((pitchEnvironment.battedBall.contactRollInput.lineDrive - 18) * 0.9, 4, 36))
+                groundballOutcomeBoost: 0,
+                flyballOutcomeBoost: 0,
+                lineDriveOutcomeBoost: 3
             },
 
             ratingTuning: {
@@ -2255,8 +2375,7 @@ class PlayerImporterService {
         }
     }
 
-
-    private isPitchEnvironmentCloseEnough(diff: any): boolean {
+    public isPitchEnvironmentCloseEnough(diff: any): boolean {
         return (
             Math.abs(diff.pitchesPerPA) <= 0.03 &&
             Math.abs(diff.swingPercent) <= 0.005 &&
@@ -2277,7 +2396,213 @@ class PlayerImporterService {
         )
     }
 
-    private printPitchEnvironmentIterationDiagnostics(stage: string, iteration: number, candidate: PitchEnvironmentTuning, result: { actual: any, target: any, diff: any, score: number }): void {
+    private static finalizeOutcomeByEvLa(outcomeByEvLaMap: Map<string, { evBin: number, laBin: number, count: number, out: number, single: number, double: number, triple: number, hr: number }>): { evBin: number, laBin: number, count: number, out: number, single: number, double: number, triple: number, hr: number }[] {
+
+        const buckets = Array.from(outcomeByEvLaMap.values()).sort((a, b) => {
+            if (a.evBin !== b.evBin) return a.evBin - b.evBin
+            return a.laBin - b.laBin
+        })
+
+        const safeRate = (num: number, den: number): number => den > 0 ? num / den : 0
+
+        const global = buckets.reduce((acc, bucket) => {
+            acc.count += bucket.count
+            acc.out += bucket.out
+            acc.single += bucket.single
+            acc.double += bucket.double
+            acc.triple += bucket.triple
+            acc.hr += bucket.hr
+            return acc
+        }, {
+            count: 0,
+            out: 0,
+            single: 0,
+            double: 0,
+            triple: 0,
+            hr: 0
+        })
+
+        const byEv = new Map<number, { count: number, bucketCount: number, out: number, single: number, double: number, triple: number, hr: number }>()
+        const byLa = new Map<number, { count: number, bucketCount: number, out: number, single: number, double: number, triple: number, hr: number }>()
+
+        for (const bucket of buckets) {
+            const evEntry = byEv.get(bucket.evBin) ?? {
+                count: 0,
+                bucketCount: 0,
+                out: 0,
+                single: 0,
+                double: 0,
+                triple: 0,
+                hr: 0
+            }
+
+            evEntry.count += bucket.count
+            evEntry.bucketCount++
+            evEntry.out += bucket.out
+            evEntry.single += bucket.single
+            evEntry.double += bucket.double
+            evEntry.triple += bucket.triple
+            evEntry.hr += bucket.hr
+            byEv.set(bucket.evBin, evEntry)
+
+            const laEntry = byLa.get(bucket.laBin) ?? {
+                count: 0,
+                bucketCount: 0,
+                out: 0,
+                single: 0,
+                double: 0,
+                triple: 0,
+                hr: 0
+            }
+
+            laEntry.count += bucket.count
+            laEntry.bucketCount++
+            laEntry.out += bucket.out
+            laEntry.single += bucket.single
+            laEntry.double += bucket.double
+            laEntry.triple += bucket.triple
+            laEntry.hr += bucket.hr
+            byLa.set(bucket.laBin, laEntry)
+        }
+
+        const globalRates = {
+            out: safeRate(global.out, global.count),
+            single: safeRate(global.single, global.count),
+            double: safeRate(global.double, global.count),
+            triple: safeRate(global.triple, global.count),
+            hr: safeRate(global.hr, global.count)
+        }
+
+        const averageBucketCount = buckets.length > 0 ? global.count / buckets.length : 1
+        const globalWeight = Math.sqrt(Math.max(1, averageBucketCount))
+
+        return buckets.map(bucket => {
+            const evTotals = byEv.get(bucket.evBin) ?? {
+                count: 0,
+                bucketCount: 0,
+                out: 0,
+                single: 0,
+                double: 0,
+                triple: 0,
+                hr: 0
+            }
+
+            const laTotals = byLa.get(bucket.laBin) ?? {
+                count: 0,
+                bucketCount: 0,
+                out: 0,
+                single: 0,
+                double: 0,
+                triple: 0,
+                hr: 0
+            }
+
+            const evContextCount = Math.max(0, evTotals.count - bucket.count)
+            const laContextCount = Math.max(0, laTotals.count - bucket.count)
+
+            const evRates = evContextCount > 0
+                ? {
+                    out: safeRate(evTotals.out - bucket.out, evContextCount),
+                    single: safeRate(evTotals.single - bucket.single, evContextCount),
+                    double: safeRate(evTotals.double - bucket.double, evContextCount),
+                    triple: safeRate(evTotals.triple - bucket.triple, evContextCount),
+                    hr: safeRate(evTotals.hr - bucket.hr, evContextCount)
+                }
+                : globalRates
+
+            const laRates = laContextCount > 0
+                ? {
+                    out: safeRate(laTotals.out - bucket.out, laContextCount),
+                    single: safeRate(laTotals.single - bucket.single, laContextCount),
+                    double: safeRate(laTotals.double - bucket.double, laContextCount),
+                    triple: safeRate(laTotals.triple - bucket.triple, laContextCount),
+                    hr: safeRate(laTotals.hr - bucket.hr, laContextCount)
+                }
+                : globalRates
+
+            const exactRates = {
+                out: safeRate(bucket.out, bucket.count),
+                single: safeRate(bucket.single, bucket.count),
+                double: safeRate(bucket.double, bucket.count),
+                triple: safeRate(bucket.triple, bucket.count),
+                hr: safeRate(bucket.hr, bucket.count)
+            }
+
+            const exactWeight = Math.sqrt(Math.max(1, bucket.count))
+            const evWeight = Math.sqrt(Math.max(1, evContextCount / Math.max(1, evTotals.bucketCount - 1)))
+            const laWeight = Math.sqrt(Math.max(1, laContextCount / Math.max(1, laTotals.bucketCount - 1)))
+
+            let outRate =
+                (exactRates.out * exactWeight) +
+                (evRates.out * evWeight) +
+                (laRates.out * laWeight) +
+                (globalRates.out * globalWeight)
+
+            let singleRate =
+                (exactRates.single * exactWeight) +
+                (evRates.single * evWeight) +
+                (laRates.single * laWeight) +
+                (globalRates.single * globalWeight)
+
+            let doubleRate =
+                (exactRates.double * exactWeight) +
+                (evRates.double * evWeight) +
+                (laRates.double * laWeight) +
+                (globalRates.double * globalWeight)
+
+            let tripleRate =
+                (exactRates.triple * exactWeight) +
+                (evRates.triple * evWeight) +
+                (laRates.triple * laWeight) +
+                (globalRates.triple * globalWeight)
+
+            let hrRate =
+                (exactRates.hr * exactWeight) +
+                (evRates.hr * evWeight) +
+                (laRates.hr * laWeight) +
+                (globalRates.hr * globalWeight)
+
+            const totalRate = outRate + singleRate + doubleRate + tripleRate + hrRate
+
+            if (totalRate <= 0) {
+                return {
+                    evBin: bucket.evBin,
+                    laBin: bucket.laBin,
+                    count: bucket.count,
+                    out: bucket.count,
+                    single: 0,
+                    double: 0,
+                    triple: 0,
+                    hr: 0
+                }
+            }
+
+            outRate /= totalRate
+            singleRate /= totalRate
+            doubleRate /= totalRate
+            tripleRate /= totalRate
+            hrRate /= totalRate
+
+            const out = Math.round(outRate * bucket.count)
+            const single = Math.round(singleRate * bucket.count)
+            const double = Math.round(doubleRate * bucket.count)
+            const triple = Math.round(tripleRate * bucket.count)
+            const hr = Math.max(0, bucket.count - out - single - double - triple)
+
+            return {
+                evBin: bucket.evBin,
+                laBin: bucket.laBin,
+                count: bucket.count,
+                out,
+                single,
+                double,
+                triple,
+                hr
+            }
+        })
+    }
+
+    public printPitchEnvironmentIterationDiagnostics(stage: string, iteration: number, candidate: PitchEnvironmentTuning, result: { actual: any, target: any, diff: any, score: number }): void {
         if (
             stage !== "seed" &&
             stage !== "accepted" &&
@@ -2302,7 +2627,7 @@ class PlayerImporterService {
             `A=${r(result.actual.avg)}(${r(result.diff.avg)}) ` +
             `S=${r(result.actual.slg)}(${r(result.diff.slg)}) ` +
             `B=${r(result.actual.babip)}(${r(result.diff.babip)}) ` +
-            `R=${r(result.actual.teamRunsPerGame)}(${r(result.diff.teamRunsPerGame)}) ` 
+            `R=${r(result.actual.teamRunsPerGame)}(${r(result.diff.teamRunsPerGame)})` 
         )
     }
 

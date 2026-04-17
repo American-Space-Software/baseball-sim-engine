@@ -12,9 +12,8 @@ const packageConfig = JSON.parse(
 
 const VERSION = JSON.stringify(packageConfig.version)
 
-export default {
+const baseConfig = {
   mode: "production",
-  entry: "./src/index.ts",
   target: "node",
   experiments: {
     outputModule: true
@@ -36,12 +35,10 @@ export default {
   },
   output: {
     filename: "index.js",
-    path: path.resolve(__dirname, "dist"),
     library: {
       type: "module"
     },
-    chunkFormat: "module",
-    clean: true
+    chunkFormat: "module"
   },
   plugins: [
     new webpack.DefinePlugin({
@@ -49,3 +46,26 @@ export default {
     })
   ]
 }
+
+export default [
+  {
+    ...baseConfig,
+    entry: "./src/sim/index.ts",
+    output: {
+      ...baseConfig.output,
+      filename: "index.js",
+      path: path.resolve(__dirname, "dist"),
+      clean: true
+    }
+  },
+  {
+    ...baseConfig,
+    entry: "./src/importer/index.ts",
+    output: {
+      ...baseConfig.output,
+      filename: "importer.js",
+      path: path.resolve(__dirname, "dist"),
+      clean: false
+    }
+  }
+]

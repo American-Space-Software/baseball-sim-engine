@@ -12,7 +12,7 @@ interface StartGameCommand {
     awayLineup:Lineup 
     awayPlayers:Player[], 
     awayStartingPitcher:RotationPitcher,
-    leagueAverages?:LeagueAverage
+    pitchEnvironmentTarget?:PitchEnvironmentTarget
     date:Date
 }
 
@@ -35,7 +35,7 @@ interface SimPitchCommand {
     halfInningRunnerEvents:RunnerEvent[]
     halfInning:HalfInning
     
-    leagueAverages: LeagueAverage
+    pitchEnvironmentTarget:PitchEnvironmentTarget
 
     matchupHandedness:MatchupHandedness
 
@@ -55,7 +55,7 @@ interface RunnerThrowCommand {
     end:BaseResult
     eventType: PlayResult|OfficialRunnerResult
     eventTypeOut: PlayResult|OfficialRunnerResult
-    leagueAverage:LeagueAverage
+    pitchEnvironmentTarget:PitchEnvironmentTarget
     pitcher:GamePlayer
     defense:TeamInfo
     offense:TeamInfo
@@ -77,7 +77,9 @@ interface Game {
     halfInnings?: HalfInning[]
 
     playIndex: number
-    leagueAverages?: LeagueAverage
+
+    pitchEnvironmentTarget:PitchEnvironmentTarget
+
 
     currentInning: number
     summary?: any
@@ -371,10 +373,13 @@ interface Pitch {
     result: PitchCall,
     count?: Count,
     type: PitchType,
-    quality: number
-    powQ: number
-    locQ: number
-    movQ: number
+    quality: PitchQuality
+    contactQuality?:ContactQuality
+    overallContactQuality?: number
+    overallQuality: number
+    powQ: number,
+    movQ: number,
+    locQ: number,
     swing: boolean
     inZone:boolean
     isWP:boolean
@@ -408,73 +413,7 @@ interface FielderChance {
     pitcher: number
 }
 
-interface LeagueAverage {
 
-    hittingRatings:HittingRatings
-    pitchRatings:PitchRatings
-
-    powerRollInput:PowerRollInput,
-    contactTypeRollInput:ContactTypeRollInput
-
-    foulRate:number,
-
-    pitchQuality:number,
-
-    fielderChanceR:FielderChance
-    fielderChanceL:FielderChance
-    shallowDeepChance:ShallowDeepChance
-
-    inZoneByCount: InZoneByCount[],
-
-    steal: StolenBaseByCount[]
-
-    swing: {
-        zoneSwingBase: number
-        chaseSwingBase: number
-
-        zoneContactBase: number
-        chaseContactBase: number
-
-        behaviorByCount: PitchCountBehaviorTarget[]
-
-    },
-
-    
-    tuning: {
-
-        groundballDoublePenalty:number
-        groundballTriplePenalty: number
-        groundballHRPenalty: number
-
-        groundballOutcomeBoost: number
-        flyballOutcomeBoost: number
-        lineDriveOutcomeBoost: number
-
-        flyballHRPenalty:number
-
-        lineDriveOutToSingleWindow: number
-        lineDriveOutToSingleBoost:number
-
-        lineDriveSingleToDoubleFactor:number   
-
-        pitchQualityZoneSwingEffect: number
-        pitchQualityChaseSwingEffect: number
-
-        disciplineZoneSwingEffect: number
-        disciplineChaseSwingEffect: number
-
-
-        pitchQualityContactEffect: number
-        contactSkillEffect: number
-
-        fullPitchQualityBonus: number
-        fullTeamDefenseBonus: number
-        fullFielderDefenseBonus: number        
-        
-    }
-
-
-}
 
 interface ContactProfile {
     groundball:number
@@ -978,8 +917,162 @@ interface PitchCountBehaviorTarget {
     inPlayPercentOfFairContact: number
 }
 
+interface PitchPhysics {
+    velocity: {
+        count: number
+        total: number
+        totalSquared: number
+        avg: number
+    }
+    horizontalBreak: {
+        count: number
+        total: number
+        totalSquared: number
+        avg: number
+    }
+    verticalBreak: {
+        count: number
+        total: number
+        totalSquared: number
+        avg: number
+    }
+    byPitchType: Partial<Record<PitchType, {
+        count: number
+        totalVelocity: number
+        totalVelocitySquared: number
+        avgVelocity: number
+        totalHorizontalBreak: number
+        totalHorizontalBreakSquared: number
+        avgHorizontalBreak: number
+        totalVerticalBreak: number
+        totalVerticalBreakSquared: number
+        avgVerticalBreak: number
+    }>>
+}
+
+interface BattedBallPhysics {
+    exitVelocity: {
+        count: number
+        total: number
+        totalSquared: number
+        avg: number
+    }
+    launchAngle: {
+        count: number
+        total: number
+        totalSquared: number
+        avg: number
+    }
+    distance: {
+        count: number
+        total: number
+        totalSquared: number
+        avg: number
+    }
+    byTrajectory: {
+        groundBall: {
+            count: number
+            totalExitVelocity: number
+            totalExitVelocitySquared: number
+            avgExitVelocity: number
+            totalLaunchAngle: number
+            totalLaunchAngleSquared: number
+            avgLaunchAngle: number
+            totalDistance: number
+            totalDistanceSquared: number
+            avgDistance: number
+        }
+        flyBall: {
+            count: number
+            totalExitVelocity: number
+            totalExitVelocitySquared: number
+            avgExitVelocity: number
+            totalLaunchAngle: number
+            totalLaunchAngleSquared: number
+            avgLaunchAngle: number
+            totalDistance: number
+            totalDistanceSquared: number
+            avgDistance: number
+        }
+        lineDrive: {
+            count: number
+            totalExitVelocity: number
+            totalExitVelocitySquared: number
+            avgExitVelocity: number
+            totalLaunchAngle: number
+            totalLaunchAngleSquared: number
+            avgLaunchAngle: number
+            totalDistance: number
+            totalDistanceSquared: number
+            avgDistance: number
+        }
+        popup: {
+            count: number
+            totalExitVelocity: number
+            totalExitVelocitySquared: number
+            avgExitVelocity: number
+            totalLaunchAngle: number
+            totalLaunchAngleSquared: number
+            avgLaunchAngle: number
+            totalDistance: number
+            totalDistanceSquared: number
+            avgDistance: number
+        }
+    }
+}
+
+interface BattedBallOutcomeByEvLaBucket {
+    evBin: number
+    laBin: number
+    count: number
+    out: number
+    single: number
+    double: number
+    triple: number
+    hr: number
+}
+
+
+interface BattedBallXyBucket {
+    xBin: number
+    yBin: number
+    count: number
+}
+
+interface BattedBallXyByTrajectoryBucket {
+    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
+    xBin: number
+    yBin: number
+    count: number
+}
+
+interface BattedBallXyByTrajectoryEvLaBucket {
+    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
+    evBin: number
+    laBin: number
+    xBin: number
+    yBin: number
+    count: number
+}
+
+interface BattedBallSprayByTrajectoryBucket {
+    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
+    sprayBin: number
+    count: number
+}
+
+interface BattedBallSprayByTrajectoryEvLaBucket {
+    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
+    evBin: number
+    laBin: number
+    sprayBin: number
+    count: number
+}
+
 interface PitchEnvironmentTarget {
+    
     season: number
+    avgRating:number
 
     pitch: {
         inZonePercent: number
@@ -1010,6 +1103,15 @@ interface PitchEnvironmentTarget {
         inPlayPercent: number
         contactRollInput: ContactTypeRollInput
         powerRollInput: PowerRollInput
+        outcomeByEvLa: BattedBallOutcomeByEvLaBucket[]
+        xy: {
+            byTrajectory: BattedBallXyByTrajectoryBucket[]
+            byTrajectoryEvLa: BattedBallXyByTrajectoryEvLaBucket[]
+        }
+        spray: {
+            byTrajectory: BattedBallSprayByTrajectoryBucket[]
+            byTrajectoryEvLa: BattedBallSprayByTrajectoryEvLaBucket[]
+        }
     }
 
     steal: StolenBaseByCount[]
@@ -1078,6 +1180,8 @@ interface PitchEnvironmentTarget {
 
             fouls: number
             ballsInPlay: number
+
+            physics: BattedBallPhysics
         }
 
         pitcher: {
@@ -1113,6 +1217,8 @@ interface PitchEnvironmentTarget {
 
             foulsAllowed: number
             ballsInPlayAllowed: number
+
+            physics: PitchPhysics
         }
 
         fielding: {
@@ -1161,6 +1267,10 @@ interface PitchEnvironmentTuning {
     _id:string
 
     tuning?: {
+
+        contactQualityEvScale:number
+        contactQualityLaScale:number
+        contactQualityDistanceScale:number
 
         pitchQualityZoneSwingEffect: number
         pitchQualityChaseSwingEffect: number
@@ -1271,7 +1381,6 @@ interface PlayerFromStatsCommand {
     splits: PlayerSplitsStats
 
     pitchEnvironmentTarget:PitchEnvironmentTarget
-    leagueAverages: LeagueAverage
     playerImportBaseline: PlayerImportBaseline
     leagueImportBaseline: PlayerImportBaseline
 }
@@ -1466,11 +1575,37 @@ interface PlayerImportBaseline {
     }
 }
 
-
 interface ExitVelocityStat {
     count: number
     totalExitVelo: number
     avgExitVelo: number
+}
+
+interface LaunchAngleStat {
+    count: number
+    totalLaunchAngle: number
+    avgLaunchAngle: number
+}
+
+interface DistanceStat {
+    count: number
+    totalDistance: number
+    avgDistance: number
+}
+
+interface BattedBallCoordinateStat {
+    count: number
+    totalCoordX: number
+    avgCoordX: number
+    totalCoordY: number
+    avgCoordY: number
+}
+
+interface BattedBallPhysicsStat {
+    exitVelocity: ExitVelocityStat
+    launchAngle: LaunchAngleStat
+    distance: DistanceStat
+    coordinates: BattedBallCoordinateStat
 }
 
 interface PitchTypeMovementStat {
@@ -1530,19 +1665,6 @@ interface PlayerFieldingPositionRaw {
     battedBallOpportunitiesByLocation: Partial<Record<string, number>>
 }
 
-interface PlayerPitchingSplitStats {
-    battersFaced: number
-    outs: number
-
-    hitsAllowed: number
-    doublesAllowed: number
-    triplesAllowed: number
-    homeRunsAllowed: number
-    bbAllowed: number
-    so: number
-    hbpAllowed: number
-}
-
 interface PlayerPitchCountZoneRaw {
     balls: number
     strikes: number
@@ -1571,6 +1693,47 @@ interface PlayerPitchCountBehaviorRaw {
 
     zoneBallsInPlay: number
     chaseBallsInPlay: number
+}
+
+interface BattedBallOutcomeBucketRaw {
+    evBin: number
+    laBin: number
+    count: number
+    out: number
+    single: number
+    double: number
+    triple: number
+    hr: number
+}
+
+interface BattedBallXyBucketRaw {
+    xBin: number
+    yBin: number
+    count: number
+}
+
+interface BattedBallXyByTrajectoryBucketRaw extends BattedBallXyBucketRaw {
+    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
+}
+
+interface BattedBallXyByTrajectoryEvLaBucketRaw extends BattedBallXyBucketRaw {
+    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
+    evBin: number
+    laBin: number
+}
+
+interface BattedBallSprayByTrajectoryBucketRaw {
+    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
+    sprayBin: number
+    count: number
+}
+
+interface BattedBallSprayByTrajectoryEvLaBucketRaw {
+    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
+    evBin: number
+    laBin: number
+    sprayBin: number
+    count: number
 }
 
 interface PlayerImportRaw {
@@ -1628,6 +1791,29 @@ interface PlayerImportRaw {
         behaviorByCount: PlayerPitchCountBehaviorRaw[]
 
         exitVelocity: ExitVelocityStat
+        launchAngle: LaunchAngleStat
+        distance: DistanceStat
+        coordinates: BattedBallCoordinateStat
+
+        physicsByTrajectory: {
+            groundBall: BattedBallPhysicsStat
+            flyBall: BattedBallPhysicsStat
+            lineDrive: BattedBallPhysicsStat
+            popup: BattedBallPhysicsStat
+        }
+
+        battedBallLocation: Partial<Record<string, number>>
+        battedBallHardness: {
+            soft: number
+            medium: number
+            hard: number
+        }
+
+        outcomeByEvLa: BattedBallOutcomeBucketRaw[]
+        xyByTrajectory: BattedBallXyByTrajectoryBucketRaw[]
+        xyByTrajectoryEvLa: BattedBallXyByTrajectoryEvLaBucketRaw[]
+        sprayByTrajectory: BattedBallSprayByTrajectoryBucketRaw[]
+        sprayByTrajectoryEvLa: BattedBallSprayByTrajectoryEvLaBucketRaw[]
     }
 
     pitching: {
@@ -1668,6 +1854,31 @@ interface PlayerImportRaw {
         behaviorByCount: PlayerPitchCountBehaviorRaw[]
 
         pitchTypes: Partial<Record<PitchType, PitchTypeMovementStat>>
+
+        exitVelocityAllowed: ExitVelocityStat
+        launchAngleAllowed: LaunchAngleStat
+        distanceAllowed: DistanceStat
+        coordinatesAllowed: BattedBallCoordinateStat
+
+        physicsAllowedByTrajectory: {
+            groundBall: BattedBallPhysicsStat
+            flyBall: BattedBallPhysicsStat
+            lineDrive: BattedBallPhysicsStat
+            popup: BattedBallPhysicsStat
+        }
+
+        battedBallLocationAllowed: Partial<Record<string, number>>
+        battedBallHardnessAllowed: {
+            soft: number
+            medium: number
+            hard: number
+        }
+
+        outcomeAllowedByEvLa: BattedBallOutcomeBucketRaw[]
+        xyAllowedByTrajectory: BattedBallXyByTrajectoryBucketRaw[]
+        xyAllowedByTrajectoryEvLa: BattedBallXyByTrajectoryEvLaBucketRaw[]
+        sprayAllowedByTrajectory: BattedBallSprayByTrajectoryBucketRaw[]
+        sprayAllowedByTrajectoryEvLa: BattedBallSprayByTrajectoryEvLaBucketRaw[]
     }
 
     fielding: {
@@ -1714,40 +1925,26 @@ interface PlayerImportRaw {
     }
 }
 
-
-const LEAGUE_AVERAGE_FIELDER_CHANCE_R: FielderChance = {
-    first: 8,
-    second: 13,
-    third: 10,
-    catcher: 2,
-    shortstop: 14,
-    leftField: 17,
-    centerField: 18,
-    rightField: 13,
-    pitcher: 5
+interface ContactQuality {
+    launchAngle: number
+    exitVelocity: number
+    distance: number
+    coordX: number
+    coordY: number
 }
 
-const LEAGUE_AVERAGE_FIELDER_CHANCE_L: FielderChance = {
-    first: 10,
-    second: 15,
-    third: 8,
-    catcher: 2,
-    shortstop: 12,
-    leftField: 13,
-    centerField: 18,
-    rightField: 17,
-    pitcher: 5
+
+interface PitchQuality {
+    velocity: number
+    horizontalBreak: number
+    verticalBreak: number
 }
 
-const LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE: ShallowDeepChance = {
-    shallow: 20,
-    normal: 60,
-    deep: 20
-}
+
 
 export {
-    LEAGUE_AVERAGE_FIELDER_CHANCE_R, LEAGUE_AVERAGE_FIELDER_CHANCE_L, LEAGUE_AVERAGE_SHALLOW_DEEP_CHANCE, StolenBaseByCount,  PitchCount, InZoneByCount,  PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance,
-    TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, LeagueAverage, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score,
+    PitchQuality, ContactQuality, StolenBaseByCount,  PitchCount, InZoneByCount,  PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance,
+    TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent,  Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score,
     Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount,HitResultCount, MatchupHandedness,
     GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team,
     Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings,     PlayerFromStatsCommand,
@@ -1764,5 +1961,15 @@ export {
     ExitVelocityStat,
     PlayerFieldingPositionRaw,
     PlayerRunningStatsRaw,
-    PitchEnvironmentTuning
+    PitchEnvironmentTuning,
+    BattedBallCoordinateStat,
+    BattedBallPhysicsStat,
+    DistanceStat,
+    LaunchAngleStat,
+    PitchPhysics,
+    BattedBallPhysics,
+    BattedBallOutcomeBucketRaw,
+    BattedBallXyBucketRaw,
+    BattedBallXyByTrajectoryBucketRaw,
+    BattedBallXyByTrajectoryEvLaBucketRaw
 }

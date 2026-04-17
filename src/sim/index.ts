@@ -1,6 +1,6 @@
 import { BaseResult, Contact, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchType, PitchZone, PlayResult, Position, ShallowDeep, ThrowResult } from "./service/enums.js"
-import { InningEndingEvent, LeagueAverage } from "./service/interfaces.js"
-import { PlayerImporterService } from "../test/service/player-importer-service.js"
+import { InningEndingEvent, PitchEnvironmentTarget } from "./service/interfaces.js"
+import { PlayerImporterService } from "../importer/service/player-importer-service.js"
 import { RollChartService } from "./service/roll-chart-service.js"
 import { GameInfo, GamePlayers, Matchup, RunnerActions, SimRolls, SimService } from "./service/sim-service.js"
 
@@ -16,8 +16,8 @@ let runnerActions = new RunnerActions(rollChartService, simRolls)
 let gameInfo = new GameInfo(gamePlayers)
         
 
-let defaultLeagueAverage = {} as LeagueAverage
-let simService = new SimService(rollChartService, simRolls, runnerActions, gameInfo, defaultLeagueAverage)
+let defaultPitchEnvironmentTarget = {} as PitchEnvironmentTarget
+let simService = new SimService(rollChartService, simRolls, runnerActions, gameInfo, defaultPitchEnvironmentTarget)
 
 
 export {
@@ -60,7 +60,6 @@ export type {
   Team,  
   LastPlay,
   UpcomingMatchup,
-  LeagueAverage,
   Lineup,
   LineupPlayer,
   RotationPitcher,

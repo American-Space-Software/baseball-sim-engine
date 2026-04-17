@@ -3,8 +3,8 @@ import path from "path"
 import MLBStatsAPI from "mlb-stats-api"
 import {
     PlayerImportRaw
-} from "../../src/service/interfaces.js"
-import { Handedness, PitchType, Position } from "../../src/service/enums.js"
+} from "../../sim/service/interfaces.js"
+import { Handedness, PitchType, Position } from "../../sim/service/enums.js"
 import { StatAccumulatorService } from "./stat-accumulator-service.js"
 
 class DownloaderService {

@@ -1,0 +1,52 @@
+import { Game, HittingRatings, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchRatings, PlayerFromStatsCommand, PlayerImportBaseline, PlayerImportRaw } from "../../sim/service/interfaces.js";
+import { SimService } from "../../sim/service/sim-service.js";
+import { StatService } from "../../sim/service/stat-service.js";
+import { DownloaderService } from "./downloader-service.js";
+declare class PlayerImporterService {
+    private simService;
+    private statService;
+    private downloaderService;
+    constructor(simService: SimService, statService: StatService, downloaderService: DownloaderService);
+    static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>): PitchEnvironmentTarget;
+    private static createInZoneByCountSeed;
+    private static createBehaviorByCountSeed;
+    private static accumulatePitchEnvironmentTotalsForPlayer;
+    private static accumulatePitchEnvironmentCountBuckets;
+    private static accumulatePitchEnvironmentBattedBallBuckets;
+    private static accumulatePitchEnvironmentPhysics;
+    private static accumulatePitchEnvironmentPositionSeeds;
+    private static accumulateInZoneByCountBuckets;
+    private static accumulateBehaviorByCountBuckets;
+    private static finalizePitchEnvironmentPhysicsTotals;
+    static clampRating(value: number, min?: number, max?: number): number;
+    static getHigherIsBetterDelta(playerRate: number, baselineRate: number, scale: number): number;
+    static getLowerIsBetterDelta(playerRate: number, baselineRate: number, scale: number): number;
+    static buildHittingRatings(command: PlayerFromStatsCommand): HittingRatings;
+    static buildPitchRatings(command: PlayerFromStatsCommand): PitchRatings;
+    static createPlayerFromStats(command: PlayerFromStatsCommand): {
+        hittingRatings: HittingRatings;
+        pitchRatings: PitchRatings;
+    };
+    static getImportBaselineForPlayer(pitchEnvironment: PitchEnvironmentTarget, playerImportBaseline: PlayerImportBaseline, playerImportRaw: PlayerImportRaw): PlayerImportBaseline;
+    static createPlayerFromStatsCommand(pitchEnvironment: PitchEnvironmentTarget, leagueImportBaseline: PlayerImportBaseline, playerImportBaseline: PlayerImportBaseline, playerImportRaw: PlayerImportRaw): PlayerFromStatsCommand;
+    exportPitchEnvironmentTargetForSeasons(baseDataDir: string, seasons: number[]): Promise<Record<number, PitchEnvironmentTarget>>;
+    getPlayerImportBaseline(pitchEnvironment: PitchEnvironmentTarget, rng: Function): PlayerImportBaseline;
+    getTuningsForPitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, rng: Function, options?: any): Promise<PitchEnvironmentTuning>;
+    buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId?: string): Game;
+    evaluatePitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, rng: Function, games?: number): {
+        actual: any;
+        target: any;
+        diff: any;
+        score: number;
+    };
+    private seedPitchEnvironmentTuning;
+    private isPitchEnvironmentCloseEnough;
+    private static finalizeOutcomeByEvLa;
+    private printPitchEnvironmentIterationDiagnostics;
+    private mergeHitResults;
+    private mergePitchResults;
+    private buildBaselinePlayer;
+    private buildBaselinePlayers;
+    private buildBaselineLineup;
+}
+export { PlayerImporterService };

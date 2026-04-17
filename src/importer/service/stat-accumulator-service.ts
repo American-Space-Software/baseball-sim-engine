@@ -1,5 +1,5 @@
-import { Handedness, PitchType, Position } from "../../src/service/enums.js"
-import { ExitVelocityStat, PitchTypeMovementStat, PlayerFieldingPositionRaw, PlayerHittingSplitStats, PlayerImportRaw, PlayerPitchingSplitStats, PlayerRunningStatsRaw } from "../../src/service/interfaces.js"
+import { Handedness, PitchType, Position } from "../../sim/service/enums.js"
+import { BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, ExitVelocityStat, LaunchAngleStat, PitchTypeMovementStat, PlayerFieldingPositionRaw, PlayerHittingSplitStats, PlayerImportRaw, PlayerPitchingSplitStats, PlayerRunningStatsRaw } from "../../sim/service/interfaces.js"
 
 class StatAccumulatorService {
 
@@ -83,6 +83,197 @@ class StatAccumulatorService {
         const homeFieldAlignment = new Map<Position, string>()
         const awayFieldAlignment = new Map<Position, string>()
 
+        const getEvLaOutcome = (eventType: string): "out" | "single" | "double" | "triple" | "hr" | undefined => {
+            switch (eventType) {
+                case "single":
+                    return "single"
+                case "double":
+                    return "double"
+                case "triple":
+                    return "triple"
+                case "home_run":
+                    return "hr"
+                case "field_out":
+                case "force_out":
+                case "grounded_into_double_play":
+                case "double_play":
+                case "fielders_choice":
+                case "fielders_choice_out":
+                case "other_out":
+                case "sac_fly":
+                case "sac_bunt":
+                    return "out"
+                default:
+                    return undefined
+            }
+        }
+
+        const mapTrajectory = (trajectory: string): "groundBall" | "flyBall" | "lineDrive" | "popup" | undefined => {
+            switch (trajectory) {
+                case "ground_ball":
+                    return "groundBall"
+                case "fly_ball":
+                    return "flyBall"
+                case "line_drive":
+                    return "lineDrive"
+                case "popup":
+                    return "popup"
+                default:
+                    return undefined
+            }
+        }
+
+        const getSprayBin = (coordX: number | undefined, coordY: number | undefined): number | undefined => {
+            if (!Number.isFinite(coordX) || !Number.isFinite(coordY)) return undefined
+
+            const angleDegrees = Math.atan2(coordX as number, coordY as number) * (180 / Math.PI)
+            return Math.floor(angleDegrees / 10) * 10
+        }
+
+        const incrementEvLaOutcomeBucket = (buckets: any[], launchSpeed: number | undefined, launchAngle: number | undefined, eventType: string): void => {
+            if (!Number.isFinite(launchSpeed) || !Number.isFinite(launchAngle)) return
+
+            const outcome = getEvLaOutcome(eventType)
+            if (!outcome) return
+
+            const evBin = Math.floor((launchSpeed as number) / 2) * 2
+            const laBin = Math.floor((launchAngle as number) / 2) * 2
+
+            let bucket = buckets.find(item => item.evBin === evBin && item.laBin === laBin)
+
+            if (!bucket) {
+                bucket = {
+                    evBin,
+                    laBin,
+                    count: 0,
+                    out: 0,
+                    single: 0,
+                    double: 0,
+                    triple: 0,
+                    hr: 0
+                }
+
+                buckets.push(bucket)
+            }
+
+            bucket.count++
+            bucket[outcome]++
+        }
+
+        const incrementXyByTrajectoryBucket = (buckets: any[], coordX: number | undefined, coordY: number | undefined, trajectory: string): void => {
+            if (!Number.isFinite(coordX) || !Number.isFinite(coordY)) return
+
+            const mappedTrajectory = mapTrajectory(trajectory)
+            if (!mappedTrajectory) return
+
+            const xBin = Math.floor((coordX as number) / 10) * 10
+            const yBin = Math.floor((coordY as number) / 10) * 10
+
+            let bucket = buckets.find(item => item.trajectory === mappedTrajectory && item.xBin === xBin && item.yBin === yBin)
+
+            if (!bucket) {
+                bucket = {
+                    trajectory: mappedTrajectory,
+                    xBin,
+                    yBin,
+                    count: 0
+                }
+
+                buckets.push(bucket)
+            }
+
+            bucket.count++
+        }
+
+        const incrementXyByTrajectoryEvLaBucket = (buckets: any[], coordX: number | undefined, coordY: number | undefined, trajectory: string, launchSpeed: number | undefined, launchAngle: number | undefined): void => {
+            if (!Number.isFinite(coordX) || !Number.isFinite(coordY) || !Number.isFinite(launchSpeed) || !Number.isFinite(launchAngle)) return
+
+            const mappedTrajectory = mapTrajectory(trajectory)
+            if (!mappedTrajectory) return
+
+            const xBin = Math.floor((coordX as number) / 10) * 10
+            const yBin = Math.floor((coordY as number) / 10) * 10
+            const evBin = Math.floor((launchSpeed as number) / 2) * 2
+            const laBin = Math.floor((launchAngle as number) / 2) * 2
+
+            let bucket = buckets.find(item =>
+                item.trajectory === mappedTrajectory &&
+                item.evBin === evBin &&
+                item.laBin === laBin &&
+                item.xBin === xBin &&
+                item.yBin === yBin
+            )
+
+            if (!bucket) {
+                bucket = {
+                    trajectory: mappedTrajectory,
+                    evBin,
+                    laBin,
+                    xBin,
+                    yBin,
+                    count: 0
+                }
+
+                buckets.push(bucket)
+            }
+
+            bucket.count++
+        }
+
+        const incrementSprayByTrajectoryBucket = (buckets: any[], coordX: number | undefined, coordY: number | undefined, trajectory: string): void => {
+            const mappedTrajectory = mapTrajectory(trajectory)
+            const sprayBin = getSprayBin(coordX, coordY)
+
+            if (!mappedTrajectory || sprayBin === undefined) return
+
+            let bucket = buckets.find(item => item.trajectory === mappedTrajectory && item.sprayBin === sprayBin)
+
+            if (!bucket) {
+                bucket = {
+                    trajectory: mappedTrajectory,
+                    sprayBin,
+                    count: 0
+                }
+
+                buckets.push(bucket)
+            }
+
+            bucket.count++
+        }
+
+        const incrementSprayByTrajectoryEvLaBucket = (buckets: any[], coordX: number | undefined, coordY: number | undefined, trajectory: string, launchSpeed: number | undefined, launchAngle: number | undefined): void => {
+            if (!Number.isFinite(launchSpeed) || !Number.isFinite(launchAngle)) return
+
+            const mappedTrajectory = mapTrajectory(trajectory)
+            const sprayBin = getSprayBin(coordX, coordY)
+
+            if (!mappedTrajectory || sprayBin === undefined) return
+
+            const evBin = Math.floor((launchSpeed as number) / 2) * 2
+            const laBin = Math.floor((launchAngle as number) / 2) * 2
+
+            let bucket = buckets.find(item =>
+                item.trajectory === mappedTrajectory &&
+                item.evBin === evBin &&
+                item.laBin === laBin &&
+                item.sprayBin === sprayBin
+            )
+
+            if (!bucket) {
+                bucket = {
+                    trajectory: mappedTrajectory,
+                    evBin,
+                    laBin,
+                    sprayBin,
+                    count: 0
+                }
+
+                buckets.push(bucket)
+            }
+
+            bucket.count++
+        }
+
         this.initializeAlignmentFromBoxscoreTeam(gamePk, gameData?.liveData?.boxscore?.teams?.home, homeFieldAlignment, players)
         this.initializeAlignmentFromBoxscoreTeam(gamePk, gameData?.liveData?.boxscore?.teams?.away, awayFieldAlignment, players)
 
@@ -158,6 +349,46 @@ class StatAccumulatorService {
 
             if (pitcher && !pitcher.pitching.behaviorByCount) {
                 pitcher.pitching.behaviorByCount = this.emptyBehaviorByCountRaw()
+            }
+
+            if (batter && !(batter.hitting as any).outcomeByEvLa) {
+                ;(batter.hitting as any).outcomeByEvLa = []
+            }
+
+            if (batter && !(batter.hitting as any).xyByTrajectory) {
+                ;(batter.hitting as any).xyByTrajectory = []
+            }
+
+            if (batter && !(batter.hitting as any).xyByTrajectoryEvLa) {
+                ;(batter.hitting as any).xyByTrajectoryEvLa = []
+            }
+
+            if (batter && !(batter.hitting as any).sprayByTrajectory) {
+                ;(batter.hitting as any).sprayByTrajectory = []
+            }
+
+            if (batter && !(batter.hitting as any).sprayByTrajectoryEvLa) {
+                ;(batter.hitting as any).sprayByTrajectoryEvLa = []
+            }
+
+            if (pitcher && !(pitcher.pitching as any).outcomeAllowedByEvLa) {
+                ;(pitcher.pitching as any).outcomeAllowedByEvLa = []
+            }
+
+            if (pitcher && !(pitcher.pitching as any).xyAllowedByTrajectory) {
+                ;(pitcher.pitching as any).xyAllowedByTrajectory = []
+            }
+
+            if (pitcher && !(pitcher.pitching as any).xyAllowedByTrajectoryEvLa) {
+                ;(pitcher.pitching as any).xyAllowedByTrajectoryEvLa = []
+            }
+
+            if (pitcher && !(pitcher.pitching as any).sprayAllowedByTrajectory) {
+                ;(pitcher.pitching as any).sprayAllowedByTrajectory = []
+            }
+
+            if (pitcher && !(pitcher.pitching as any).sprayAllowedByTrajectoryEvLa) {
+                ;(pitcher.pitching as any).sprayAllowedByTrajectoryEvLa = []
             }
 
             this.markHittingGame(gamePk, batter)
@@ -291,6 +522,13 @@ class StatAccumulatorService {
                 const horizontalBreak = Number(pitchData?.breaks?.breakHorizontal)
                 const verticalBreak = Number(pitchData?.breaks?.breakVertical)
                 const launchSpeed = Number(hitData?.launchSpeed)
+                const launchAngle = Number(hitData?.launchAngle)
+                const totalDistance = Number(hitData?.totalDistance)
+                const coordX = Number(hitData?.coordinates?.coordX)
+                const coordY = Number(hitData?.coordinates?.coordY)
+                const trajectory = String(hitData?.trajectory ?? "")
+                const hardness = String(hitData?.hardness ?? "")
+                const location = String(hitData?.location ?? "")
 
                 if (batter) {
                     batter.hitting.pitchesSeen++
@@ -321,7 +559,19 @@ class StatAccumulatorService {
                         this.addExitVelocity(this.getSplitExitVelocityStore(batter)[hittingSplitKey], launchSpeed)
                         this.syncSplitExitVelocityAverage(batter, hittingSplitKey)
 
-                        switch (hitData?.trajectory) {
+                        this.addLaunchAngle(batter.hitting.launchAngle, launchAngle)
+                        this.addDistance(batter.hitting.distance, totalDistance)
+                        this.addCoordinates(batter.hitting.coordinates, coordX, coordY)
+                        this.addBattedBallPhysics(this.getHittingPhysicsByTrajectory(batter, trajectory), launchSpeed, launchAngle, totalDistance, coordX, coordY)
+                        this.incrementBattedBallLocation(batter.hitting.battedBallLocation, location)
+                        this.incrementBattedBallHardness(batter.hitting.battedBallHardness, hardness)
+                        incrementEvLaOutcomeBucket((batter.hitting as any).outcomeByEvLa, launchSpeed, launchAngle, eventType)
+                        incrementXyByTrajectoryBucket((batter.hitting as any).xyByTrajectory, coordX, coordY, trajectory)
+                        incrementXyByTrajectoryEvLaBucket((batter.hitting as any).xyByTrajectoryEvLa, coordX, coordY, trajectory, launchSpeed, launchAngle)
+                        incrementSprayByTrajectoryBucket((batter.hitting as any).sprayByTrajectory, coordX, coordY, trajectory)
+                        incrementSprayByTrajectoryEvLaBucket((batter.hitting as any).sprayByTrajectoryEvLa, coordX, coordY, trajectory, launchSpeed, launchAngle)
+
+                        switch (trajectory) {
                             case "ground_ball":
                                 batter.hitting.groundBalls++
                                 break
@@ -359,7 +609,20 @@ class StatAccumulatorService {
                     this.addPitchTypeData(pitcher, pitchType, startSpeed, horizontalBreak, verticalBreak)
 
                     if (isInPlay) {
-                        switch (hitData?.trajectory) {
+                        this.addExitVelocity(pitcher.pitching.exitVelocityAllowed, launchSpeed)
+                        this.addLaunchAngle(pitcher.pitching.launchAngleAllowed, launchAngle)
+                        this.addDistance(pitcher.pitching.distanceAllowed, totalDistance)
+                        this.addCoordinates(pitcher.pitching.coordinatesAllowed, coordX, coordY)
+                        this.addBattedBallPhysics(this.getPitchingPhysicsByTrajectory(pitcher, trajectory), launchSpeed, launchAngle, totalDistance, coordX, coordY)
+                        this.incrementBattedBallLocation(pitcher.pitching.battedBallLocationAllowed, location)
+                        this.incrementBattedBallHardness(pitcher.pitching.battedBallHardnessAllowed, hardness)
+                        incrementEvLaOutcomeBucket((pitcher.pitching as any).outcomeAllowedByEvLa, launchSpeed, launchAngle, eventType)
+                        incrementXyByTrajectoryBucket((pitcher.pitching as any).xyAllowedByTrajectory, coordX, coordY, trajectory)
+                        incrementXyByTrajectoryEvLaBucket((pitcher.pitching as any).xyAllowedByTrajectoryEvLa, coordX, coordY, trajectory, launchSpeed, launchAngle)
+                        incrementSprayByTrajectoryBucket((pitcher.pitching as any).sprayAllowedByTrajectory, coordX, coordY, trajectory)
+                        incrementSprayByTrajectoryEvLaBucket((pitcher.pitching as any).sprayAllowedByTrajectoryEvLa, coordX, coordY, trajectory, launchSpeed, launchAngle)
+
+                        switch (trajectory) {
                             case "ground_ball":
                                 pitcher.pitching.groundBallsAllowed++
                                 break
@@ -573,6 +836,41 @@ class StatAccumulatorService {
         }
     }
 
+    private emptyLaunchAngleStat(): LaunchAngleStat {
+        return {
+            count: 0,
+            totalLaunchAngle: 0,
+            avgLaunchAngle: 0
+        }
+    }
+
+    private emptyDistanceStat(): DistanceStat {
+        return {
+            count: 0,
+            totalDistance: 0,
+            avgDistance: 0
+        }
+    }
+
+    private emptyCoordinateStat(): BattedBallCoordinateStat {
+        return {
+            count: 0,
+            totalCoordX: 0,
+            avgCoordX: 0,
+            totalCoordY: 0,
+            avgCoordY: 0
+        }
+    }
+
+    private emptyBattedBallPhysics(): BattedBallPhysicsStat {
+        return {
+            exitVelocity: this.emptyExitVelocityStat(),
+            launchAngle: this.emptyLaunchAngleStat(),
+            distance: this.emptyDistanceStat(),
+            coordinates: this.emptyCoordinateStat()
+        }
+    }
+
     private emptyPitchTypeMovementStat(): PitchTypeMovementStat {
         return {
             count: 0,
@@ -706,11 +1004,85 @@ class StatAccumulatorService {
         return created
     }
 
+    private getHittingPhysicsByTrajectory(player: PlayerImportRaw, trajectory: string): BattedBallPhysicsStat {
+        switch (trajectory) {
+            case "ground_ball":
+                return player.hitting.physicsByTrajectory.groundBall
+            case "fly_ball":
+                return player.hitting.physicsByTrajectory.flyBall
+            case "line_drive":
+                return player.hitting.physicsByTrajectory.lineDrive
+            case "popup":
+                return player.hitting.physicsByTrajectory.popup
+            default:
+                return this.emptyBattedBallPhysics()
+        }
+    }
+
+    private getPitchingPhysicsByTrajectory(player: PlayerImportRaw, trajectory: string): BattedBallPhysicsStat {
+        switch (trajectory) {
+            case "ground_ball":
+                return player.pitching.physicsAllowedByTrajectory.groundBall
+            case "fly_ball":
+                return player.pitching.physicsAllowedByTrajectory.flyBall
+            case "line_drive":
+                return player.pitching.physicsAllowedByTrajectory.lineDrive
+            case "popup":
+                return player.pitching.physicsAllowedByTrajectory.popup
+            default:
+                return this.emptyBattedBallPhysics()
+        }
+    }
+
     private syncSplitExitVelocityAverage(player: PlayerImportRaw, splitKey: "vsL" | "vsR"): void {
         const store = this.getSplitExitVelocityStore(player)[splitKey]
         player.splits.hitting[splitKey].exitVelocity = store.count > 0
             ? Number((store.totalExitVelo / store.count).toFixed(3))
             : 0
+    }
+
+    private addLaunchAngle(stat: LaunchAngleStat, launchAngle: number | undefined): void {
+        if (!Number.isFinite(launchAngle)) return
+
+        stat.count++
+        stat.totalLaunchAngle += launchAngle as number
+        stat.avgLaunchAngle = Number((stat.totalLaunchAngle / stat.count).toFixed(3))
+    }
+
+    private addDistance(stat: DistanceStat, totalDistance: number | undefined): void {
+        if (!Number.isFinite(totalDistance) || (totalDistance as number) <= 0) return
+
+        stat.count++
+        stat.totalDistance += totalDistance as number
+        stat.avgDistance = Number((stat.totalDistance / stat.count).toFixed(3))
+    }
+
+    private addCoordinates(stat: BattedBallCoordinateStat, coordX: number | undefined, coordY: number | undefined): void {
+        if (!Number.isFinite(coordX) || !Number.isFinite(coordY)) return
+
+        stat.count++
+        stat.totalCoordX += coordX as number
+        stat.totalCoordY += coordY as number
+        stat.avgCoordX = Number((stat.totalCoordX / stat.count).toFixed(3))
+        stat.avgCoordY = Number((stat.totalCoordY / stat.count).toFixed(3))
+    }
+
+    private addBattedBallPhysics(stat: BattedBallPhysicsStat, launchSpeed: number | undefined, launchAngle: number | undefined, totalDistance: number | undefined, coordX: number | undefined, coordY: number | undefined): void {
+        this.addExitVelocity(stat.exitVelocity, launchSpeed)
+        this.addLaunchAngle(stat.launchAngle, launchAngle)
+        this.addDistance(stat.distance, totalDistance)
+        this.addCoordinates(stat.coordinates, coordX, coordY)
+    }
+
+    private incrementBattedBallLocation(store: Partial<Record<string, number>>, location: string): void {
+        if (!location) return
+        store[location] = (store[location] ?? 0) + 1
+    }
+
+    private incrementBattedBallHardness(store: { soft: number, medium: number, hard: number }, hardness: string): void {
+        if (hardness === "soft") store.soft++
+        if (hardness === "medium") store.medium++
+        if (hardness === "hard") store.hard++
     }
 
     private incrementFieldedBall(player: PlayerImportRaw, position: Position | undefined, trajectory?: string): void {
@@ -780,48 +1152,48 @@ class StatAccumulatorService {
         return ""
     }
 
-    private getOrCreate(players: Map<string, PlayerImportRaw>, id: string, fullName?: string, bats?: string, throws?: string, role?: "hitter" | "pitcher"): PlayerImportRaw {
-        let existing = players.get(id)
+    private getOrCreate(players: Map<string, PlayerImportRaw>, playerId: string, fullName?: string, bats?: string, throws?: string, primaryRole?: "hitter" | "pitcher" | "twoWay"): PlayerImportRaw {
+        
+        let existing = players.get(playerId)
 
         if (existing) {
-            if (!existing.firstName && fullName) {
-                const parts = fullName.split(" ")
-                existing.firstName = parts.shift() ?? ""
-                existing.lastName = parts.join(" ")
+            if (fullName) {
+                const parts = fullName.trim().split(/\s+/).filter(Boolean)
+                if (!existing.firstName && parts.length > 0) existing.firstName = parts[0]
+                if (!existing.lastName && parts.length > 1) existing.lastName = parts.slice(1).join(" ")
             }
 
-            if (bats && !existing.bats) existing.bats = this.mapHandedness(bats)
-            if (throws && !existing.throws) existing.throws = this.mapHandedness(throws)
+            if (bats && !existing.bats) existing.bats = bats as Handedness
+            if (throws && !existing.throws) existing.throws = throws as Handedness
 
-            if (role && existing.primaryRole !== role) {
-                existing.primaryRole = "twoWay"
-            }
-
-            if (!existing.hitting.behaviorByCount) {
-                existing.hitting.behaviorByCount = this.emptyBehaviorByCountRaw()
-            }
-
-            if (!existing.pitching.behaviorByCount) {
-                existing.pitching.behaviorByCount = this.emptyBehaviorByCountRaw()
+            if (primaryRole) {
+                if (!existing.primaryRole) {
+                    existing.primaryRole = primaryRole
+                } else if (
+                    existing.primaryRole !== primaryRole &&
+                    existing.primaryRole !== "twoWay" &&
+                    primaryRole !== "twoWay"
+                ) {
+                    existing.primaryRole = "twoWay"
+                }
             }
 
             return existing
         }
 
-        const parts = (fullName ?? "").split(" ")
-        const firstName = parts.shift() ?? ""
-        const lastName = parts.join(" ")
+        const parts = (fullName ?? "").trim().split(/\s+/).filter(Boolean)
+        const firstName = parts.length > 0 ? parts[0] : ""
+        const lastName = parts.length > 1 ? parts.slice(1).join(" ") : ""
 
         const created: PlayerImportRaw = {
-            playerId: id,
+            playerId,
             firstName,
             lastName,
-            age: undefined,
             primaryPosition: Position.DESIGNATED_HITTER,
             secondaryPositions: [],
-            throws: this.mapHandedness(throws),
-            bats: this.mapHandedness(bats),
-            primaryRole: role ?? "hitter",
+            throws: (throws ? this.mapHandedness(throws) : Handedness.R),
+            bats: (bats ? this.mapHandedness(bats) : Handedness.R),
+            primaryRole: primaryRole ?? "hitter",
 
             hitting: {
                 games: 0,
@@ -834,33 +1206,66 @@ class StatAccumulatorService {
                 bb: 0,
                 so: 0,
                 hbp: 0,
+
                 groundBalls: 0,
                 flyBalls: 0,
                 lineDrives: 0,
                 popups: 0,
+
                 pitchesSeen: 0,
                 ballsSeen: 0,
                 strikesSeen: 0,
+
                 swings: 0,
                 swingAtBalls: 0,
                 swingAtStrikes: 0,
+
                 calledStrikes: 0,
                 swingingStrikes: 0,
+
                 inZonePitches: 0,
                 inZoneContact: 0,
                 outZoneContact: 0,
+
                 fouls: 0,
                 ballsInPlay: 0,
+
                 inZoneByCount: this.emptyInZoneByCountRaw(),
                 behaviorByCount: this.emptyBehaviorByCountRaw(),
-                exitVelocity: this.emptyExitVelocityStat()
+
+                exitVelocity: this.emptyExitVelocityStat(),
+                launchAngle: this.emptyLaunchAngleStat(),
+                distance: this.emptyDistanceStat(),
+                coordinates: this.emptyCoordinateStat(),
+
+                physicsByTrajectory: {
+                    groundBall: this.emptyBattedBallPhysics(),
+                    flyBall: this.emptyBattedBallPhysics(),
+                    lineDrive: this.emptyBattedBallPhysics(),
+                    popup: this.emptyBattedBallPhysics()
+                },
+
+                battedBallLocation: {},
+                battedBallHardness: {
+                    soft: 0,
+                    medium: 0,
+                    hard: 0
+                },
+
+                outcomeByEvLa: [],
+                xyByTrajectory: [],
+                xyByTrajectoryEvLa: [],
+                sprayByTrajectory: [],
+                sprayByTrajectoryEvLa: []
             },
 
             pitching: {
                 games: 0,
                 starts: 0,
+
                 battersFaced: 0,
                 outs: 0,
+
                 hitsAllowed: 0,
                 doublesAllowed: 0,
                 triplesAllowed: 0,
@@ -868,45 +1273,83 @@ class StatAccumulatorService {
                 bbAllowed: 0,
                 so: 0,
                 hbpAllowed: 0,
+
                 groundBallsAllowed: 0,
                 flyBallsAllowed: 0,
                 lineDrivesAllowed: 0,
                 popupsAllowed: 0,
+
                 pitchesThrown: 0,
                 ballsThrown: 0,
                 strikesThrown: 0,
+
                 swingsInduced: 0,
                 swingAtBallsAllowed: 0,
                 swingAtStrikesAllowed: 0,
+
                 inZoneContactAllowed: 0,
                 outZoneContactAllowed: 0,
+
                 foulsAllowed: 0,
                 ballsInPlayAllowed: 0,
+
                 inZoneByCount: this.emptyInZoneByCountRaw(),
                 behaviorByCount: this.emptyBehaviorByCountRaw(),
-                pitchTypes: {}
+
+                pitchTypes: {},
+
+                exitVelocityAllowed: this.emptyExitVelocityStat(),
+                launchAngleAllowed: this.emptyLaunchAngleStat(),
+                distanceAllowed: this.emptyDistanceStat(),
+                coordinatesAllowed: this.emptyCoordinateStat(),
+
+                physicsAllowedByTrajectory: {
+                    groundBall: this.emptyBattedBallPhysics(),
+                    flyBall: this.emptyBattedBallPhysics(),
+                    lineDrive: this.emptyBattedBallPhysics(),
+                    popup: this.emptyBattedBallPhysics()
+                },
+
+                battedBallLocationAllowed: {},
+                battedBallHardnessAllowed: {
+                    soft: 0,
+                    medium: 0,
+                    hard: 0
+                },
+
+                outcomeAllowedByEvLa: [],
+                xyAllowedByTrajectory: [],
+                xyAllowedByTrajectoryEvLa: [],
+                sprayAllowedByTrajectory: [],
+                sprayAllowedByTrajectoryEvLa: []
             },
 
             fielding: {
                 gamesAtPosition: {},
                 inningsAtPosition: {},
+
                 errors: 0,
                 assists: 0,
                 putouts: 0,
                 doublePlays: 0,
                 doublePlayOpportunities: 0,
+
                 outfieldAssists: 0,
                 catcherCaughtStealing: 0,
                 catcherStolenBasesAllowed: 0,
                 passedBalls: 0,
+
                 fieldedBalls: 0,
                 groundBallsFielded: 0,
                 flyBallsFielded: 0,
                 lineDrivesFielded: 0,
                 popupsFielded: 0,
+
                 throwsAttempted: 0,
                 successfulThrowOuts: 0,
+
                 battedBallOpportunitiesByLocation: {},
+
                 chances: 0,
                 positionStats: {}
             },
@@ -925,18 +1368,7 @@ class StatAccumulatorService {
             }
         }
 
-        ;(created as any).__hittingGameIds = new Set<number>()
-        ;(created as any).__pitchingGameIds = new Set<number>()
-        ;(created as any).__fieldingGameIds = new Set<number>()
-        ;(created as any).__fieldingPositionsByGame = new Map<number, Set<Position>>()
-        ;(created as any).__fieldedBallPlayKeys = new Set<string>()
-        ;(created as any).__outsAtPosition = {}
-        ;(created as any).__splitExitVelocity = {
-            vsL: this.emptyExitVelocityStat(),
-            vsR: this.emptyExitVelocityStat()
-        }
-
-        players.set(id, created)
+        players.set(playerId, created)
         return created
     }
 
@@ -1028,19 +1460,16 @@ class StatAccumulatorService {
         if (Number.isFinite(startSpeed) && (startSpeed as number) > 0) {
             current.count++
             current.totalMph += startSpeed as number
+            current.avgMph = Number((current.totalMph / current.count).toFixed(3))
         }
 
         if (Number.isFinite(horizontalBreak)) {
             current.totalHorizontalBreak += horizontalBreak as number
+            current.avgHorizontalBreak = Number((current.totalHorizontalBreak / current.count).toFixed(3))
         }
 
         if (Number.isFinite(verticalBreak)) {
             current.totalVerticalBreak += verticalBreak as number
-        }
-
-        if (current.count > 0) {
-            current.avgMph = Number((current.totalMph / current.count).toFixed(3))
-            current.avgHorizontalBreak = Number((current.totalHorizontalBreak / current.count).toFixed(3))
             current.avgVerticalBreak = Number((current.totalVerticalBreak / current.count).toFixed(3))
         }
 
