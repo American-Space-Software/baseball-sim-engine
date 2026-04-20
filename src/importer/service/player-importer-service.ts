@@ -7,13 +7,6 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { DownloaderService } from "./downloader-service.js"
 
-const defaultTuningConfig = {
-    maxIterations: 100,
-    minIterations: 40,
-    maxStallIterations: 25,
-    gamesPerIteration: 70,
-    printDiagnostics: true
-}
 
 
 class PlayerImporterService {
@@ -321,7 +314,10 @@ class PlayerImporterService {
             rightField: round(safeDiv(positionSeeds[Position.RIGHT_FIELD], fielderSeedTotal) * 100, 0)
         }
 
-        const stealSuccessPercent = round(safeDiv(runningTotals.sb, runningTotals.sbAttempts) * 100, 0)
+        const stealAttemptRate = round(safeDiv(runningTotals.sbAttempts, runningTotals.timesOnFirst), 3)
+        const stealSuccessRate = round(safeDiv(runningTotals.sb, runningTotals.sbAttempts), 3)
+        const extraBaseTakenRate = round(safeDiv(runningTotals.extraBaseTaken, runningTotals.extraBaseOpportunities), 3)
+        const stealSuccessPercent = round(stealSuccessRate * 100, 0)
 
         const finalizedInZoneByCount = inZoneByCountSeed.map(bucket => ({
             balls: bucket.balls,
@@ -412,6 +408,36 @@ class PlayerImporterService {
                 }
             },
 
+            running: {
+                steal: [
+                    { balls: 0, strikes: 0, attempt: 32, success: stealSuccessPercent },
+                    { balls: 0, strikes: 1, attempt: 42, success: stealSuccessPercent },
+                    { balls: 0, strikes: 2, attempt: 18, success: stealSuccessPercent },
+                    { balls: 1, strikes: 0, attempt: 32, success: stealSuccessPercent },
+                    { balls: 1, strikes: 1, attempt: 42, success: stealSuccessPercent },
+                    { balls: 1, strikes: 2, attempt: 20, success: stealSuccessPercent },
+                    { balls: 2, strikes: 0, attempt: 49, success: stealSuccessPercent },
+                    { balls: 2, strikes: 1, attempt: 53, success: stealSuccessPercent },
+                    { balls: 2, strikes: 2, attempt: 25, success: stealSuccessPercent },
+                    { balls: 3, strikes: 0, attempt: 1, success: stealSuccessPercent },
+                    { balls: 3, strikes: 1, attempt: 14, success: stealSuccessPercent },
+                    { balls: 3, strikes: 2, attempt: 29, success: stealSuccessPercent }
+                ],
+                stealAttemptRate,
+                stealSuccessRate,
+                extraBaseTakenRate
+            },
+
+            fielderChance: {
+                vsR: derivedFielderChance,
+                vsL: derivedFielderChance,
+                shallowDeep: {
+                    shallow: 20,
+                    normal: 60,
+                    deep: 20
+                }
+            },
+
             outcome: {
                 avg: round(safeDiv(hitterTotals.hits, hitterTotals.ab), 3),
                 obp: round(safeDiv(hitterTotals.hits + hitterTotals.bb + hitterTotals.hbp, hitterTotals.pa), 3),
@@ -436,31 +462,6 @@ class PlayerImporterService {
                 homeRunsPerGame: round(safeDiv(hitterTotals.homeRuns, totalTeamGames), 2),
                 bbPerGame: round(safeDiv(hitterTotals.bb, totalTeamGames), 2),
                 soPerGame: round(safeDiv(hitterTotals.so, totalTeamGames), 2)
-            },
-
-            steal: [
-                { balls: 0, strikes: 0, attempt: 32, success: stealSuccessPercent },
-                { balls: 0, strikes: 1, attempt: 42, success: stealSuccessPercent },
-                { balls: 0, strikes: 2, attempt: 18, success: stealSuccessPercent },
-                { balls: 1, strikes: 0, attempt: 32, success: stealSuccessPercent },
-                { balls: 1, strikes: 1, attempt: 42, success: stealSuccessPercent },
-                { balls: 1, strikes: 2, attempt: 20, success: stealSuccessPercent },
-                { balls: 2, strikes: 0, attempt: 49, success: stealSuccessPercent },
-                { balls: 2, strikes: 1, attempt: 53, success: stealSuccessPercent },
-                { balls: 2, strikes: 2, attempt: 25, success: stealSuccessPercent },
-                { balls: 3, strikes: 0, attempt: 1, success: stealSuccessPercent },
-                { balls: 3, strikes: 1, attempt: 14, success: stealSuccessPercent },
-                { balls: 3, strikes: 2, attempt: 29, success: stealSuccessPercent }
-            ],
-
-            fielderChance: {
-                vsR: derivedFielderChance,
-                vsL: derivedFielderChance,
-                shallowDeep: {
-                    shallow: 20,
-                    normal: 60,
-                    deep: 20
-                }
             },
 
             importReference: {
@@ -2050,6 +2051,7 @@ class PlayerImporterService {
 
     public evaluatePitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, rng: Function, games: number = 50): { actual: any, target: any, diff: any, score: number } {
         const normalize = (v: number): number => v / 100
+        const safeDiv = (a: number, b: number): number => b > 0 ? a / b : 0
 
         let totalHit: HitResultCount = {} as HitResultCount
         let totalPitch: PitchResultCount = {} as PitchResultCount
@@ -2084,14 +2086,13 @@ class PlayerImporterService {
 
         const totalTeamGames = hitterStatLine.games / 9
 
-        const actual = {
-            inZonePercent: hitterStatLine.inZonePercent,
-            strikePercent: hitterStatLine.strikePercent,
-            ballPercent: hitterStatLine.ballPercent,
-            swingPercent: hitterStatLine.swingPercent,
-            foulContactPercent: pitcherStatLine.foulContactPercent,
-            pitchesPerPA: hitterStatLine.pitchesPerPA,
+        const sb = (totalHit as any).sb ?? hitterStatLine.sb ?? 0
+        const cs = (totalHit as any).cs ?? hitterStatLine.cs ?? 0
+        const sbAttempts = (totalHit as any).sbAttempts ?? hitterStatLine.sbAttempts ?? (sb + cs)
+        const timesOnFirst = (totalHit as any).timesOnFirst ?? hitterStatLine.timesOnFirst ?? 0
 
+        const actual = {
+            pitchesPerPA: hitterStatLine.pitchesPerPA,
             swingAtStrikesPercent: hitterStatLine.swingAtStrikesPercent,
             swingAtBallsPercent: hitterStatLine.swingAtBallsPercent,
             inZoneContactPercent: hitterStatLine.inZoneContactPercent,
@@ -2112,25 +2113,17 @@ class PlayerImporterService {
             triplePercent: hitterStatLine.triplePercent,
             homeRunPercent: hitterStatLine.homeRunPercent,
 
-            groundBallPercent: hitterStatLine.groundBallPercent,
-            flyBallPercent: hitterStatLine.flyBallPercent,
-            ldPercent: hitterStatLine.ldPercent,
-
             teamRunsPerGame: hitterStatLine.runs / totalTeamGames,
             teamHitsPerGame: hitterStatLine.hits / totalTeamGames,
             teamHomeRunsPerGame: hitterStatLine.homeRuns / totalTeamGames,
             teamBBPerGame: hitterStatLine.bb / totalTeamGames,
-            teamSOPerGame: hitterStatLine.so / totalTeamGames
+            teamSOPerGame: hitterStatLine.so / totalTeamGames,
+            stealAttemptRate: safeDiv(sbAttempts, timesOnFirst),
+            stealSuccessRate: safeDiv(sb, sbAttempts)
         }
 
         const target = {
-            inZonePercent: normalize(pitchEnvironment.pitch.inZonePercent),
-            strikePercent: normalize(pitchEnvironment.pitch.strikePercent),
-            ballPercent: normalize(pitchEnvironment.pitch.ballPercent),
-            swingPercent: normalize(pitchEnvironment.pitch.swingPercent),
-            foulContactPercent: normalize(pitchEnvironment.pitch.foulContactPercent),
             pitchesPerPA: pitchEnvironment.pitch.pitchesPerPA,
-
             swingAtStrikesPercent: normalize(pitchEnvironment.swing.swingAtStrikesPercent),
             swingAtBallsPercent: normalize(pitchEnvironment.swing.swingAtBallsPercent),
             inZoneContactPercent: normalize(pitchEnvironment.swing.inZoneContactPercent),
@@ -2146,152 +2139,58 @@ class PlayerImporterService {
             soPercent: pitchEnvironment.outcome.soPercent,
             hbpPercent: pitchEnvironment.outcome.hbpPercent,
 
-            homeRunPercent: pitchEnvironment.outcome.homeRunPercent,
+            singlePercent: pitchEnvironment.outcome.avg - pitchEnvironment.outcome.doublePercent - pitchEnvironment.outcome.triplePercent - pitchEnvironment.outcome.homeRunPercent,
             doublePercent: pitchEnvironment.outcome.doublePercent,
             triplePercent: pitchEnvironment.outcome.triplePercent,
-            singlePercent: Math.max(0, pitchEnvironment.outcome.avg - pitchEnvironment.outcome.doublePercent - pitchEnvironment.outcome.triplePercent - pitchEnvironment.outcome.homeRunPercent),
-
-            groundBallPercent: pitchEnvironment.battedBall.contactRollInput.groundball / 100,
-            flyBallPercent: pitchEnvironment.battedBall.contactRollInput.flyBall / 100,
-            ldPercent: pitchEnvironment.battedBall.contactRollInput.lineDrive / 100,
+            homeRunPercent: pitchEnvironment.outcome.homeRunPercent,
 
             teamRunsPerGame: pitchEnvironment.team.runsPerGame,
             teamHitsPerGame: pitchEnvironment.team.hitsPerGame,
             teamHomeRunsPerGame: pitchEnvironment.team.homeRunsPerGame,
             teamBBPerGame: pitchEnvironment.team.bbPerGame,
-            teamSOPerGame: pitchEnvironment.team.soPerGame
+            teamSOPerGame: pitchEnvironment.team.soPerGame,
+
+            stealAttemptRate: pitchEnvironment.running.stealAttemptRate,
+            stealSuccessRate: pitchEnvironment.running.stealSuccessRate
         }
 
         const diff = {
-            inZonePercent: target.inZonePercent - actual.inZonePercent,
-            strikePercent: target.strikePercent - actual.strikePercent,
-            ballPercent: target.ballPercent - actual.ballPercent,
-            swingPercent: target.swingPercent - actual.swingPercent,
-            foulContactPercent: target.foulContactPercent - actual.foulContactPercent,
-            pitchesPerPA: target.pitchesPerPA - actual.pitchesPerPA,
+            pitchesPerPA: actual.pitchesPerPA - target.pitchesPerPA,
+            swingAtStrikesPercent: actual.swingAtStrikesPercent - target.swingAtStrikesPercent,
+            swingAtBallsPercent: actual.swingAtBallsPercent - target.swingAtBallsPercent,
+            inZoneContactPercent: actual.inZoneContactPercent - target.inZoneContactPercent,
+            outZoneContactPercent: actual.outZoneContactPercent - target.outZoneContactPercent,
 
-            swingAtStrikesPercent: target.swingAtStrikesPercent - actual.swingAtStrikesPercent,
-            swingAtBallsPercent: target.swingAtBallsPercent - actual.swingAtBallsPercent,
-            inZoneContactPercent: target.inZoneContactPercent - actual.inZoneContactPercent,
-            outZoneContactPercent: target.outZoneContactPercent - actual.outZoneContactPercent,
+            avg: actual.avg - target.avg,
+            obp: actual.obp - target.obp,
+            slg: actual.slg - target.slg,
+            babip: actual.babip - target.babip,
+            ops: actual.ops - target.ops,
 
-            avg: target.avg - actual.avg,
-            obp: target.obp - actual.obp,
-            slg: target.slg - actual.slg,
-            ops: target.ops - actual.ops,
-            babip: target.babip - actual.babip,
+            bbPercent: actual.bbPercent - target.bbPercent,
+            singlePercent: actual.singlePercent - target.singlePercent,
+            homeRunPercent: actual.homeRunPercent - target.homeRunPercent,
 
-            bbPercent: target.bbPercent - actual.bbPercent,
-            soPercent: target.soPercent - actual.soPercent,
-            hbpPercent: target.hbpPercent - actual.hbpPercent,
+            teamRunsPerGame: actual.teamRunsPerGame - target.teamRunsPerGame,
+            teamHitsPerGame: actual.teamHitsPerGame - target.teamHitsPerGame,
+            teamHomeRunsPerGame: actual.teamHomeRunsPerGame - target.teamHomeRunsPerGame,
+            teamBBPerGame: actual.teamBBPerGame - target.teamBBPerGame,
 
-            singlePercent: target.singlePercent - actual.singlePercent,
-            doublePercent: target.doublePercent - actual.doublePercent,
-            triplePercent: target.triplePercent - actual.triplePercent,
-            homeRunPercent: target.homeRunPercent - actual.homeRunPercent,
-
-            groundBallPercent: target.groundBallPercent - actual.groundBallPercent,
-            flyBallPercent: target.flyBallPercent - actual.flyBallPercent,
-            ldPercent: target.ldPercent - actual.ldPercent,
-
-            teamRunsPerGame: target.teamRunsPerGame - actual.teamRunsPerGame,
-            teamHitsPerGame: target.teamHitsPerGame - actual.teamHitsPerGame,
-            teamHomeRunsPerGame: target.teamHomeRunsPerGame - actual.teamHomeRunsPerGame,
-            teamBBPerGame: target.teamBBPerGame - actual.teamBBPerGame,
-            teamSOPerGame: target.teamSOPerGame - actual.teamSOPerGame
+            stealAttemptRate: actual.stealAttemptRate - target.stealAttemptRate,
+            stealSuccessRate: actual.stealSuccessRate - target.stealSuccessRate
         }
 
-        const abs = (n: number): number => Math.abs(n)
-        const lowSide = (n: number): number => Math.max(0, n)
-        const highSide = (n: number): number => Math.max(0, -n)
-
-        const contactShapeGap = Math.abs(diff.inZoneContactPercent - diff.outZoneContactPercent)
-        const contactShapeDirectionPenalty =
-            Math.max(0, actual.inZoneContactPercent - target.inZoneContactPercent) * Math.max(0, target.outZoneContactPercent - actual.outZoneContactPercent)
-
-        const singleBabipCouplingPenalty =
-            lowSide(diff.singlePercent) * 900 +
-            lowSide(diff.babip) * 1100 +
-            lowSide(diff.singlePercent) * lowSide(diff.babip) * 4000
-
-        const disguisedPowerPenalty =
-            Math.max(0, actual.slg - target.slg) * (
-                lowSide(diff.avg) * 900 +
-                lowSide(diff.babip) * 1100 +
-                lowSide(diff.singlePercent) * 1200
-            )
-
-        const processMismatchPenalty =
-            contactShapeGap * 700 +
-            contactShapeDirectionPenalty * 2200 +
-            Math.max(0, actual.inZoneContactPercent - target.inZoneContactPercent) * 260 +
-            Math.max(0, target.outZoneContactPercent - actual.outZoneContactPercent) * 320 +
-            Math.max(0, target.swingAtStrikesPercent - actual.swingAtStrikesPercent) * 180 +
-            Math.max(0, target.swingAtBallsPercent - actual.swingAtBallsPercent) * 180
-
-        const primaryScore =
-            abs(diff.avg) * 1400 +
-            abs(diff.babip) * 1200 +
-            abs(diff.obp) * 900 +
-            abs(diff.slg) * 700 +
-            abs(diff.ops) * 200
-
-        const secondaryScore =
-            abs(diff.teamHitsPerGame) * 55 +
-            abs(diff.teamHomeRunsPerGame) * 46 +
-            abs(diff.teamBBPerGame) * 30 +
-            abs(diff.teamSOPerGame) * 22 +
-            abs(diff.singlePercent) * 180 +
-            abs(diff.doublePercent) * 65 +
-            abs(diff.triplePercent) * 20
-
-        const processScore =
-            abs(diff.pitchesPerPA) * 80 +
-            abs(diff.swingPercent) * 40 +
-            abs(diff.swingAtStrikesPercent) * 55 +
-            abs(diff.swingAtBallsPercent) * 55 +
-            abs(diff.inZoneContactPercent) * 65 +
-            abs(diff.outZoneContactPercent) * 75 +
-            abs(diff.foulContactPercent) * 18 +
-            abs(diff.inZonePercent) * 8 +
-            abs(diff.strikePercent) * 8 +
-            abs(diff.ballPercent) * 8
-
-        const shapePenalty =
-            abs(diff.groundBallPercent) * 16 +
-            abs(diff.flyBallPercent) * 16 +
-            abs(diff.ldPercent) * 16
-
-        const offenseFloorPenalty =
-            lowSide(diff.avg) * 2600 +
-            lowSide(diff.babip) * 2400 +
-            lowSide(diff.obp) * 1200 +
-            lowSide(diff.slg) * 900 +
-            lowSide(diff.singlePercent) * 2000
-
-        const strikeoutPenalty =
-            highSide(diff.soPercent) * 520 +
-            highSide(diff.teamSOPerGame) * 48
-
-        const falseProgressPenalty =
-            Math.max(0, target.pitchesPerPA - actual.pitchesPerPA) * (
-                lowSide(diff.avg) * 240 +
-                lowSide(diff.slg) * 320 +
-                lowSide(diff.babip) * 260 +
-                lowSide(diff.teamRunsPerGame) * 90
-            )
+        const sq = (v: number): number => v * v
 
         const score =
-            primaryScore +
-            secondaryScore +
-            processScore +
-            shapePenalty +
-            offenseFloorPenalty +
-            strikeoutPenalty +
-            falseProgressPenalty +
-            processMismatchPenalty +
-            singleBabipCouplingPenalty +
-            disguisedPowerPenalty
+            sq(diff.teamRunsPerGame) * 600000 +
+            sq(diff.ops ?? 0) * 120000000 +
+            sq(diff.obp) * 90000000 +
+            sq(diff.slg) * 100000000 +
+            sq(diff.avg) * 100000000 +
+            sq(diff.babip) * 90000000 +
+            sq(diff.stealAttemptRate) * 180000 +
+            sq(diff.stealSuccessRate) * 120000
 
         return { actual, target, diff, score }
     }
@@ -2301,38 +2200,27 @@ class PlayerImporterService {
         return {
             _id: uuidv4(),
             tuning: {
-                contactQualityEvScale: 0.7,
-                contactQualityLaScale: 0.35,
-                contactQualityDistanceScale: 0.08,
-
-                pitchQualityZoneSwingEffect: 5,
-                pitchQualityChaseSwingEffect: 6,
-
-                disciplineZoneSwingEffect: 6.25,
-                disciplineChaseSwingEffect: 8.25,
-
-                pitchQualityContactEffect: 7.5,
-                contactSkillEffect: 10.5,
-
-                fullPitchQualityBonus: 35,
-                fullTeamDefenseBonus: 80,
-                fullFielderDefenseBonus: 45,
-
-                groundballDoublePenalty: 10,
-                groundballTriplePenalty: 24,
-                groundballHRPenalty: 24,
-
-                flyballHRPenalty: 6,
-
-                lineDriveOutToSingleWindow: 18,
-                lineDriveOutToSingleBoost: 10,
-                lineDriveSingleToDoubleFactor: 0.24,
-
-                groundballOutcomeBoost: 0,
-                flyballOutcomeBoost: 0,
-                lineDriveOutcomeBoost: 3
+                contactQuality: {
+                    evScale: -10,
+                    laScale: -10,
+                    distanceScale: 0.167,
+                    fullPitchQualityBonus: -400
+                },
+                swing: {
+                    pitchQualityZoneSwingEffect: -39.52,
+                    pitchQualityChaseSwingEffect: -40,
+                    disciplineZoneSwingEffect: 5.66,
+                    disciplineChaseSwingEffect: 9.34
+                },
+                contact: {
+                    pitchQualityContactEffect: -40,
+                    contactSkillEffect: 11.06
+                },
+                defense: {
+                    fullTeamDefenseBonus: 62.03,
+                    fullFielderDefenseBonus: 37.81
+                }
             },
-
             ratingTuning: {
                 hitting: {
                     overallPlateDisciplineScale: 75,
@@ -2377,22 +2265,25 @@ class PlayerImporterService {
 
     public isPitchEnvironmentCloseEnough(diff: any): boolean {
         return (
+            Math.abs(diff.teamRunsPerGame) <= 0.20 &&
+            Math.abs(diff.ops) <= 0.010 &&
+            Math.abs(diff.obp) <= 0.008 &&
+            Math.abs(diff.slg) <= 0.010 &&
+            Math.abs(diff.avg) <= 0.008 &&
+            Math.abs(diff.babip) <= 0.010 &&
+
+            Math.abs(diff.teamHitsPerGame) <= 0.15 &&
+            Math.abs(diff.teamHomeRunsPerGame) <= 0.08 &&
+            Math.abs(diff.teamBBPerGame) <= 0.10 &&
+            Math.abs(diff.teamSOPerGame) <= 0.18 &&
+
             Math.abs(diff.pitchesPerPA) <= 0.03 &&
             Math.abs(diff.swingPercent) <= 0.005 &&
             Math.abs(diff.swingAtStrikesPercent) <= 0.0075 &&
             Math.abs(diff.swingAtBallsPercent) <= 0.0075 &&
             Math.abs(diff.inZoneContactPercent) <= 0.010 &&
             Math.abs(diff.outZoneContactPercent) <= 0.010 &&
-            Math.abs(diff.foulContactPercent) <= 0.008 &&
-            Math.abs(diff.avg) <= 0.008 &&
-            Math.abs(diff.obp) <= 0.008 &&
-            Math.abs(diff.slg) <= 0.010 &&
-            Math.abs(diff.babip) <= 0.010 &&
-            Math.abs(diff.teamRunsPerGame) <= 0.15 &&
-            Math.abs(diff.teamHitsPerGame) <= 0.15 &&
-            Math.abs(diff.teamHomeRunsPerGame) <= 0.08 &&
-            Math.abs(diff.teamBBPerGame) <= 0.10 &&
-            Math.abs(diff.teamSOPerGame) <= 0.18
+            Math.abs(diff.foulContactPercent) <= 0.008
         )
     }
 
@@ -2602,13 +2493,16 @@ class PlayerImporterService {
         })
     }
 
-    public printPitchEnvironmentIterationDiagnostics(stage: string, iteration: number, candidate: PitchEnvironmentTuning, result: { actual: any, target: any, diff: any, score: number }): void {
+    public printPitchEnvironmentIterationDiagnostics(stage: string, iteration: number, maxIterations: number, gamesPerIteration: number, candidate: PitchEnvironmentTuning, result: { actual: any, target: any, diff: any, score: number }): void {
         if (
             stage !== "seed" &&
+            stage !== "trial" &&
             stage !== "accepted" &&
             stage !== "accepted-softened" &&
             stage !== "stopped" &&
-            stage !== "close-enough"
+            stage !== "close-enough" &&
+            stage !== "baseline" &&
+            stage !== "final"
         ) {
             return
         }
@@ -2617,17 +2511,18 @@ class PlayerImporterService {
 
         console.log(
             `L${iteration} ${stage[0]} | ` +
+            `G=${gamesPerIteration} ` +
             `S=${r(result.score, 1)} ` +
-            `id=${candidate._id} ` +
-            `P=${r(result.actual.pitchesPerPA)}(${r(result.diff.pitchesPerPA)}) ` +
-            `Zs=${r(result.actual.swingAtStrikesPercent)}(${r(result.diff.swingAtStrikesPercent)}) ` +
-            `Cs=${r(result.actual.swingAtBallsPercent)}(${r(result.diff.swingAtBallsPercent)}) ` +
-            `Zc=${r(result.actual.inZoneContactPercent)}(${r(result.diff.inZoneContactPercent)}) ` +
-            `Cc=${r(result.actual.outZoneContactPercent)}(${r(result.diff.outZoneContactPercent)}) ` +
-            `A=${r(result.actual.avg)}(${r(result.diff.avg)}) ` +
-            `S=${r(result.actual.slg)}(${r(result.diff.slg)}) ` +
-            `B=${r(result.actual.babip)}(${r(result.diff.babip)}) ` +
-            `R=${r(result.actual.teamRunsPerGame)}(${r(result.diff.teamRunsPerGame)})` 
+            `P/PA=${r(result.actual.pitchesPerPA)}(${r(result.diff.pitchesPerPA)}) ` +
+            `ZSwng%=${r(result.actual.swingAtStrikesPercent)}(${r(result.diff.swingAtStrikesPercent)}) ` +
+            `CSwng%=${r(result.actual.swingAtBallsPercent)}(${r(result.diff.swingAtBallsPercent)}) ` +
+            `ZCnt%=${r(result.actual.inZoneContactPercent)}(${r(result.diff.inZoneContactPercent)}) ` +
+            `CCnt%=${r(result.actual.outZoneContactPercent)}(${r(result.diff.outZoneContactPercent)}) ` +
+            `AVG=${r(result.actual.avg)}(${r(result.diff.avg)}) ` +
+            `OBP=${r(result.actual.obp)}(${r(result.diff.obp)}) ` +
+            `SLG=${r(result.actual.slg)}(${r(result.diff.slg)}) ` +
+            `BABIP=${r(result.actual.babip)}(${r(result.diff.babip)}) ` +
+            `R/G=${r(result.actual.teamRunsPerGame)}(${r(result.diff.teamRunsPerGame)})`
         )
     }
 

@@ -34,16 +34,24 @@ const downloaderservice = new DownloaderService("data", 1000)
 
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
 
+// console.log(JSON.stringify(players.get("677951")))
+
 const evaluationSeed = 4
 const evaluationGames = 50
 
-let options = { workers: 25 }
+let options = { 
+    workers: 25,
+    gamesPerIteration: evaluationGames,
+    
+ }
 
 describe("Baseball Sim Engine", async () => {
 
     it("should calculate pitch environment target for season", async () => {
 
         pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
+
+        // console.log(pitchEnvironment)
 
         assert.ok(pitchEnvironment)
 
@@ -59,7 +67,7 @@ describe("Baseball Sim Engine", async () => {
         console.log(tunedPitchEnvironment.pitchEnvironmentTuning?._id)
 
         console.log("=== FINAL TUNED PITCH ENVIRONMENT ===")
-        console.log(JSON.stringify(tunedPitchEnvironment, null, 2))
+        console.log(JSON.stringify(tunedPitchEnvironment.pitchEnvironmentTuning, null, 2))
 
         assert.ok(tunedPitchEnvironment)
         assert.ok(players)
@@ -77,24 +85,10 @@ describe("Baseball Sim Engine", async () => {
     })
 
     it("should print aggregate stats over 70 games", async () => {
-        const evaluationEnvironment = JSON.parse(JSON.stringify(tunedPitchEnvironment))
+
         const evaluationRng = new seedrandom(evaluationSeed)
 
-        const before = JSON.stringify(evaluationEnvironment)
-
-        const evaluation = playerImporterService.evaluatePitchEnvironment(evaluationEnvironment, evaluationRng, evaluationGames)
-
-        const after = JSON.stringify(evaluationEnvironment)
-
-        if (before !== after) {
-            console.log("MUTATION DETECTED")
-        }
-
-        console.log("=== EVALUATION TUNING ID ===")
-        console.log(evaluationEnvironment.pitchEnvironmentTuning?._id)
-
-        console.log("=== EVALUATION SCORE ===")
-        console.log(evaluation.score)
+        const evaluation = playerImporterService.evaluatePitchEnvironment(tunedPitchEnvironment, evaluationRng, 70)
 
         console.log("=== CORE DIFFS ===")
         console.log({
@@ -113,7 +107,9 @@ describe("Baseball Sim Engine", async () => {
             teamRunsPerGame: evaluation.diff.teamRunsPerGame,
             teamHitsPerGame: evaluation.diff.teamHitsPerGame,
             teamHomeRunsPerGame: evaluation.diff.teamHomeRunsPerGame,
-            teamBBPerGame: evaluation.diff.teamBBPerGame
+            teamBBPerGame: evaluation.diff.teamBBPerGame,
+            stealAttemptRate: evaluation.diff.stealAttemptRate,
+            stealSuccessRate: evaluation.diff.stealSuccessRate
         })
 
         console.log("=== CORE ACTUAL ===")
@@ -133,7 +129,9 @@ describe("Baseball Sim Engine", async () => {
             teamRunsPerGame: evaluation.actual.teamRunsPerGame,
             teamHitsPerGame: evaluation.actual.teamHitsPerGame,
             teamHomeRunsPerGame: evaluation.actual.teamHomeRunsPerGame,
-            teamBBPerGame: evaluation.actual.teamBBPerGame
+            teamBBPerGame: evaluation.actual.teamBBPerGame,
+            stealAttemptRate: evaluation.actual.stealAttemptRate,
+            stealSuccessRate: evaluation.actual.stealSuccessRate
         })
 
         console.log("=== CORE TARGET ===")
@@ -153,7 +151,9 @@ describe("Baseball Sim Engine", async () => {
             teamRunsPerGame: evaluation.target.teamRunsPerGame,
             teamHitsPerGame: evaluation.target.teamHitsPerGame,
             teamHomeRunsPerGame: evaluation.target.teamHomeRunsPerGame,
-            teamBBPerGame: evaluation.target.teamBBPerGame
+            teamBBPerGame: evaluation.target.teamBBPerGame,
+            stealAttemptRate: evaluation.target.stealAttemptRate,
+            stealSuccessRate: evaluation.target.stealSuccessRate
         })
 
         assert.ok(evaluation)

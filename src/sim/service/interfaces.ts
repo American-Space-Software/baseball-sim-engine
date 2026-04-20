@@ -1033,12 +1033,6 @@ interface BattedBallOutcomeByEvLaBucket {
 }
 
 
-interface BattedBallXyBucket {
-    xBin: number
-    yBin: number
-    count: number
-}
-
 interface BattedBallXyByTrajectoryBucket {
     trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
     xBin: number
@@ -1114,7 +1108,17 @@ interface PitchEnvironmentTarget {
         }
     }
 
-    steal: StolenBaseByCount[]
+
+    running: {
+
+        steal: StolenBaseByCount[]
+
+        stealAttemptRate: number
+        stealSuccessRate: number 
+
+        extraBaseTakenRate: number 
+    }
+    
 
     fielderChance: {
         vsR: FielderChance
@@ -1239,6 +1243,7 @@ interface PitchEnvironmentTarget {
         }
 
         running: {
+
             sb: number
             cs: number
             sbAttempts: number
@@ -1268,37 +1273,31 @@ interface PitchEnvironmentTuning {
 
     tuning?: {
 
-        contactQualityEvScale:number
-        contactQualityLaScale:number
-        contactQualityDistanceScale:number
 
-        pitchQualityZoneSwingEffect: number
-        pitchQualityChaseSwingEffect: number
+        contactQuality: {
+            evScale: number
+            laScale: number
+            distanceScale: number
+            fullPitchQualityBonus: number
+        }
 
-        disciplineZoneSwingEffect: number
-        disciplineChaseSwingEffect: number
+        swing: {
+            pitchQualityZoneSwingEffect: number
+            pitchQualityChaseSwingEffect: number
+            disciplineZoneSwingEffect: number
+            disciplineChaseSwingEffect: number
+        }
 
-        pitchQualityContactEffect: number
-        contactSkillEffect: number
+        contact: {
+            pitchQualityContactEffect: number
+            contactSkillEffect: number
+        }
 
-        fullPitchQualityBonus: number
-        fullTeamDefenseBonus: number
-        fullFielderDefenseBonus: number
+        defense: {
+            fullTeamDefenseBonus: number
+            fullFielderDefenseBonus: number
+        }
 
-        groundballDoublePenalty: number
-        groundballTriplePenalty: number
-        groundballHRPenalty: number
-
-        groundballOutcomeBoost: number
-        flyballOutcomeBoost: number
-        lineDriveOutcomeBoost: number
-
-        flyballHRPenalty: number
-
-        lineDriveOutToSingleWindow: number
-        lineDriveOutToSingleBoost: number
-
-        lineDriveSingleToDoubleFactor: number
     }
 
     ratingTuning?: {
