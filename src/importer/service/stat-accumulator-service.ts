@@ -676,6 +676,8 @@ class StatAccumulatorService {
             const isGroundBallDoublePlayChance = hasDoublePlayOpportunity && hitTrajectory === "ground_ball"
             const isDoublePlayTurn = (eventType === "grounded_into_double_play" || eventType === "double_play") && outsOnPlay >= 2
 
+            this.updateRunningAdvancementForPlay(players, play, eventType, hitTrajectory, Number(hitData?.coordinates?.coordY), Number(hitData?.totalDistance), filterPlayerIds)
+
             const fieldedBallCredits = (play?.runners ?? [])
                 .flatMap((runner: any) => runner?.credits ?? [])
                 .filter((credit: any) => String(credit?.credit ?? "") === "f_fielded_ball")
@@ -803,9 +805,11 @@ class StatAccumulatorService {
                 this.updateRunningExtraBaseTaken(runnerRaw, runnerEventType, originBase, endBase)
                 this.updateAdditionalRunningStats(runnerRaw, runnerEventType, movementReason, originBase, endBase, isOut)
 
-                if (runnerEventType.startsWith("stolen_base")) {
+                if (runnerEventType === "stolen_base_2b") {
                     runnerRaw.running.sb++
                     runnerRaw.running.sbAttempts++
+                    runnerRaw.running.sb2B++
+                    runnerRaw.running.sb2BAttempts++
 
                     for (const credit of runner?.credits ?? []) {
                         const fielderId = String(credit?.player?.id ?? "")
@@ -820,9 +824,158 @@ class StatAccumulatorService {
                     }
                 }
 
-                if (runnerEventType.startsWith("caught_stealing")) {
+                if (runnerEventType === "stolen_base_3b") {
+                    runnerRaw.running.sb++
+                    runnerRaw.running.sbAttempts++
+                    runnerRaw.running.sb3B++
+                    runnerRaw.running.sb3BAttempts++
+
+                    for (const credit of runner?.credits ?? []) {
+                        const fielderId = String(credit?.player?.id ?? "")
+                        const posAbbr = String(credit?.position?.abbreviation ?? "")
+                        if (!fielderId || posAbbr !== "C") continue
+                        if (filterPlayerIds && !filterPlayerIds.has(fielderId)) continue
+
+                        const catcher = this.getOrCreate(players, fielderId)
+                        catcher.fielding.catcherStolenBasesAllowed++
+                        defendingAlignment.set(Position.CATCHER, fielderId)
+                        this.markFieldingPosition(gamePk, catcher, Position.CATCHER)
+                    }
+                }
+
+                if (runnerEventType === "caught_stealing_2b") {
                     runnerRaw.running.cs++
                     runnerRaw.running.sbAttempts++
+                    runnerRaw.running.cs2B++
+                    runnerRaw.running.sb2BAttempts++
+                }
+
+                if (runnerEventType === "caught_stealing_3b") {
+                    runnerRaw.running.cs++
+                    runnerRaw.running.sbAttempts++
+                    runnerRaw.running.cs3B++
+                    runnerRaw.running.sb3BAttempts++
+                }
+            }
+        }
+    }
+
+    private getFlyBallDepth(coordY: number | undefined, totalDistance: number | undefined): "shallow" | "normal" | "deep" {
+        if (Number.isFinite(totalDistance)) {
+            if ((totalDistance as number) < 250) return "shallow"
+            if ((totalDistance as number) > 320) return "deep"
+            return "normal"
+        }
+
+        if (Number.isFinite(coordY)) {
+            if ((coordY as number) < 180) return "shallow"
+            if ((coordY as number) > 260) return "deep"
+            return "normal"
+        }
+
+        return "normal"
+    }  
+
+    private updateRunningAdvancementForPlay(players: Map<string, PlayerImportRaw>, play: any, eventType: string, trajectory: string, coordY: number | undefined, totalDistance: number | undefined, filterPlayerIds?: Set<string>): void {
+        const isSingle = eventType === "single"
+        const isDouble = eventType === "double"
+
+        const isGroundBallOut =
+            trajectory === "ground_ball" &&
+            (
+                eventType === "field_out" ||
+                eventType === "force_out" ||
+                eventType === "grounded_into_double_play" ||
+                eventType === "double_play" ||
+                eventType === "fielders_choice" ||
+                eventType === "fielders_choice_out" ||
+                eventType === "other_out"
+            )
+
+        const isFlyBallOut =
+            (trajectory === "fly_ball" || eventType === "sac_fly") &&
+            (
+                eventType === "field_out" ||
+                eventType === "sac_fly" ||
+                eventType === "other_out"
+            )
+
+        const flyDepth = this.getFlyBallDepth(coordY, totalDistance)
+
+        for (const runner of play?.runners ?? []) {
+            const runnerId = String(runner?.details?.runner?.id ?? "")
+            if (!runnerId) continue
+            if (filterPlayerIds && !filterPlayerIds.has(runnerId)) continue
+
+            const player = this.getOrCreate(players, runnerId, runner?.details?.runner?.fullName)
+            const originBase = runner?.movement?.originBase ?? null
+            const endBase = runner?.movement?.end ?? null
+            const isOut = runner?.movement?.isOut === true
+
+            if (!originBase) continue
+
+            if (isSingle && originBase === "1B") {
+                player.running.firstToThirdOpportunities++
+                if (!isOut && endBase === "3B") {
+                    player.running.firstToThird++
+                }
+            }
+
+            if (isDouble && originBase === "1B") {
+                player.running.firstToHomeOpportunities++
+                if (!isOut && endBase === "score") {
+                    player.running.firstToHome++
+                }
+            }
+
+            if (isSingle && originBase === "2B") {
+                player.running.secondToHomeOnSingleOpportunities++
+                if (!isOut && endBase === "score") {
+                    player.running.secondToHomeOnSingle++
+                }
+            }
+
+            if (isDouble && originBase === "2B") {
+                player.running.secondToHomeOnDoubleOpportunities++
+                if (!isOut && endBase === "score") {
+                    player.running.secondToHomeOnDouble++
+                }
+            }
+
+            if (isFlyBallOut && originBase === "3B") {
+                if (flyDepth === "shallow") {
+                    player.running.thirdToHomeOnFlyBallShallowOpportunities++
+                    if (!isOut && endBase === "score") {
+                        player.running.thirdToHomeOnFlyBallShallow++
+                    }
+                }
+
+                if (flyDepth === "normal") {
+                    player.running.thirdToHomeOnFlyBallNormalOpportunities++
+                    if (!isOut && endBase === "score") {
+                        player.running.thirdToHomeOnFlyBallNormal++
+                    }
+                }
+
+                if (flyDepth === "deep") {
+                    player.running.thirdToHomeOnFlyBallDeepOpportunities++
+                    if (!isOut && endBase === "score") {
+                        player.running.thirdToHomeOnFlyBallDeep++
+                    }
+                }
+            }
+
+            if (isGroundBallOut && originBase === "2B") {
+                player.running.secondToThirdOnGroundBallOpportunities++
+                if (!isOut && endBase === "3B") {
+                    player.running.secondToThirdOnGroundBall++
+                }
+            }
+
+            if (isGroundBallOut && originBase === "3B") {
+                player.running.thirdToHomeOnGroundBallOpportunities++
+                if (!isOut && endBase === "score") {
+                    player.running.thirdToHomeOnGroundBall++
                 }
             }
         }
@@ -908,19 +1061,56 @@ class StatAccumulatorService {
             sb: 0,
             cs: 0,
             sbAttempts: 0,
+
+            sb2B: 0,
+            cs2B: 0,
+            sb2BAttempts: 0,
+
+            sb3B: 0,
+            cs3B: 0,
+            sb3BAttempts: 0,
+
             timesOnFirst: 0,
             timesOnSecond: 0,
             timesOnThird: 0,
+
             firstToThird: 0,
+            firstToThirdOpportunities: 0,
+
             firstToHome: 0,
-            secondToHome: 0,
+            firstToHomeOpportunities: 0,
+
+            secondToHomeOnSingle: 0,
+            secondToHomeOnSingleOpportunities: 0,
+
+            secondToHomeOnDouble: 0,
+            secondToHomeOnDoubleOpportunities: 0,
+
             extraBaseTaken: 0,
             extraBaseOpportunities: 0,
+
             pickedOff: 0,
             pickoffAttemptsFaced: 0,
+
             advancedOnGroundOut: 0,
             advancedOnFlyOut: 0,
             tagUps: 0,
+
+            thirdToHomeOnFlyBallShallow: 0,
+            thirdToHomeOnFlyBallShallowOpportunities: 0,
+
+            thirdToHomeOnFlyBallNormal: 0,
+            thirdToHomeOnFlyBallNormalOpportunities: 0,
+
+            thirdToHomeOnFlyBallDeep: 0,
+            thirdToHomeOnFlyBallDeepOpportunities: 0,
+
+            secondToThirdOnGroundBall: 0,
+            secondToThirdOnGroundBallOpportunities: 0,
+
+            thirdToHomeOnGroundBall: 0,
+            thirdToHomeOnGroundBallOpportunities: 0,
+
             heldOnBase: 0
         }
     }
@@ -1553,15 +1743,12 @@ class StatAccumulatorService {
                 if (endBase === "3B" || endBase === "score") {
                     player.running.extraBaseTaken++
                 }
-                if (endBase === "3B") player.running.firstToThird++
-                if (endBase === "score") player.running.firstToHome++
             }
 
             if (originBase === "2B") {
                 player.running.extraBaseOpportunities++
                 if (endBase === "score") {
                     player.running.extraBaseTaken++
-                    player.running.secondToHome++
                 }
             }
         }
@@ -1571,7 +1758,6 @@ class StatAccumulatorService {
                 player.running.extraBaseOpportunities++
                 if (endBase === "score") {
                     player.running.extraBaseTaken++
-                    player.running.firstToHome++
                 }
             }
         }

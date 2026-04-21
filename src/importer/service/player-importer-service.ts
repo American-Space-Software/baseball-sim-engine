@@ -18,7 +18,6 @@ class PlayerImporterService {
     ) { }
 
     static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>): PitchEnvironmentTarget {
-
         const allPlayers = Array.from(players.values())
 
         if (allPlayers.length === 0) {
@@ -28,6 +27,7 @@ class PlayerImporterService {
         const safeDiv = (num: number, den: number): number => den > 0 ? num / den : 0
         const round = (num: number, digits: number): number => Number(num.toFixed(digits))
         const scaleTo = (value: number, fromDenominator: number, toDenominator: number): number => Math.round(safeDiv(value * toDenominator, fromDenominator))
+        const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
 
         const hitterTotals = {
             games: 0,
@@ -91,9 +91,57 @@ class PlayerImporterService {
             sb: 0,
             cs: 0,
             sbAttempts: 0,
+
+            sb2B: 0,
+            cs2B: 0,
+            sb2BAttempts: 0,
+
+            sb3B: 0,
+            cs3B: 0,
+            sb3BAttempts: 0,
+
             timesOnFirst: 0,
+            timesOnSecond: 0,
+            timesOnThird: 0,
+
+            firstToThird: 0,
+            firstToThirdOpportunities: 0,
+
+            firstToHome: 0,
+            firstToHomeOpportunities: 0,
+
+            secondToHomeOnSingle: 0,
+            secondToHomeOnSingleOpportunities: 0,
+
+            secondToHomeOnDouble: 0,
+            secondToHomeOnDoubleOpportunities: 0,
+
             extraBaseTaken: 0,
-            extraBaseOpportunities: 0
+            extraBaseOpportunities: 0,
+
+            pickedOff: 0,
+            pickoffAttemptsFaced: 0,
+
+            advancedOnGroundOut: 0,
+            advancedOnFlyOut: 0,
+            tagUps: 0,
+
+            thirdToHomeOnFlyBallShallow: 0,
+            thirdToHomeOnFlyBallShallowOpportunities: 0,
+
+            thirdToHomeOnFlyBallNormal: 0,
+            thirdToHomeOnFlyBallNormalOpportunities: 0,
+
+            thirdToHomeOnFlyBallDeep: 0,
+            thirdToHomeOnFlyBallDeepOpportunities: 0,
+
+            secondToThirdOnGroundBall: 0,
+            secondToThirdOnGroundBallOpportunities: 0,
+
+            thirdToHomeOnGroundBall: 0,
+            thirdToHomeOnGroundBallOpportunities: 0,
+
+            heldOnBase: 0
         }
 
         const fieldingTotals = {
@@ -202,39 +250,31 @@ class PlayerImporterService {
 
         const finalizedOutcomeByEvLa = this.finalizeOutcomeByEvLa(outcomeByEvLaMap)
 
-        const finalizedXyByTrajectory = Array
-            .from(xyByTrajectoryMap.values())
-            .sort((a, b) => {
-                if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
-                if (a.xBin !== b.xBin) return a.xBin - b.xBin
-                return a.yBin - b.yBin
-            })
+        const finalizedXyByTrajectory = Array.from(xyByTrajectoryMap.values()).sort((a, b) => {
+            if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
+            if (a.xBin !== b.xBin) return a.xBin - b.xBin
+            return a.yBin - b.yBin
+        })
 
-        const finalizedXyByTrajectoryEvLa = Array
-            .from(xyByTrajectoryEvLaMap.values())
-            .sort((a, b) => {
-                if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
-                if (a.evBin !== b.evBin) return a.evBin - b.evBin
-                if (a.laBin !== b.laBin) return a.laBin - b.laBin
-                if (a.xBin !== b.xBin) return a.xBin - b.xBin
-                return a.yBin - b.yBin
-            })
+        const finalizedXyByTrajectoryEvLa = Array.from(xyByTrajectoryEvLaMap.values()).sort((a, b) => {
+            if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
+            if (a.evBin !== b.evBin) return a.evBin - b.evBin
+            if (a.laBin !== b.laBin) return a.laBin - b.laBin
+            if (a.xBin !== b.xBin) return a.xBin - b.xBin
+            return a.yBin - b.yBin
+        })
 
-        const finalizedSprayByTrajectory = Array
-            .from(sprayByTrajectoryMap.values())
-            .sort((a, b) => {
-                if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
-                return a.sprayBin - b.sprayBin
-            })
+        const finalizedSprayByTrajectory = Array.from(sprayByTrajectoryMap.values()).sort((a, b) => {
+            if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
+            return a.sprayBin - b.sprayBin
+        })
 
-        const finalizedSprayByTrajectoryEvLa = Array
-            .from(sprayByTrajectoryEvLaMap.values())
-            .sort((a, b) => {
-                if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
-                if (a.evBin !== b.evBin) return a.evBin - b.evBin
-                if (a.laBin !== b.laBin) return a.laBin - b.laBin
-                return a.sprayBin - b.sprayBin
-            })
+        const finalizedSprayByTrajectoryEvLa = Array.from(sprayByTrajectoryEvLaMap.values()).sort((a, b) => {
+            if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
+            if (a.evBin !== b.evBin) return a.evBin - b.evBin
+            if (a.laBin !== b.laBin) return a.laBin - b.laBin
+            return a.sprayBin - b.sprayBin
+        })
 
         const totalTeamGames = safeDiv(pitcherTotals.outs, 27)
         const singles = hitterTotals.hits - hitterTotals.doubles - hitterTotals.triples - hitterTotals.homeRuns
@@ -255,12 +295,7 @@ class PlayerImporterService {
             const exact = entries.map(([key, value]) => {
                 const scaled = (value / total) * totalScale
                 const floorValue = Math.floor(scaled)
-                return {
-                    key,
-                    scaled,
-                    floorValue,
-                    remainder: scaled - floorValue
-                }
+                return { key, scaled, floorValue, remainder: scaled - floorValue }
             })
 
             let allocated = exact.reduce((sum, item) => sum + item.floorValue, 0)
@@ -314,10 +349,45 @@ class PlayerImporterService {
             rightField: round(safeDiv(positionSeeds[Position.RIGHT_FIELD], fielderSeedTotal) * 100, 0)
         }
 
-        const stealAttemptRate = round(safeDiv(runningTotals.sbAttempts, runningTotals.timesOnFirst), 3)
         const stealSuccessRate = round(safeDiv(runningTotals.sb, runningTotals.sbAttempts), 3)
         const extraBaseTakenRate = round(safeDiv(runningTotals.extraBaseTaken, runningTotals.extraBaseOpportunities), 3)
-        const stealSuccessPercent = round(stealSuccessRate * 100, 0)
+        const exactPitchesPerPA = safeDiv(hitterTotals.pitchesSeen, hitterTotals.pa)
+
+        const baseAttempt2BChancePercent = safeDiv(runningTotals.sbAttempts * 0.9, runningTotals.timesOnFirst * exactPitchesPerPA) * 100
+        const baseAttempt3BChancePercent = safeDiv(runningTotals.sbAttempts * 0.1, Math.max(1, runningTotals.timesOnFirst * 0.35) * exactPitchesPerPA) * 100
+
+        const attempt2BSuccessPercent = round(stealSuccessRate * 100, 1)
+        const attempt3BSuccessPercent = round(clamp((stealSuccessRate + 0.08) * 100, 0, 100), 1)
+
+        const stealCountShape = [
+            { balls: 0, strikes: 0, weight: 32 },
+            { balls: 0, strikes: 1, weight: 42 },
+            { balls: 0, strikes: 2, weight: 18 },
+            { balls: 1, strikes: 0, weight: 32 },
+            { balls: 1, strikes: 1, weight: 42 },
+            { balls: 1, strikes: 2, weight: 20 },
+            { balls: 2, strikes: 0, weight: 49 },
+            { balls: 2, strikes: 1, weight: 53 },
+            { balls: 2, strikes: 2, weight: 25 },
+            { balls: 3, strikes: 0, weight: 1 },
+            { balls: 3, strikes: 1, weight: 14 },
+            { balls: 3, strikes: 2, weight: 29 }
+        ]
+
+        const averageStealWeight = safeDiv(stealCountShape.reduce((sum, bucket) => sum + bucket.weight, 0), stealCountShape.length)
+
+        const finalizedStealByCount = stealCountShape.map(bucket => {
+            const multiplier = safeDiv(bucket.weight, averageStealWeight)
+
+            return {
+                balls: bucket.balls,
+                strikes: bucket.strikes,
+                attempt2BChance: round(clamp(baseAttempt2BChancePercent * multiplier, 0, 100), 3),
+                attempt2BSuccess: attempt2BSuccessPercent,
+                attempt3BChance: round(clamp(baseAttempt3BChancePercent * multiplier, 0, 100), 3),
+                attempt3BSuccess: attempt3BSuccessPercent
+            }
+        })
 
         const finalizedInZoneByCount = inZoneByCountSeed.map(bucket => ({
             balls: bucket.balls,
@@ -328,14 +398,11 @@ class PlayerImporterService {
         const finalizedBehaviorByCount = behaviorByCountSeed.map(bucket => {
             const zoneSwingPercent = round(safeDiv(bucket.zoneSwings, bucket.zonePitches) * 100, 1)
             const chaseSwingPercent = round(safeDiv(bucket.chaseSwings, bucket.chasePitches) * 100, 1)
-
             const zoneContactPercent = round(safeDiv(bucket.zoneContact, bucket.zoneSwings) * 100, 1)
             const chaseContactPercent = round(safeDiv(bucket.chaseContact, bucket.chaseSwings) * 100, 1)
-
             const totalFouls = bucket.zoneFouls + bucket.chaseFouls
             const totalContact = bucket.zoneContact + bucket.chaseContact
             const foulContactPercent = round(safeDiv(totalFouls, totalContact) * 100, 1)
-
             const totalBallsInPlay = bucket.zoneBallsInPlay + bucket.chaseBallsInPlay
             const fairContact = Math.max(0, totalContact - totalFouls)
             const inPlayPercentOfContact = round(safeDiv(totalBallsInPlay, totalContact) * 100, 1)
@@ -367,7 +434,7 @@ class PlayerImporterService {
                 ballPercent: round(safeDiv(hitterTotals.ballsSeen, hitterTotals.pitchesSeen) * 100, 1),
                 swingPercent: round(safeDiv(hitterTotals.swings, hitterTotals.pitchesSeen) * 100, 1),
                 foulContactPercent: round(safeDiv(pitcherTotals.foulsAllowed, pitcherTotals.inZoneContactAllowed + pitcherTotals.outZoneContactAllowed) * 100, 1),
-                pitchesPerPA: round(safeDiv(hitterTotals.pitchesSeen, hitterTotals.pa), 2),
+                pitchesPerPA: round(exactPitchesPerPA, 2),
                 inZoneByCount: finalizedInZoneByCount
             },
 
@@ -409,23 +476,19 @@ class PlayerImporterService {
             },
 
             running: {
-                steal: [
-                    { balls: 0, strikes: 0, attempt: 32, success: stealSuccessPercent },
-                    { balls: 0, strikes: 1, attempt: 42, success: stealSuccessPercent },
-                    { balls: 0, strikes: 2, attempt: 18, success: stealSuccessPercent },
-                    { balls: 1, strikes: 0, attempt: 32, success: stealSuccessPercent },
-                    { balls: 1, strikes: 1, attempt: 42, success: stealSuccessPercent },
-                    { balls: 1, strikes: 2, attempt: 20, success: stealSuccessPercent },
-                    { balls: 2, strikes: 0, attempt: 49, success: stealSuccessPercent },
-                    { balls: 2, strikes: 1, attempt: 53, success: stealSuccessPercent },
-                    { balls: 2, strikes: 2, attempt: 25, success: stealSuccessPercent },
-                    { balls: 3, strikes: 0, attempt: 1, success: stealSuccessPercent },
-                    { balls: 3, strikes: 1, attempt: 14, success: stealSuccessPercent },
-                    { balls: 3, strikes: 2, attempt: 29, success: stealSuccessPercent }
-                ],
-                stealAttemptRate,
-                stealSuccessRate,
-                extraBaseTakenRate
+                steal: finalizedStealByCount,
+                extraBaseTakenRate,
+                advancement: {
+                    runnerOnFirstToThirdOnSingle: round(safeDiv(runningTotals.firstToThird, runningTotals.firstToThirdOpportunities), 3),
+                    runnerOnFirstToHomeOnDouble: round(safeDiv(runningTotals.firstToHome, runningTotals.firstToHomeOpportunities), 3),
+                    runnerOnSecondToHomeOnSingle: round(safeDiv(runningTotals.secondToHomeOnSingle, runningTotals.secondToHomeOnSingleOpportunities), 3),
+                    runnerOnSecondToHomeOnDouble: round(safeDiv(runningTotals.secondToHomeOnDouble, runningTotals.secondToHomeOnDoubleOpportunities), 3),
+                    runnerOnThirdToHomeOnFlyBallShallow: round(safeDiv(runningTotals.thirdToHomeOnFlyBallShallow, runningTotals.thirdToHomeOnFlyBallShallowOpportunities), 3),
+                    runnerOnThirdToHomeOnFlyBallNormal: round(safeDiv(runningTotals.thirdToHomeOnFlyBallNormal, runningTotals.thirdToHomeOnFlyBallNormalOpportunities), 3),
+                    runnerOnThirdToHomeOnFlyBallDeep: round(safeDiv(runningTotals.thirdToHomeOnFlyBallDeep, runningTotals.thirdToHomeOnFlyBallDeepOpportunities), 3),
+                    runnerOnSecondToThirdOnGroundBall: round(safeDiv(runningTotals.secondToThirdOnGroundBall, runningTotals.secondToThirdOnGroundBallOpportunities), 3),
+                    runnerOnThirdToHomeOnGroundBall: round(safeDiv(runningTotals.thirdToHomeOnGroundBall, runningTotals.thirdToHomeOnGroundBallOpportunities), 3)
+                }
             },
 
             fielderChance: {
@@ -461,7 +524,9 @@ class PlayerImporterService {
                 hitsPerGame: round(safeDiv(hitterTotals.hits, totalTeamGames), 2),
                 homeRunsPerGame: round(safeDiv(hitterTotals.homeRuns, totalTeamGames), 2),
                 bbPerGame: round(safeDiv(hitterTotals.bb, totalTeamGames), 2),
-                soPerGame: round(safeDiv(hitterTotals.so, totalTeamGames), 2)
+                soPerGame: round(safeDiv(hitterTotals.so, totalTeamGames), 2),
+                sbPerGame: round(safeDiv(runningTotals.sb, totalTeamGames), 2),
+                sbAttemptsPerGame: round(safeDiv(runningTotals.sbAttempts, totalTeamGames), 2)
             },
 
             importReference: {
@@ -763,9 +828,57 @@ class PlayerImporterService {
             runningTotals.sb += r.sb
             runningTotals.cs += r.cs
             runningTotals.sbAttempts += r.sbAttempts
+
+            runningTotals.sb2B += r.sb2B
+            runningTotals.cs2B += r.cs2B
+            runningTotals.sb2BAttempts += r.sb2BAttempts
+
+            runningTotals.sb3B += r.sb3B
+            runningTotals.cs3B += r.cs3B
+            runningTotals.sb3BAttempts += r.sb3BAttempts
+
             runningTotals.timesOnFirst += r.timesOnFirst
+            runningTotals.timesOnSecond += r.timesOnSecond
+            runningTotals.timesOnThird += r.timesOnThird
+
+            runningTotals.firstToThird += r.firstToThird
+            runningTotals.firstToThirdOpportunities += r.firstToThirdOpportunities
+
+            runningTotals.firstToHome += r.firstToHome
+            runningTotals.firstToHomeOpportunities += r.firstToHomeOpportunities
+
+            runningTotals.secondToHomeOnSingle += r.secondToHomeOnSingle
+            runningTotals.secondToHomeOnSingleOpportunities += r.secondToHomeOnSingleOpportunities
+
+            runningTotals.secondToHomeOnDouble += r.secondToHomeOnDouble
+            runningTotals.secondToHomeOnDoubleOpportunities += r.secondToHomeOnDoubleOpportunities
+
             runningTotals.extraBaseTaken += r.extraBaseTaken
             runningTotals.extraBaseOpportunities += r.extraBaseOpportunities
+
+            runningTotals.pickedOff += r.pickedOff
+            runningTotals.pickoffAttemptsFaced += r.pickoffAttemptsFaced
+
+            runningTotals.advancedOnGroundOut += r.advancedOnGroundOut
+            runningTotals.advancedOnFlyOut += r.advancedOnFlyOut
+            runningTotals.tagUps += r.tagUps
+
+            runningTotals.thirdToHomeOnFlyBallShallow += r.thirdToHomeOnFlyBallShallow
+            runningTotals.thirdToHomeOnFlyBallShallowOpportunities += r.thirdToHomeOnFlyBallShallowOpportunities
+
+            runningTotals.thirdToHomeOnFlyBallNormal += r.thirdToHomeOnFlyBallNormal
+            runningTotals.thirdToHomeOnFlyBallNormalOpportunities += r.thirdToHomeOnFlyBallNormalOpportunities
+
+            runningTotals.thirdToHomeOnFlyBallDeep += r.thirdToHomeOnFlyBallDeep
+            runningTotals.thirdToHomeOnFlyBallDeepOpportunities += r.thirdToHomeOnFlyBallDeepOpportunities
+
+            runningTotals.secondToThirdOnGroundBall += r.secondToThirdOnGroundBall
+            runningTotals.secondToThirdOnGroundBallOpportunities += r.secondToThirdOnGroundBallOpportunities
+
+            runningTotals.thirdToHomeOnGroundBall += r.thirdToHomeOnGroundBall
+            runningTotals.thirdToHomeOnGroundBallOpportunities += r.thirdToHomeOnGroundBallOpportunities
+
+            runningTotals.heldOnBase += r.heldOnBase
         }
 
         if (player.fielding) {
@@ -785,13 +898,55 @@ class PlayerImporterService {
         }
 
         if (player.splits?.hitting) {
-            splitHittingTotals.vsL.pa += player.splits.hitting.vsL.pa
-            splitHittingTotals.vsR.pa += player.splits.hitting.vsR.pa
+            const vsL = player.splits.hitting.vsL
+            const vsR = player.splits.hitting.vsR
+
+            splitHittingTotals.vsL.pa += vsL.pa
+            splitHittingTotals.vsL.ab += vsL.ab
+            splitHittingTotals.vsL.hits += vsL.hits
+            splitHittingTotals.vsL.doubles += vsL.doubles
+            splitHittingTotals.vsL.triples += vsL.triples
+            splitHittingTotals.vsL.homeRuns += vsL.homeRuns
+            splitHittingTotals.vsL.bb += vsL.bb
+            splitHittingTotals.vsL.so += vsL.so
+            splitHittingTotals.vsL.hbp += vsL.hbp
+            splitHittingTotals.vsL.exitVelocityWeighted += vsL.exitVelocity * vsL.pa
+
+            splitHittingTotals.vsR.pa += vsR.pa
+            splitHittingTotals.vsR.ab += vsR.ab
+            splitHittingTotals.vsR.hits += vsR.hits
+            splitHittingTotals.vsR.doubles += vsR.doubles
+            splitHittingTotals.vsR.triples += vsR.triples
+            splitHittingTotals.vsR.homeRuns += vsR.homeRuns
+            splitHittingTotals.vsR.bb += vsR.bb
+            splitHittingTotals.vsR.so += vsR.so
+            splitHittingTotals.vsR.hbp += vsR.hbp
+            splitHittingTotals.vsR.exitVelocityWeighted += vsR.exitVelocity * vsR.pa
         }
 
         if (player.splits?.pitching) {
-            splitPitchingTotals.vsL.battersFaced += player.splits.pitching.vsL.battersFaced
-            splitPitchingTotals.vsR.battersFaced += player.splits.pitching.vsR.battersFaced
+            const vsL = player.splits.pitching.vsL
+            const vsR = player.splits.pitching.vsR
+
+            splitPitchingTotals.vsL.battersFaced += vsL.battersFaced
+            splitPitchingTotals.vsL.outs += vsL.outs
+            splitPitchingTotals.vsL.hitsAllowed += vsL.hitsAllowed
+            splitPitchingTotals.vsL.doublesAllowed += vsL.doublesAllowed
+            splitPitchingTotals.vsL.triplesAllowed += vsL.triplesAllowed
+            splitPitchingTotals.vsL.homeRunsAllowed += vsL.homeRunsAllowed
+            splitPitchingTotals.vsL.bbAllowed += vsL.bbAllowed
+            splitPitchingTotals.vsL.so += vsL.so
+            splitPitchingTotals.vsL.hbpAllowed += vsL.hbpAllowed
+
+            splitPitchingTotals.vsR.battersFaced += vsR.battersFaced
+            splitPitchingTotals.vsR.outs += vsR.outs
+            splitPitchingTotals.vsR.hitsAllowed += vsR.hitsAllowed
+            splitPitchingTotals.vsR.doublesAllowed += vsR.doublesAllowed
+            splitPitchingTotals.vsR.triplesAllowed += vsR.triplesAllowed
+            splitPitchingTotals.vsR.homeRunsAllowed += vsR.homeRunsAllowed
+            splitPitchingTotals.vsR.bbAllowed += vsR.bbAllowed
+            splitPitchingTotals.vsR.so += vsR.so
+            splitPitchingTotals.vsR.hbpAllowed += vsR.hbpAllowed
         }
     }
 
@@ -2118,8 +2273,9 @@ class PlayerImporterService {
             teamHomeRunsPerGame: hitterStatLine.homeRuns / totalTeamGames,
             teamBBPerGame: hitterStatLine.bb / totalTeamGames,
             teamSOPerGame: hitterStatLine.so / totalTeamGames,
-            stealAttemptRate: safeDiv(sbAttempts, timesOnFirst),
-            stealSuccessRate: safeDiv(sb, sbAttempts)
+            teamSBAttemptPerGame: hitterStatLine.sbAttempts / totalTeamGames,
+            teamSBPerGame: sb / totalTeamGames,
+            teamSBAttemptsPerGame: sbAttempts / totalTeamGames,
         }
 
         const target = {
@@ -2149,9 +2305,8 @@ class PlayerImporterService {
             teamHomeRunsPerGame: pitchEnvironment.team.homeRunsPerGame,
             teamBBPerGame: pitchEnvironment.team.bbPerGame,
             teamSOPerGame: pitchEnvironment.team.soPerGame,
-
-            stealAttemptRate: pitchEnvironment.running.stealAttemptRate,
-            stealSuccessRate: pitchEnvironment.running.stealSuccessRate
+            teamSBPerGame: pitchEnvironment.team.sbPerGame,
+            teamSBAttemptsPerGame: pitchEnvironment.team.sbAttemptsPerGame
         }
 
         const diff = {
@@ -2175,9 +2330,8 @@ class PlayerImporterService {
             teamHitsPerGame: actual.teamHitsPerGame - target.teamHitsPerGame,
             teamHomeRunsPerGame: actual.teamHomeRunsPerGame - target.teamHomeRunsPerGame,
             teamBBPerGame: actual.teamBBPerGame - target.teamBBPerGame,
-
-            stealAttemptRate: actual.stealAttemptRate - target.stealAttemptRate,
-            stealSuccessRate: actual.stealSuccessRate - target.stealSuccessRate
+            teamSBPerGame: actual.teamSBPerGame - target.teamSBPerGame,
+            teamSBAttemptsPerGame: actual.teamSBAttemptsPerGame - target.teamSBAttemptsPerGame,
         }
 
         const sq = (v: number): number => v * v
@@ -2189,8 +2343,8 @@ class PlayerImporterService {
             sq(diff.slg) * 100000000 +
             sq(diff.avg) * 100000000 +
             sq(diff.babip) * 90000000 +
-            sq(diff.stealAttemptRate) * 180000 +
-            sq(diff.stealSuccessRate) * 120000
+            sq(diff.teamSBPerGame) * 1000000 +
+            sq(diff.teamSBAttemptsPerGame) * 450000
 
         return { actual, target, diff, score }
     }
@@ -2219,6 +2373,9 @@ class PlayerImporterService {
                 defense: {
                     fullTeamDefenseBonus: 62.03,
                     fullFielderDefenseBonus: 37.81
+                },
+                running: {
+                    stealAttemptAggressionScale: 1.5
                 }
             },
             ratingTuning: {

@@ -1063,6 +1063,18 @@ interface BattedBallSprayByTrajectoryEvLaBucket {
     count: number
 }
 
+interface RunningAdvancementTarget {
+    runnerOnFirstToThirdOnSingle: number
+    runnerOnFirstToHomeOnDouble: number
+    runnerOnSecondToHomeOnSingle: number
+    runnerOnSecondToHomeOnDouble: number
+    runnerOnThirdToHomeOnFlyBallShallow: number
+    runnerOnThirdToHomeOnFlyBallNormal: number
+    runnerOnThirdToHomeOnFlyBallDeep: number
+    runnerOnSecondToThirdOnGroundBall: number
+    runnerOnThirdToHomeOnGroundBall: number
+}
+
 interface PitchEnvironmentTarget {
     
     season: number
@@ -1110,13 +1122,9 @@ interface PitchEnvironmentTarget {
 
 
     running: {
-
         steal: StolenBaseByCount[]
-
-        stealAttemptRate: number
-        stealSuccessRate: number 
-
         extraBaseTakenRate: number 
+        advancement: RunningAdvancementTarget
     }
     
 
@@ -1146,6 +1154,8 @@ interface PitchEnvironmentTarget {
         homeRunsPerGame: number
         bbPerGame: number
         soPerGame: number
+        sbPerGame: number
+        sbAttemptsPerGame: number
     }
 
     importReference: {
@@ -1293,6 +1303,10 @@ interface PitchEnvironmentTuning {
             contactSkillEffect: number
         }
 
+        running: {
+            stealAttemptAggressionScale:number
+        },
+
         defense: {
             fullTeamDefenseBonus: number
             fullFielderDefenseBonus: number
@@ -1349,8 +1363,13 @@ interface InZoneByCount {
 interface StolenBaseByCount {
     balls:number
     strikes:number
-    attempt:number
-    success:number
+    
+    attempt2BChance:number
+    attempt2BSuccess:number    
+    
+    attempt3BChance:number
+    attempt3BSuccess:number
+    
 }
 
 interface PlayerFromStatsCommand {
@@ -1622,13 +1641,44 @@ interface PlayerRunningStatsRaw {
     cs: number
     sbAttempts: number
 
+    sb2B: number
+    cs2B: number
+    sb2BAttempts: number
+
+    sb3B: number
+    cs3B: number
+    sb3BAttempts: number
+
     timesOnFirst: number
     timesOnSecond: number
     timesOnThird: number
 
     firstToThird: number
+    firstToThirdOpportunities: number
+
     firstToHome: number
-    secondToHome: number
+    firstToHomeOpportunities: number
+
+    secondToHomeOnSingle: number
+    secondToHomeOnSingleOpportunities: number
+
+    secondToHomeOnDouble: number
+    secondToHomeOnDoubleOpportunities: number
+
+    thirdToHomeOnFlyBallShallow: number
+    thirdToHomeOnFlyBallShallowOpportunities: number
+
+    thirdToHomeOnFlyBallNormal: number
+    thirdToHomeOnFlyBallNormalOpportunities: number
+
+    thirdToHomeOnFlyBallDeep: number
+    thirdToHomeOnFlyBallDeepOpportunities: number
+
+    secondToThirdOnGroundBall: number
+    secondToThirdOnGroundBallOpportunities: number
+
+    thirdToHomeOnGroundBall: number
+    thirdToHomeOnGroundBallOpportunities: number
 
     extraBaseTaken: number
     extraBaseOpportunities: number

@@ -108,8 +108,6 @@ describe("Baseball Sim Engine", async () => {
             teamHitsPerGame: evaluation.diff.teamHitsPerGame,
             teamHomeRunsPerGame: evaluation.diff.teamHomeRunsPerGame,
             teamBBPerGame: evaluation.diff.teamBBPerGame,
-            stealAttemptRate: evaluation.diff.stealAttemptRate,
-            stealSuccessRate: evaluation.diff.stealSuccessRate
         })
 
         console.log("=== CORE ACTUAL ===")
@@ -130,8 +128,8 @@ describe("Baseball Sim Engine", async () => {
             teamHitsPerGame: evaluation.actual.teamHitsPerGame,
             teamHomeRunsPerGame: evaluation.actual.teamHomeRunsPerGame,
             teamBBPerGame: evaluation.actual.teamBBPerGame,
-            stealAttemptRate: evaluation.actual.stealAttemptRate,
-            stealSuccessRate: evaluation.actual.stealSuccessRate
+            teamSBPerGame: evaluation.actual.teamSBPerGame,
+            teamSBAttemptsPerGame: evaluation.actual.teamSBAttemptsPerGame
         })
 
         console.log("=== CORE TARGET ===")
@@ -152,8 +150,9 @@ describe("Baseball Sim Engine", async () => {
             teamHitsPerGame: evaluation.target.teamHitsPerGame,
             teamHomeRunsPerGame: evaluation.target.teamHomeRunsPerGame,
             teamBBPerGame: evaluation.target.teamBBPerGame,
-            stealAttemptRate: evaluation.target.stealAttemptRate,
-            stealSuccessRate: evaluation.target.stealSuccessRate
+            teamSBPerGame: evaluation.target.teamSBPerGame,
+            teamSBAttemptsPerGame: evaluation.target.teamSBAttemptsPerGame            
+
         })
 
         assert.ok(evaluation)
