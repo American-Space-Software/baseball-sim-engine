@@ -208,8 +208,33 @@ async function importPitchEnvironmentTarget(season: number, baseDataDir: string,
 class PitchEnvironmentTuner {
 
     public static async getTunings(pitchEnvironment: PitchEnvironmentTarget, rng: Function, params?: any): Promise<PitchEnvironmentTuning> {
-        const baseSeed = String(rng())
+        const ctx = this.createTuningContext(pitchEnvironment, rng, params)
 
+        log("TUNING START", `workers=${ctx.workers}`, `fastGames=${ctx.fastGamesPerIteration}`, `confirmGames=${ctx.confirmGamesPerIteration}`, `finalGames=${ctx.finalGamesPerIteration}`, `maxIterations=${ctx.maxIterations}`)
+
+        log("SEED CONFIRM START", `candidate=${ctx.bestCandidate._id}`, `games=${ctx.confirmGamesPerIteration}`)
+        const seedRaw = this.evaluateSeedCandidate(ctx.pitchEnvironment, ctx.bestCandidate, `seed-confirm:${ctx.baseSeed}:0`, ctx.confirmGamesPerIteration)
+        ctx.bestResult = ctx.applyScore(seedRaw)
+        log("SEED CONFIRM DONE", `score=${ctx.bestResult.score}`, `stage=${this.getStage(ctx.bestResult)}`, `runs=${this.getRuns(ctx.bestResult).toFixed(3)}`)
+
+        ctx.printDiagnostic("seed", -1, ctx.confirmGamesPerIteration, ctx.bestCandidate, ctx.bestResult)
+
+        await this.runStageTuningIterations(ctx)
+
+        log("FINAL CONFIRM START", `candidate=${ctx.bestCandidate._id}`, `games=${ctx.finalGamesPerIteration}`)
+        const finalRaw = this.evaluateSeedCandidate(ctx.pitchEnvironment, ctx.bestCandidate, `final-confirm:${ctx.baseSeed}:0`, ctx.finalGamesPerIteration)
+        const finalResult = ctx.applyScore(finalRaw)
+        log("FINAL CONFIRM DONE", `score=${finalResult.score}`, `stage=${this.getStage(finalResult)}`, `runs=${this.getRuns(finalResult).toFixed(3)}`)
+
+        ctx.printDiagnostic("final", ctx.maxIterations, ctx.finalGamesPerIteration, ctx.bestCandidate, finalResult)
+
+        log("TUNING DONE", `best=${finalResult.score}`, `runs=${this.getRuns(finalResult).toFixed(3)}`, `accepted=${ctx.acceptedIterations}`)
+
+        return ctx.bestCandidate
+    }
+
+    private static createTuningContext(pitchEnvironment: PitchEnvironmentTarget, rng: Function, params?: any): any {
+        const baseSeed = String(rng())
         const startingCandidate = params?.startingCandidate as PitchEnvironmentTuning | undefined
         const options = params ?? {}
 
@@ -217,590 +242,677 @@ class PitchEnvironmentTuner {
             ? JSON.parse(JSON.stringify(startingCandidate)) as PitchEnvironmentTuning
             : playerImporterService.seedPitchEnvironmentTuning(pitchEnvironment)
 
+        bestCandidate = this.normalizeTuningShape(bestCandidate)
+
         if (!bestCandidate._id) {
             bestCandidate._id = uuidv4()
         }
 
-        const maxIterations = options?.maxIterations ?? 20000
-        const minIterations = options?.minIterations ?? Math.min(80, maxIterations)
-        const gamesPerIteration = options?.gamesPerIteration ?? 100
+        const maxIterations = options?.maxIterations ?? 18
+        const gamesPerIteration = options?.gamesPerIteration ?? 75
         const printDiagnostics = options?.printDiagnostics ?? true
-        const maxStallIterations = options?.maxStallIterations ?? 80
+        const maxStallIterations = options?.maxStallIterations ?? 4
         const workers = Math.max(1, options?.workers ?? 1)
-        const heartbeatEvery = Math.max(1, options?.heartbeatEvery ?? 25)
-
-        const baselineGamesPerIteration = Math.max(gamesPerIteration, gamesPerIteration * 5)
+        const heartbeatEvery = Math.max(1, options?.heartbeatEvery ?? 3)
+        const fastGamesPerIteration = options?.fastGamesPerIteration ?? Math.max(50, Math.min(gamesPerIteration, 75))
+        const confirmGamesPerIteration = options?.confirmGamesPerIteration ?? Math.max(gamesPerIteration, 150)
+        const finalGamesPerIteration = options?.finalGamesPerIteration ?? Math.max(confirmGamesPerIteration, 250)
+        const confirmPoolSize = options?.confirmPoolSize ?? 2
 
         const knobGroups = this.getKnobGroups()
-        const metricToGroups = this.getMetricToGroups()
-        const topLevelMetricOrder = this.getTopLevelMetricOrder()
-
-        const supportMetricWeights = [
-            ...this.getSupportMetricWeights(),
-            { key: "teamSBAttemptsPerGame", scoreWeight: 12500 },
-            { key: "teamSBPerGame", scoreWeight: 3500 }
-        ]
-
-        const trackedEffectMetrics = Array.from(new Set([
-            ...topLevelMetricOrder.map((metric: any) => metric.key),
-            ...supportMetricWeights.map((metric: any) => metric.key)
-        ]))
-        const { trackTrialEffects } = this.createEffectTracker(trackedEffectMetrics, false)
-
         const allKnobs = knobGroups.flatMap(group => group.knobs.map((knob: any) => ({ groupName: group.group, knob })))
-        let currentKnobIndex = 0
 
-        const applyScore = (rawResult: { actual: any, target: any, diff: any, score: number }, focusBaseResult: { diff: any }) =>
-            this.applyFocusedScore(rawResult, focusBaseResult, topLevelMetricOrder, supportMetricWeights)
+        const evaluateBatch = async (candidates: PitchEnvironmentTuning[], games: number, tagPrefix: string) => {
+            log("BATCH START", tagPrefix, `games=${games}`, `candidates=${candidates.length}`, `workers=${workers}`)
 
-        const seedRaw = this.evaluateSeedCandidate(pitchEnvironment, bestCandidate, `seed:${baseSeed}:0`, gamesPerIteration)
-        let bestResult = applyScore(seedRaw, { diff: seedRaw.diff })
+            if (workers > 1) {
+                const results = await evaluateCandidatesWithWorkers(pitchEnvironment, candidates, games, workers, tagPrefix)
+                log("BATCH DONE", tagPrefix, `results=${results.length}`)
+                return results
+            }
 
-        const startBaselineRaw = this.evaluateSeedCandidate(pitchEnvironment, bestCandidate, `start-baseline:${baseSeed}:0`, baselineGamesPerIteration)
-        const startBaselineResult = applyScore(startBaselineRaw, { diff: startBaselineRaw.diff })
+            const results = candidates.map(candidate => ({
+                ok: true as const,
+                candidate,
+                result: evaluateCandidateLocal(
+                    pitchEnvironment,
+                    candidate,
+                    games,
+                    `${tagPrefix}:${candidate._id}`,
+                    currentBaseDataDir
+                )
+            }))
 
-        if (printDiagnostics) {
-            playerImporterService.printPitchEnvironmentIterationDiagnostics("seed", -1, maxIterations, gamesPerIteration, bestCandidate, bestResult)
-            playerImporterService.printPitchEnvironmentIterationDiagnostics("baseline", -1, maxIterations, baselineGamesPerIteration, bestCandidate, startBaselineResult)
+            log("BATCH DONE", tagPrefix, `results=${results.length}`)
+            return results
         }
 
-        let stallIterations = 0
-        let acceptedIterations = 0
-        let lastHeartbeatAccepted = 0
+        const applyScore = (rawResult: { actual: any, target: any, diff: any, score: number }) => this.applyStageScore(rawResult)
 
-        const offenseDirections = new Map<string, number>([
-            ["contactQuality.evScale", 1],
-            ["contactQuality.laScale", 1],
-            ["contactQuality.fullPitchQualityBonus", 1],
-            ["contact.pitchQualityContactEffect", 1],
-            ["contact.contactSkillEffect", 1],
-            ["defense.fullTeamDefenseBonus", -1],
-            ["defense.fullFielderDefenseBonus", -1]
-        ])
-
-        const runningDirections = new Map<string, number>([
-            ["running.stealAttemptAggressionScale", 1]
-        ])
-
-        const offenseKnobEntries = allKnobs.filter(entry => offenseDirections.has(entry.knob.path))
-        const runningKnobEntries = allKnobs.filter(entry => runningDirections.has(entry.knob.path))
-
-        const pushUniqueCandidate = (list: PitchEnvironmentTuning[], seen: Set<string>, candidate: PitchEnvironmentTuning | undefined): void => {
-            if (!candidate) return
-            const signature = JSON.stringify(candidate.tuning)
-            if (seen.has(signature)) return
-            seen.add(signature)
-            list.push(candidate)
-        }
-
-        const getMagnitudeSet = (isAggressive: boolean, isMedium: boolean): number[] => {
-            if (isAggressive) return [1, 2, 3, 4, 6, 8]
-            if (isMedium) return [0.5, 1, 2, 3, 4]
-            return [0.5, 1, 2, 3]
+        const scoreBatch = (evaluated: any[]) => {
+            return evaluated.map(message => ({
+                candidate: message.candidate,
+                rawResult: message.result,
+                result: applyScore(message.result)
+            }))
         }
 
         const buildDirectionalTrial = (base: PitchEnvironmentTuning, entry: any, direction: number, magnitude: number): PitchEnvironmentTuning | undefined =>
-            this.mutateSingleKnobTrial(
-                base,
-                entry.groupName,
-                entry.knob,
-                direction,
-                1,
-                magnitude,
-                bestResult,
-                knobGroups,
-                metricToGroups,
-                topLevelMetricOrder,
-                supportMetricWeights
-            )
+            this.mutateSimpleKnobTrial(base, entry.knob, direction, magnitude)
 
-        const buildTwoKnobTrial = (base: PitchEnvironmentTuning, firstEntry: any, firstDirection: number, firstMagnitude: number, secondEntry: any, secondDirection: number, secondMagnitude: number): PitchEnvironmentTuning | undefined => {
-            const first = buildDirectionalTrial(base, firstEntry, firstDirection, firstMagnitude)
-            if (!first) return undefined
-            return buildDirectionalTrial(first, secondEntry, secondDirection, secondMagnitude)
-        }
-
-        for (let iteration = 0; iteration < maxIterations; iteration++) {
-            const focusBaseResult = bestResult
-            const candidates: PitchEnvironmentTuning[] = []
-            const seen = new Set<string>()
-
-            const knobEntry = allKnobs[currentKnobIndex % allKnobs.length]
-            currentKnobIndex++
-
-            const runsDiff = focusBaseResult.diff.teamRunsPerGame ?? 0
-            const sbAttemptsDiff = focusBaseResult.diff.teamSBAttemptsPerGame ?? 0
-
-            const lowRunsAggressive = runsDiff <= -0.75
-            const lowRunsMedium = !lowRunsAggressive && runsDiff <= -0.35
-
-            const lowSbAttemptsAggressive = sbAttemptsDiff <= -0.20
-            const lowSbAttemptsMedium = !lowSbAttemptsAggressive && sbAttemptsDiff <= -0.08
-
-            const baseMagnitudes = getMagnitudeSet(lowRunsAggressive || stallIterations >= 35, lowRunsMedium || stallIterations >= 15)
-
-            for (const direction of [-1, 1]) {
-                for (const magnitude of baseMagnitudes) {
-                    pushUniqueCandidate(candidates, seen, buildDirectionalTrial(bestCandidate, knobEntry, direction, magnitude))
-                }
-            }
-
-            const currentValue = this.getNested(bestCandidate.tuning, knobEntry.knob.path)
-            const minValue = this.round(knobEntry.knob.min, knobEntry.knob.digits)
-            const maxValue = this.round(knobEntry.knob.max, knobEntry.knob.digits)
-
-            if (minValue !== currentValue) {
-                const minTrial = this.cloneCandidate(bestCandidate)
-                this.setNested(minTrial.tuning, knobEntry.knob.path, minValue)
-                pushUniqueCandidate(candidates, seen, minTrial)
-            }
-
-            if (maxValue !== currentValue) {
-                const maxTrial = this.cloneCandidate(bestCandidate)
-                this.setNested(maxTrial.tuning, knobEntry.knob.path, maxValue)
-                pushUniqueCandidate(candidates, seen, maxTrial)
-            }
-
-            if (lowRunsAggressive || lowRunsMedium || stallIterations >= 12) {
-                const runMagnitudes = lowRunsAggressive ? [2, 4, 6, 8, 10] : [1, 2, 3, 4, 6]
-
-                for (const entry of offenseKnobEntries) {
-                    const direction = offenseDirections.get(entry.knob.path) ?? 1
-                    for (const magnitude of runMagnitudes) {
-                        pushUniqueCandidate(candidates, seen, buildDirectionalTrial(bestCandidate, entry, direction, magnitude))
-                    }
-                }
-
-                const offenseByPath = new Map(offenseKnobEntries.map(entry => [entry.knob.path, entry]))
-
-                const runCombos = [
-                    ["contactQuality.evScale", "contactQuality.laScale"],
-                    ["contactQuality.evScale", "contact.pitchQualityContactEffect"],
-                    ["contactQuality.evScale", "contact.contactSkillEffect"],
-                    ["contactQuality.laScale", "contact.contactSkillEffect"],
-                    ["contact.pitchQualityContactEffect", "contact.contactSkillEffect"],
-                    ["contactQuality.fullPitchQualityBonus", "contact.pitchQualityContactEffect"],
-                    ["contactQuality.fullPitchQualityBonus", "contact.contactSkillEffect"],
-                    ["contactQuality.evScale", "defense.fullTeamDefenseBonus"],
-                    ["contactQuality.laScale", "defense.fullFielderDefenseBonus"]
-                ]
-
-                for (const [firstPath, secondPath] of runCombos) {
-                    const firstEntry = offenseByPath.get(firstPath)
-                    const secondEntry = offenseByPath.get(secondPath)
-
-                    if (!firstEntry || !secondEntry) continue
-
-                    const firstDirection = offenseDirections.get(firstPath) ?? 1
-                    const secondDirection = offenseDirections.get(secondPath) ?? 1
-                    const comboMagnitude = lowRunsAggressive ? 4 : 2
-
-                    pushUniqueCandidate(candidates, seen, buildTwoKnobTrial(bestCandidate, firstEntry, firstDirection, comboMagnitude, secondEntry, secondDirection, comboMagnitude))
-
-                    if (lowRunsAggressive || stallIterations >= 25) {
-                        pushUniqueCandidate(candidates, seen, buildTwoKnobTrial(bestCandidate, firstEntry, firstDirection, comboMagnitude + 2, secondEntry, secondDirection, comboMagnitude + 1))
-                    }
-                }
-            }
-
-            if (lowSbAttemptsAggressive || lowSbAttemptsMedium || stallIterations >= 12) {
-                const sbMagnitudes = lowSbAttemptsAggressive ? [1, 2, 3, 4, 5] : [0.5, 1, 2, 3, 4]
-
-                for (const entry of runningKnobEntries) {
-                    const direction = runningDirections.get(entry.knob.path) ?? 1
-                    for (const magnitude of sbMagnitudes) {
-                        pushUniqueCandidate(candidates, seen, buildDirectionalTrial(bestCandidate, entry, direction, magnitude))
-                    }
-                }
-
-                for (const runningEntry of runningKnobEntries) {
-                    const runningDirection = runningDirections.get(runningEntry.knob.path) ?? 1
-                    for (const offenseEntry of offenseKnobEntries) {
-                        const offenseDirection = offenseDirections.get(offenseEntry.knob.path) ?? 1
-                        const comboMagnitude = lowSbAttemptsAggressive ? 2 : 1
-                        pushUniqueCandidate(candidates, seen, buildTwoKnobTrial(bestCandidate, runningEntry, runningDirection, comboMagnitude, offenseEntry, offenseDirection, comboMagnitude))
-                    }
-                }
-            }
-
-            if (candidates.length === 0) {
-                continue
-            }
-
-            const evaluated = workers > 1
-                ? await evaluateCandidatesWithWorkers(pitchEnvironment, candidates, gamesPerIteration, workers, `iter:${baseSeed}:${iteration}`)
-                : candidates.map(candidate => ({
-                    ok: true as const,
-                    candidate,
-                    result: evaluateCandidateLocal(
-                        pitchEnvironment,
-                        candidate,
-                        gamesPerIteration,
-                        `iter:${baseSeed}:${iteration}:${candidate._id}`,
-                        currentBaseDataDir
-                    )
-                }))
-
-            const scored = evaluated.map(message => ({
-                candidate: message.candidate,
-                rawResult: message.result,
-                result: applyScore(message.result, focusBaseResult)
-            }))
-
-            for (const scoredCandidate of scored) {
-                trackTrialEffects(
-                    bestCandidate,
-                    scoredCandidate.candidate,
-                    bestResult,
-                    scoredCandidate.result
-                )
-            }
-
-            scored.sort((a, b) => a.result.score - b.result.score)
-
-            const winner = scored[0]
-
-            if (printDiagnostics) {
-                playerImporterService.printPitchEnvironmentIterationDiagnostics("trial", iteration, maxIterations, gamesPerIteration, winner.candidate, winner.result)
-            }
-
-            if (winner.result.score < bestResult.score) {
-                bestCandidate = JSON.parse(JSON.stringify(winner.candidate))
-                bestResult = winner.result
-                stallIterations = 0
-                acceptedIterations++
-
-                if (printDiagnostics) {
-                    playerImporterService.printPitchEnvironmentIterationDiagnostics("accepted", iteration, maxIterations, gamesPerIteration, bestCandidate, bestResult)
-                }
-
-                if (iteration + 1 >= minIterations && playerImporterService.isPitchEnvironmentCloseEnough(bestResult.diff)) {
-                    if (printDiagnostics) {
-                        playerImporterService.printPitchEnvironmentIterationDiagnostics("close-enough", iteration, maxIterations, gamesPerIteration, bestCandidate, bestResult)
-                    }
-                    break
-                }
-            } else {
-                stallIterations++
-            }
-
-            if (printDiagnostics && ((iteration + 1) % heartbeatEvery === 0)) {
-                const acceptedSinceHeartbeat = acceptedIterations - lastHeartbeatAccepted
-                lastHeartbeatAccepted = acceptedIterations
-                log("HEARTBEAT", `iter=${iteration + 1}/${maxIterations}`, `best=${bestResult.score.toFixed(1)}`, `stall=${stallIterations}`, `accepted=${acceptedIterations}`, `acceptedSinceHeartbeat=${acceptedSinceHeartbeat}`)
-            }
-
-            if (stallIterations >= maxStallIterations && iteration + 1 >= minIterations) {
-                if (printDiagnostics) {
-                    playerImporterService.printPitchEnvironmentIterationDiagnostics("stopped", iteration, maxIterations, gamesPerIteration, bestCandidate, bestResult)
-                }
-                break
-            }
-        }
-
-        const finalBaselineRaw = this.evaluateSeedCandidate(pitchEnvironment, bestCandidate, `final-baseline:${baseSeed}:0`, baselineGamesPerIteration)
-        const finalBaselineResult = applyScore(finalBaselineRaw, { diff: finalBaselineRaw.diff })
-
-        if (printDiagnostics) {
-            playerImporterService.printPitchEnvironmentIterationDiagnostics("final", maxIterations, maxIterations, baselineGamesPerIteration, bestCandidate, finalBaselineResult)
-        }
-
-        return bestCandidate
-    }
-
-    private static createEffectTracker(trackedEffectMetrics: string[], printDiagnostics: boolean): { trackTrialEffects: (baseCandidate: PitchEnvironmentTuning, trialCandidate: PitchEnvironmentTuning, baseResult: { actual: any, target: any, diff: any, score: number }, trialResult: { actual: any, target: any, diff: any, score: number }) => void, printEffectStats: (stage: string) => void } {
-        const createRunningStat = (): { n: number, mean: number, m2: number, pos: number, neg: number, zero: number } => ({
-            n: 0,
-            mean: 0,
-            m2: 0,
-            pos: 0,
-            neg: 0,
-            zero: 0
-        })
-
-        const updateRunningStat = (stat: { n: number, mean: number, m2: number, pos: number, neg: number, zero: number }, value: number): void => {
-            stat.n++
-            const delta = value - stat.mean
-            stat.mean += delta / stat.n
-            const delta2 = value - stat.mean
-            stat.m2 += delta * delta2
-
-            if (value > 0) stat.pos++
-            else if (value < 0) stat.neg++
-            else stat.zero++
-        }
-
-        const getRunningSd = (stat: { n: number, mean: number, m2: number }): number => stat.n > 1 ? Math.sqrt(stat.m2 / (stat.n - 1)) : 0
-
-        const effectStats = new Map<string, {
-            knob: string,
-            group: string,
-            samples: number,
-            meanStep: number,
-            m2Step: number,
-            scoreDelta: { n: number, mean: number, m2: number, pos: number, neg: number, zero: number },
-            metrics: Record<string, { n: number, mean: number, m2: number, pos: number, neg: number, zero: number }>
-        }>()
-
-        const ensureEffectEntry = (group: string, knob: string): {
-            knob: string,
-            group: string,
-            samples: number,
-            meanStep: number,
-            m2Step: number,
-            scoreDelta: { n: number, mean: number, m2: number, pos: number, neg: number, zero: number },
-            metrics: Record<string, { n: number, mean: number, m2: number, pos: number, neg: number, zero: number }>
-        } => {
-            const key = `${group}.${knob}`
-            let existing = effectStats.get(key)
-
-            if (!existing) {
-                existing = {
-                    knob,
-                    group,
-                    samples: 0,
-                    meanStep: 0,
-                    m2Step: 0,
-                    scoreDelta: createRunningStat(),
-                    metrics: Object.fromEntries(trackedEffectMetrics.map(metric => [metric, createRunningStat()]))
-                }
-                effectStats.set(key, existing)
-            }
-
-            return existing
-        }
-
-        const updateStepMoments = (entry: { samples: number, meanStep: number, m2Step: number }, step: number): void => {
-            entry.samples++
-            const delta = step - entry.meanStep
-            entry.meanStep += delta / entry.samples
-            const delta2 = step - entry.meanStep
-            entry.m2Step += delta * delta2
-        }
-
-        const trackTrialEffects = (baseCandidate: PitchEnvironmentTuning, trialCandidate: PitchEnvironmentTuning, baseResult: { actual: any, target: any, diff: any, score: number }, trialResult: { actual: any, target: any, diff: any, score: number }): void => {
-            const changed = this.getSingleChangedKnob(baseCandidate, trialCandidate)
-            if (!changed) return
-            if (!Number.isFinite(changed.step) || changed.step === 0) return
-
-            const entry = ensureEffectEntry(changed.group, changed.knob)
-            updateStepMoments(entry, changed.step)
-
-            const scoreDelta = Number(trialResult.score ?? 0) - Number(baseResult.score ?? 0)
-            const scoreSlope = scoreDelta / changed.step
-            updateRunningStat(entry.scoreDelta, scoreSlope)
-
-            for (const metric of trackedEffectMetrics) {
-                const baseMetric = this.getMetricValue(baseResult, metric)
-                const trialMetric = this.getMetricValue(trialResult, metric)
-                const metricDelta = trialMetric - baseMetric
-                const slope = metricDelta / changed.step
-                updateRunningStat(entry.metrics[metric], slope)
-            }
-        }
-
-        const printEffectStats = (stage: string): void => {
-            if (!printDiagnostics || effectStats.size === 0) return
-
-            const entries = Array.from(effectStats.values())
-                .sort((a, b) => {
-                    const aSignal = a.scoreDelta.n > 0 ? Math.abs(a.scoreDelta.mean) : 0
-                    const bSignal = b.scoreDelta.n > 0 ? Math.abs(b.scoreDelta.mean) : 0
-                    if (bSignal !== aSignal) return bSignal - aSignal
-                    return `${a.group}.${a.knob}`.localeCompare(`${b.group}.${b.knob}`)
-                })
-
-            log(`KNOB EFFECTS ${stage}`)
-
-            for (const entry of entries) {
-                const scoreSd = getRunningSd(entry.scoreDelta)
-                log(
-                    `${entry.group}.${entry.knob}`,
-                    `n=${entry.samples}`,
-                    `step=${entry.meanStep.toFixed(4)}`,
-                    `scoreSlope=${entry.scoreDelta.mean.toFixed(3)}`,
-                    `sd=${scoreSd.toFixed(3)}`,
-                    `+=${entry.scoreDelta.pos}`,
-                    `-=${entry.scoreDelta.neg}`
-                )
-
-                for (const metric of trackedEffectMetrics) {
-                    const stat = entry.metrics[metric]
-                    if (stat.n <= 0) continue
-
-                    const sd = getRunningSd(stat)
-                    log(
-                        " ",
-                        metric,
-                        `mean=${stat.mean.toFixed(5)}`,
-                        `sd=${sd.toFixed(5)}`,
-                        `+=${stat.pos}`,
-                        `-=${stat.neg}`
-                    )
-                }
-            }
+        const printDiagnostic = (stage: string, iteration: number, games: number, candidate: PitchEnvironmentTuning, result: { actual: any, target: any, diff: any, score: number }) => {
+            if (!printDiagnostics) return
+            playerImporterService.printPitchEnvironmentIterationDiagnostics(stage, iteration, maxIterations, games, candidate, result)
         }
 
         return {
-            trackTrialEffects,
-            printEffectStats
+            pitchEnvironment,
+            baseSeed,
+            options,
+            bestCandidate,
+            bestResult: undefined,
+            maxIterations,
+            gamesPerIteration,
+            printDiagnostics,
+            maxStallIterations,
+            workers,
+            heartbeatEvery,
+            fastGamesPerIteration,
+            confirmGamesPerIteration,
+            finalGamesPerIteration,
+            confirmPoolSize,
+            knobGroups,
+            allKnobs,
+            evaluateBatch,
+            applyScore,
+            scoreBatch,
+            buildDirectionalTrial,
+            printDiagnostic,
+            stallIterations: 0,
+            acceptedIterations: 0,
+            stageDirections: new Map<string, Map<string, number[]>>()
         }
     }
 
-    private static getSingleChangedKnob(beforeCandidate: PitchEnvironmentTuning, afterCandidate: PitchEnvironmentTuning): { group: string, knob: string, path: string[], before: number, after: number, step: number } | undefined {
-        const beforeRows = this.flattenTuning(beforeCandidate.tuning)
-        const afterRows = this.flattenTuning(afterCandidate.tuning)
+    private static normalizeTuningShape(candidate: PitchEnvironmentTuning): PitchEnvironmentTuning {
+        const normalized = JSON.parse(JSON.stringify(candidate)) as PitchEnvironmentTuning
 
-        const beforeMap = new Map(beforeRows.map(row => [row.path.join("."), row]))
-        const afterMap = new Map(afterRows.map(row => [row.path.join("."), row]))
+        if (!normalized.tuning) {
+            normalized.tuning = {} as any
+        }
 
-        const changed: { group: string, knob: string, path: string[], before: number, after: number, step: number }[] = []
+        const tuning: any = normalized.tuning
 
-        for (const [pathKey, beforeRow] of beforeMap.entries()) {
-            const afterRow = afterMap.get(pathKey)
-            if (!afterRow) continue
+        tuning.contactQuality = tuning.contactQuality ?? {}
+        tuning.pitch = tuning.pitch ?? {}
+        tuning.swing = tuning.swing ?? {}
+        tuning.contact = tuning.contact ?? {}
+        tuning.running = tuning.running ?? {}
+        tuning.meta = tuning.meta ?? {}
 
-            if (beforeRow.value !== afterRow.value) {
-                changed.push({
-                    group: String(beforeRow.path[0] ?? ""),
-                    knob: String(beforeRow.path[1] ?? pathKey),
-                    path: beforeRow.path,
-                    before: beforeRow.value,
-                    after: afterRow.value,
-                    step: afterRow.value - beforeRow.value
-                })
+        if (tuning.meta.fullPitchQualityBonus === undefined && tuning.contactQuality.fullPitchQualityBonus !== undefined) {
+            tuning.meta.fullPitchQualityBonus = tuning.contactQuality.fullPitchQualityBonus
+        }
+
+        if (tuning.meta.fullTeamDefenseBonus === undefined && tuning.defense?.fullTeamDefenseBonus !== undefined) {
+            tuning.meta.fullTeamDefenseBonus = tuning.defense.fullTeamDefenseBonus
+        }
+
+        if (tuning.meta.fullFielderDefenseBonus === undefined && tuning.defense?.fullFielderDefenseBonus !== undefined) {
+            tuning.meta.fullFielderDefenseBonus = tuning.defense.fullFielderDefenseBonus
+        }
+
+        delete tuning.contactQuality.fullPitchQualityBonus
+        delete tuning.defense
+
+        tuning.contactQuality.evScale = Number(tuning.contactQuality.evScale ?? 0)
+        tuning.contactQuality.laScale = Number(tuning.contactQuality.laScale ?? 0)
+        tuning.contactQuality.distanceScale = Number(tuning.contactQuality.distanceScale ?? 0)
+
+        tuning.pitch.velocityToQualityScale = Number(tuning.pitch.velocityToQualityScale ?? 0)
+        tuning.pitch.movementToQualityScale = Number(tuning.pitch.movementToQualityScale ?? 0)
+        tuning.pitch.controlToQualityScale = Number(tuning.pitch.controlToQualityScale ?? 0)
+
+        tuning.swing.pitchQualityZoneSwingEffect = Number(tuning.swing.pitchQualityZoneSwingEffect ?? 0)
+        tuning.swing.pitchQualityChaseSwingEffect = Number(tuning.swing.pitchQualityChaseSwingEffect ?? 0)
+        tuning.swing.disciplineZoneSwingEffect = Number(tuning.swing.disciplineZoneSwingEffect ?? 0)
+        tuning.swing.disciplineChaseSwingEffect = Number(tuning.swing.disciplineChaseSwingEffect ?? 0)
+
+        tuning.contact.pitchQualityContactEffect = Number(tuning.contact.pitchQualityContactEffect ?? 0)
+        tuning.contact.contactSkillEffect = Number(tuning.contact.contactSkillEffect ?? 0)
+
+        tuning.running.stealAttemptAggressionScale = Number(tuning.running.stealAttemptAggressionScale ?? 1)
+
+        tuning.meta.fullPitchQualityBonus = Number(tuning.meta.fullPitchQualityBonus ?? 0)
+        tuning.meta.fullTeamDefenseBonus = Number(tuning.meta.fullTeamDefenseBonus ?? 0)
+        tuning.meta.fullFielderDefenseBonus = Number(tuning.meta.fullFielderDefenseBonus ?? 0)
+
+        return normalized
+    }    
+
+    private static async discoverStageDirections(ctx: any, stage: "pitch" | "avg" | "obp" | "slg" | "ops" | "runs" | "done", iteration: number): Promise<void> {
+        if (stage === "done") return
+
+        if (!ctx.stageDirections) {
+            ctx.stageDirections = new Map<string, Map<string, number[]>>()
+        }
+
+        if (ctx.stageDirections.has(stage)) {
+            return
+        }
+
+        const candidates: PitchEnvironmentTuning[] = []
+        const candidateMeta: { path: string, direction: number }[] = []
+        const seen = new Set<string>()
+        const paths = this.getStageKnobPaths(stage)
+        const entries = ctx.allKnobs.filter((entry: any) => paths.has(this.pathKey(entry.knob.path)))
+
+        for (const entry of entries) {
+            const path = this.pathKey(entry.knob.path)
+
+            for (const direction of [-1, 1]) {
+                const candidate = ctx.buildDirectionalTrial(ctx.bestCandidate, entry, direction, 1)
+
+                if (!candidate) continue
+
+                const signature = JSON.stringify(candidate.tuning)
+                if (seen.has(signature)) continue
+
+                seen.add(signature)
+                candidates.push(candidate)
+                candidateMeta.push({ path, direction })
             }
         }
 
-        if (changed.length !== 1) return undefined
-        return changed[0]
-    }
-
-    private static flattenTuning(value: any, prefix: string[] = []): { path: string[], value: number }[] {
-        if (value == null || typeof value !== "object") {
-            return []
+        if (candidates.length === 0) {
+            ctx.stageDirections.set(stage, new Map())
+            return
         }
 
-        const rows: { path: string[], value: number }[] = []
+        log("STAGE DIRECTION PROBE START", `stage=${stage}`, `candidates=${candidates.length}`, `games=${ctx.fastGamesPerIteration}`)
 
-        for (const [key, child] of Object.entries(value)) {
-            const nextPath = [...prefix, key]
+        const evaluated = await ctx.evaluateBatch(candidates, ctx.fastGamesPerIteration, `stage-direction:${ctx.baseSeed}:${iteration}:${stage}`)
+        const scored = ctx.scoreBatch(evaluated)
 
-            if (child != null && typeof child === "object" && !Array.isArray(child)) {
-                rows.push(...this.flattenTuning(child, nextPath))
+        const currentStageScore = this.getStageScore(stage, ctx.bestResult)
+        const directionScores = new Map<string, { direction: number, score: number, runs: number }[]>()
+
+        for (let i = 0; i < scored.length; i++) {
+            const meta = candidateMeta[i]
+            const result = scored[i].result
+            const stageScore = this.getStageScore(stage, result)
+
+            if (!directionScores.has(meta.path)) {
+                directionScores.set(meta.path, [])
+            }
+
+            directionScores.get(meta.path)!.push({
+                direction: meta.direction,
+                score: stageScore,
+                runs: this.getRuns(result)
+            })
+        }
+
+        const discovered = new Map<string, number[]>()
+
+        for (const [path, rows] of directionScores.entries()) {
+            const improving = rows
+                .filter(row => row.score < currentStageScore)
+                .sort((a, b) => a.score - b.score)
+
+            if (improving.length > 0) {
+                discovered.set(path, [improving[0].direction])
+                log("STAGE DIRECTION", `stage=${stage}`, `path=${path}`, `direction=${improving[0].direction}`, `score=${improving[0].score.toFixed(5)}`, `runs=${improving[0].runs.toFixed(3)}`)
                 continue
             }
 
-            if (typeof child === "number" && Number.isFinite(child)) {
-                rows.push({ path: nextPath, value: child })
+            const best = rows.sort((a, b) => a.score - b.score)[0]
+            discovered.set(path, [best.direction])
+            log("STAGE DIRECTION", `stage=${stage}`, `path=${path}`, `direction=${best.direction}`, `score=${best.score.toFixed(5)}`, `runs=${best.runs.toFixed(3)}`, `note=no-improvement`)
+        }
+
+        ctx.stageDirections.set(stage, discovered)
+        log("STAGE DIRECTION PROBE DONE", `stage=${stage}`, `knobs=${discovered.size}`)
+    }
+
+    private static async runStageTuningIterations(ctx: any): Promise<void> {
+        for (let iteration = 0; iteration < ctx.maxIterations; iteration++) {
+            const stage = this.getStage(ctx.bestResult)
+
+            if (stage === "done") {
+                log("ITER STOP", `reason=done`)
+                break
+            }
+
+            await this.discoverStageDirections(ctx, stage, iteration)
+
+            const candidates = this.buildStageCandidateBatch(ctx, stage)
+
+            if (candidates.length === 0) {
+                log("ITER SKIP", `iter=${iteration}`, `stage=${stage}`, "reason=no-candidates")
+                break
+            }
+
+            log("ITER START", `iter=${iteration}`, `stage=${stage}`, `candidates=${candidates.length}`, `stall=${ctx.stallIterations}`, `stageScore=${this.getStageScore(stage, ctx.bestResult).toFixed(5)}`, `runs=${this.getRuns(ctx.bestResult).toFixed(3)}`)
+
+            const evaluatedFast = await ctx.evaluateBatch(candidates, ctx.fastGamesPerIteration, `iter-fast:${ctx.baseSeed}:${iteration}:${stage}`)
+            const scoredFast = ctx.scoreBatch(evaluatedFast)
+                .sort((a: any, b: any) => this.compareStageCandidates(stage, a.result, b.result))
+
+            const fastPool = scoredFast
+                .filter((item: any) => this.isStageCandidateWorthConfirming(stage, ctx.bestResult, item.result))
+                .slice(0, ctx.confirmPoolSize)
+
+            const winnerFast = fastPool[0] ?? scoredFast[0]
+
+            log("ITER FAST DONE", `iter=${iteration}`, `stage=${stage}`, `winnerStageScore=${this.getStageScore(stage, winnerFast.result).toFixed(5)}`, `runs=${this.getRuns(winnerFast.result).toFixed(3)}`, `pool=${fastPool.length}`)
+            ctx.printDiagnostic("trial", iteration, ctx.fastGamesPerIteration, winnerFast.candidate, winnerFast.result)
+
+            if (fastPool.length === 0) {
+                ctx.stallIterations++
+
+                if (this.shouldStopStageTuning(ctx)) {
+                    log("ITER STOP", `reason=stall`, `stage=${stage}`, `stall=${ctx.stallIterations}`)
+                    break
+                }
+
+                continue
+            }
+
+            log("ITER CONFIRM START", `iter=${iteration}`, `stage=${stage}`, `pool=${fastPool.length}`, `games=${ctx.confirmGamesPerIteration}`)
+
+            const evaluatedConfirm = await ctx.evaluateBatch(fastPool.map((item: any) => item.candidate), ctx.confirmGamesPerIteration, `iter-confirm:${ctx.baseSeed}:${iteration}:${stage}`)
+            const scoredConfirm = ctx.scoreBatch(evaluatedConfirm)
+                .sort((a: any, b: any) => this.compareStageCandidates(stage, a.result, b.result))
+
+            const winnerConfirm = scoredConfirm[0]
+
+            log("ITER CONFIRM DONE", `iter=${iteration}`, `stage=${stage}`, `winnerStageScore=${this.getStageScore(stage, winnerConfirm.result).toFixed(5)}`, `runs=${this.getRuns(winnerConfirm.result).toFixed(3)}`)
+            ctx.printDiagnostic("confirm", iteration, ctx.confirmGamesPerIteration, winnerConfirm.candidate, winnerConfirm.result)
+
+            if (this.shouldAcceptStageCandidate(stage, ctx.bestResult, winnerConfirm.result)) {
+                ctx.bestCandidate = JSON.parse(JSON.stringify(winnerConfirm.candidate))
+                ctx.bestResult = winnerConfirm.result
+                ctx.stallIterations = 0
+                ctx.acceptedIterations++
+
+                const nextStage = this.getStage(ctx.bestResult)
+
+                log("ITER ACCEPTED", `iter=${iteration}`, `stage=${stage}`, `nextStage=${nextStage}`, `score=${ctx.bestResult.score.toFixed(1)}`, `runs=${this.getRuns(ctx.bestResult).toFixed(3)}`)
+                ctx.printDiagnostic("accepted", iteration, ctx.confirmGamesPerIteration, ctx.bestCandidate, ctx.bestResult)
+
+                ctx.stageDirections?.clear()
+
+                if (nextStage !== stage) {
+                    log("STAGE ADVANCE", `from=${stage}`, `to=${nextStage}`)
+                }
+
+                if (nextStage === "done") {
+                    log("ITER STOP", `reason=done`)
+                    break
+                }
+            } else {
+                ctx.stallIterations++
+            }
+
+            if (ctx.printDiagnostics && ((iteration + 1) % ctx.heartbeatEvery === 0)) {
+                log("HEARTBEAT", `iter=${iteration + 1}/${ctx.maxIterations}`, `stage=${this.getStage(ctx.bestResult)}`, `score=${ctx.bestResult.score.toFixed(1)}`, `runs=${this.getRuns(ctx.bestResult).toFixed(3)}`, `stall=${ctx.stallIterations}`, `accepted=${ctx.acceptedIterations}`)
+            }
+
+            if (this.shouldStopStageTuning(ctx)) {
+                log("ITER STOP", `reason=stall`, `stage=${this.getStage(ctx.bestResult)}`, `stall=${ctx.stallIterations}`)
+                break
+            }
+        }
+    }
+
+    private static buildStageCandidateBatch(ctx: any, stage: "pitch" | "avg" | "obp" | "slg" | "ops" | "runs" | "done"): PitchEnvironmentTuning[] {
+        const candidates: PitchEnvironmentTuning[] = []
+        const seen = new Set<string>()
+        const paths = this.getStageKnobPaths(stage)
+        const entries = ctx.allKnobs.filter((entry: any) => paths.has(this.pathKey(entry.knob.path)))
+        const directions = ctx.stageDirections?.get(stage) ?? new Map<string, number[]>()
+
+        for (const entry of entries) {
+            const path = this.pathKey(entry.knob.path)
+            const directed = directions.get(path) ?? [-1, 1]
+
+            for (const direction of directed) {
+                for (const magnitude of [0.5, 1, 2]) {
+                    this.pushUniqueCandidate(candidates, seen, ctx.buildDirectionalTrial(ctx.bestCandidate, entry, direction, magnitude))
+                }
             }
         }
 
-        return rows
-    }    
+        return candidates
+    }
+
+    private static mutateSimpleKnobTrial(baseCandidate: PitchEnvironmentTuning, knob: any, direction: number, magnitude: number): PitchEnvironmentTuning | undefined {
+        const trial = this.cloneCandidate(baseCandidate)
+        const currentValue = this.getNested(trial.tuning, knob.path)
+        const nextValue = this.round(this.clamp(currentValue + (knob.step * direction * magnitude), knob.min, knob.max), knob.digits)
+
+        if (nextValue === currentValue) {
+            return undefined
+        }
+
+        this.setNested(trial.tuning, knob.path, nextValue)
+        return trial
+    }
+
+    private static getStage(result: { actual: any, target: any }): "pitch" | "avg" | "obp" | "slg" | "ops" | "runs" | "done" {
+        const diff = (key: string): number => Math.abs(Number(result.actual?.[key] ?? 0) - Number(result.target?.[key] ?? 0))
+
+        const pitchError =
+            diff("pitchesPerPA") +
+            diff("swingAtStrikesPercent") +
+            diff("swingAtBallsPercent") +
+            diff("inZoneContactPercent") +
+            diff("outZoneContactPercent")
+
+        if (pitchError > 0.085) return "pitch"
+        if (diff("obp") > 0.007 || diff("bbPercent") > 0.009) return "obp"
+        if (diff("slg") > 0.012 || diff("homeRunPercent") > 0.004) return "slg"
+        if (diff("ops") > 0.014) return "ops"
+        if (diff("avg") > 0.0015) return "avg"
+        if (diff("babip") > 0.010) return "avg"
+        if (diff("teamRunsPerGame") > 0.25) return "runs"
+
+        return "done"
+    }
+
+    private static getStageScore(stage: "pitch" | "avg" | "obp" | "slg" | "ops" | "runs" | "done", result: { actual: any, target: any }): number {
+        const diff = (key: string): number => Math.abs(Number(result.actual?.[key] ?? 0) - Number(result.target?.[key] ?? 0))
+
+        if (stage === "pitch") {
+            return (
+                diff("pitchesPerPA") * 1 +
+                diff("swingAtStrikesPercent") * 8 +
+                diff("swingAtBallsPercent") * 8 +
+                diff("inZoneContactPercent") * 8 +
+                diff("outZoneContactPercent") * 8
+            )
+        }
+
+        if (stage === "avg") {
+            return (
+                diff("avg") * 100 +
+                diff("babip") * 8 +
+                diff("singlePercent") * 2
+            )
+        }
+
+        if (stage === "obp") {
+            return (
+                diff("obp") * 10 +
+                diff("bbPercent") * 8 +
+                diff("teamBBPerGame") * 0.5
+            )
+        }
+
+        if (stage === "slg") {
+            return (
+                diff("slg") * 10 +
+                diff("homeRunPercent") * 10 +
+                diff("teamHomeRunsPerGame") * 0.5
+            )
+        }
+
+        if (stage === "ops") {
+            return (
+                diff("ops") * 12 +
+                diff("obp") * 5 +
+                diff("slg") * 5
+            )
+        }
+
+        if (stage === "runs") {
+            return diff("teamRunsPerGame")
+        }
+
+        return 0
+    }
+
+    private static passesStageGuard(stage: "pitch" | "avg" | "obp" | "slg" | "ops" | "runs" | "done", result: { actual: any, target: any }): boolean {
+        const diff = (key: string): number => Math.abs(Number(result.actual?.[key] ?? 0) - Number(result.target?.[key] ?? 0))
+        const signedDiff = (key: string): number => Number(result.actual?.[key] ?? 0) - Number(result.target?.[key] ?? 0)
+
+        if (stage !== "pitch") {
+            const pitchError =
+                diff("pitchesPerPA") +
+                diff("swingAtStrikesPercent") +
+                diff("swingAtBallsPercent") +
+                diff("inZoneContactPercent") +
+                diff("outZoneContactPercent")
+
+            if (pitchError > 0.115) return false
+        }
+
+        if (stage === "avg") {
+            if (signedDiff("obp") < -0.010) return false
+            if (signedDiff("teamRunsPerGame") < -0.35) return false
+        }
+
+        if (stage !== "pitch" && stage !== "avg") {
+            if (diff("avg") > 0.012) return false
+            if (diff("babip") > 0.016) return false
+        }
+
+        if (stage === "slg" || stage === "ops" || stage === "runs" || stage === "done") {
+            if (diff("obp") > 0.012) return false
+            if (diff("bbPercent") > 0.014) return false
+        }
+
+        if (stage === "ops" || stage === "runs" || stage === "done") {
+            if (diff("slg") > 0.018) return false
+            if (diff("homeRunPercent") > 0.006) return false
+        }
+
+        return true
+    }
+
+    private static compareStageCandidates(stage: "pitch" | "avg" | "obp" | "slg" | "ops" | "runs" | "done", a: { actual: any, target: any, diff: any, score: number }, b: { actual: any, target: any, diff: any, score: number }): number {
+        const aGuard = this.passesStageGuard(stage, a)
+        const bGuard = this.passesStageGuard(stage, b)
+
+        if (aGuard !== bGuard) return aGuard ? -1 : 1
+
+        const aStageScore = this.getStageScore(stage, a)
+        const bStageScore = this.getStageScore(stage, b)
+
+        if (aStageScore !== bStageScore) return aStageScore - bStageScore
+
+        return a.score - b.score
+    }
+
+    private static isStageCandidateWorthConfirming(stage: "pitch" | "avg" | "obp" | "slg" | "ops" | "runs" | "done", current: { actual: any, target: any, diff: any, score: number }, result: { actual: any, target: any, diff: any, score: number }): boolean {
+        if (!this.passesStageGuard(stage, result)) return false
+
+        const diff = (item: { actual: any, target: any }, key: string): number => Math.abs(Number(item.actual?.[key] ?? 0) - Number(item.target?.[key] ?? 0))
+
+        if (stage === "avg") {
+            const currentAvgDiff = diff(current, "avg")
+            const nextAvgDiff = diff(result, "avg")
+
+            if (nextAvgDiff >= currentAvgDiff) return false
+
+            const currentBabipDiff = diff(current, "babip")
+            const nextBabipDiff = diff(result, "babip")
+
+            if (nextBabipDiff > currentBabipDiff + 0.004) return false
+
+            return true
+        }
+
+        return this.getStageScore(stage, result) < this.getStageScore(stage, current)
+    }
+
+    private static shouldAcceptStageCandidate(stage: "pitch" | "avg" | "obp" | "slg" | "ops" | "runs" | "done", current: { actual: any, target: any, diff: any, score: number }, result: { actual: any, target: any, diff: any, score: number }): boolean {
+        if (!this.passesStageGuard(stage, result)) return false
+
+        const diff = (item: { actual: any, target: any }, key: string): number => Math.abs(Number(item.actual?.[key] ?? 0) - Number(item.target?.[key] ?? 0))
+
+        if (stage === "avg") {
+            const currentAvgDiff = diff(current, "avg")
+            const nextAvgDiff = diff(result, "avg")
+
+            if (nextAvgDiff > 0.0015 && currentAvgDiff - nextAvgDiff < 0.003) return false
+            if (nextAvgDiff >= currentAvgDiff) return false
+
+            const currentBabipDiff = diff(current, "babip")
+            const nextBabipDiff = diff(result, "babip")
+
+            if (nextBabipDiff > currentBabipDiff + 0.004) return false
+
+            return true
+        }
+
+        return this.getStageScore(stage, result) < this.getStageScore(stage, current)
+    }
+
+    private static getStageKnobPaths(stage: "pitch" | "avg" | "obp" | "slg" | "ops" | "runs" | "done"): Set<string> {
+        if (stage === "pitch") {
+            return new Set([
+                "pitch.velocityToQualityScale",
+                "pitch.movementToQualityScale",
+                "pitch.controlToQualityScale",
+                "swing.pitchQualityZoneSwingEffect",
+                "swing.pitchQualityChaseSwingEffect",
+                "contact.pitchQualityContactEffect",
+                "contact.contactSkillEffect"
+            ])
+        }
+
+        if (stage === "avg") {
+            return new Set([
+                "contactQuality.evScale",
+                "contactQuality.laScale",
+                "contact.pitchQualityContactEffect",
+                "contact.contactSkillEffect",
+                "meta.fullTeamDefenseBonus",
+                "meta.fullFielderDefenseBonus"
+            ])
+        }
+
+        if (stage === "obp") {
+            return new Set([
+                "pitch.controlToQualityScale",
+                "swing.pitchQualityChaseSwingEffect",
+                "swing.disciplineChaseSwingEffect",
+                "swing.disciplineZoneSwingEffect"
+            ])
+        }
+
+        if (stage === "slg") {
+            return new Set([
+                "contactQuality.evScale",
+                "contactQuality.laScale",
+                "contactQuality.distanceScale",
+                "meta.fullPitchQualityBonus",
+                "meta.fullTeamDefenseBonus",
+                "meta.fullFielderDefenseBonus",
+                "pitch.velocityToQualityScale",
+                "pitch.movementToQualityScale",
+                "contact.pitchQualityContactEffect"
+            ])
+        }
+
+        if (stage === "ops") {
+            return new Set([
+                "contactQuality.evScale",
+                "contactQuality.laScale",
+                "pitch.controlToQualityScale",
+                "swing.pitchQualityChaseSwingEffect",
+                "contact.pitchQualityContactEffect",
+                "contact.contactSkillEffect",
+                "meta.fullPitchQualityBonus",
+                "meta.fullTeamDefenseBonus",
+                "meta.fullFielderDefenseBonus"
+            ])
+        }
+
+        if (stage === "runs") {
+            return new Set([
+                "swing.disciplineChaseSwingEffect",
+                "swing.pitchQualityChaseSwingEffect",
+                "running.stealAttemptAggressionScale",
+                "meta.fullPitchQualityBonus",
+                "meta.fullTeamDefenseBonus",
+                "meta.fullFielderDefenseBonus"
+            ])
+        }
+
+        return new Set()
+    }
+
+    private static shouldStopStageTuning(ctx: any): boolean {
+        return ctx.stallIterations >= ctx.maxStallIterations
+    }
+
+    private static pushUniqueCandidate(list: PitchEnvironmentTuning[], seen: Set<string>, candidate: PitchEnvironmentTuning | undefined): void {
+        if (!candidate) return
+        const signature = JSON.stringify(candidate.tuning)
+        if (seen.has(signature)) return
+        seen.add(signature)
+        list.push(candidate)
+    }
+
+    private static pathKey(path: string[] | string): string {
+        return Array.isArray(path) ? path.join(".") : path
+    }
+
+    private static getRuns(result: { actual: any }): number {
+        return Number(result?.actual?.teamRunsPerGame ?? 0)
+    }
 
     private static getKnobGroups(): any[] {
         return [
             {
                 group: "contactQuality",
                 knobs: [
-                    { path: ["contactQuality", "evScale"], step: 0.05, min: -10, max: 10, digits: 3, offenseDirection: 1 },
-                    { path: ["contactQuality", "laScale"], step: 0.05, min: -10, max: 10, digits: 3, offenseDirection: 1 },
-                    { path: ["contactQuality", "distanceScale"], step: 0.05, min: -10, max: 10, digits: 3, offenseDirection: 1 },
-                    { path: ["contactQuality", "fullPitchQualityBonus"], step: 2.0, min: -400, max: 400, digits: 2, offenseDirection: 1 }
+                    { path: ["contactQuality", "evScale"], step: 0.25, min: -40, max: 40, digits: 3 },
+                    { path: ["contactQuality", "laScale"], step: 0.25, min: -20, max: 20, digits: 3 },
+                    { path: ["contactQuality", "distanceScale"], step: 0.5, min: -60, max: 60, digits: 3 }
+                ]
+            },
+            {
+                group: "pitch",
+                knobs: [
+                    { path: ["pitch", "velocityToQualityScale"], step: 1, min: -140, max: 140, digits: 2 },
+                    { path: ["pitch", "movementToQualityScale"], step: 1, min: -140, max: 140, digits: 2 },
+                    { path: ["pitch", "controlToQualityScale"], step: 1, min: -140, max: 140, digits: 2 }
                 ]
             },
             {
                 group: "swing",
                 knobs: [
-                    { path: ["swing", "pitchQualityZoneSwingEffect"], step: 0.25, min: -40, max: 40, digits: 2, offenseDirection: -1 },
-                    { path: ["swing", "pitchQualityChaseSwingEffect"], step: 0.25, min: -40, max: 40, digits: 2, offenseDirection: -1 },
-                    { path: ["swing", "disciplineZoneSwingEffect"], step: 0.25, min: -40, max: 40, digits: 2, offenseDirection: 1 },
-                    { path: ["swing", "disciplineChaseSwingEffect"], step: 0.25, min: -40, max: 40, digits: 2, offenseDirection: 1 }
+                    { path: ["swing", "pitchQualityZoneSwingEffect"], step: 0.5, min: -80, max: 80, digits: 2 },
+                    { path: ["swing", "pitchQualityChaseSwingEffect"], step: 0.5, min: -80, max: 80, digits: 2 },
+                    { path: ["swing", "disciplineZoneSwingEffect"], step: 0.5, min: -80, max: 80, digits: 2 },
+                    { path: ["swing", "disciplineChaseSwingEffect"], step: 0.5, min: -80, max: 80, digits: 2 }
                 ]
             },
             {
                 group: "contact",
                 knobs: [
-                    { path: ["contact", "pitchQualityContactEffect"], step: 0.25, min: -40, max: 40, digits: 2, offenseDirection: -1 },
-                    { path: ["contact", "contactSkillEffect"], step: 0.25, min: -50, max: 50, digits: 2, offenseDirection: 1 }
+                    { path: ["contact", "pitchQualityContactEffect"], step: 0.5, min: -140, max: 140, digits: 2 },
+                    { path: ["contact", "contactSkillEffect"], step: 0.5, min: -140, max: 140, digits: 2 }
                 ]
             },
             {
-                group: "defense",
+                group: "running",
                 knobs: [
-                    { path: ["defense", "fullTeamDefenseBonus"], step: 4.0, min: -600, max: 600, digits: 2, offenseDirection: -1 },
-                    { path: ["defense", "fullFielderDefenseBonus"], step: 2.0, min: -400, max: 400, digits: 2, offenseDirection: -1 }
+                    { path: ["running", "stealAttemptAggressionScale"], step: 0.1, min: 0.1, max: 3, digits: 2 }
+                ]
+            },
+            {
+                group: "meta",
+                knobs: [
+                    { path: ["meta", "fullPitchQualityBonus"], step: 5, min: 0, max: 750, digits: 2 },
+                    { path: ["meta", "fullTeamDefenseBonus"], step: 2, min: -180, max: 180, digits: 2 },
+                    { path: ["meta", "fullFielderDefenseBonus"], step: 2, min: -180, max: 180, digits: 2 }
                 ]
             }
-        ]
-    }
-
-    private static getMetricToGroups(): Record<string, string[]> {
-        return {
-            teamRunsPerGame: ["contactQuality", "swing", "contact", "defense"],
-            ops: ["contactQuality", "swing", "contact", "defense"],
-            obp: ["swing", "contact"],
-            slg: ["contactQuality", "contact", "defense"],
-            avg: ["contactQuality", "swing", "contact", "defense"],
-            babip: ["contactQuality", "contact", "defense"],
-
-            teamHitsPerGame: ["contactQuality", "swing", "contact", "defense"],
-            teamHomeRunsPerGame: ["contactQuality", "contact", "defense"],
-            teamBBPerGame: ["swing", "contact"],
-            teamSOPerGame: ["swing", "contact"],
-
-            singlePercent: ["contactQuality", "contact", "defense"],
-            doublePercent: ["contactQuality", "contact", "defense"],
-            triplePercent: ["contactQuality", "contact", "defense"],
-            homeRunPercent: ["contactQuality", "contact", "defense"],
-
-            bbPercent: ["swing", "contact"],
-            soPercent: ["swing", "contact"],
-            hbpPercent: ["swing", "contact"],
-
-            pitchesPerPA: ["swing", "contact"],
-            swingPercent: ["swing", "contact"],
-            swingAtStrikesPercent: ["swing"],
-            swingAtBallsPercent: ["swing"],
-            inZoneContactPercent: ["contact"],
-            outZoneContactPercent: ["contact"],
-            foulContactPercent: ["contact"],
-
-            inZonePercent: ["swing", "contact"],
-            strikePercent: ["swing", "contact"],
-            ballPercent: ["swing", "contact"],
-
-            groundBallPercent: ["contactQuality", "contact"],
-            flyBallPercent: ["contactQuality", "contact"],
-            ldPercent: ["contactQuality", "contact"]
-        }
-    }
-
-    private static getTopLevelMetricOrder(): any[] {
-        return [
-            { key: "teamRunsPerGame", closeEnough: 0.20, scoreWeight: 32000, lowSideWeight: 5000 },
-            { key: "ops", closeEnough: 0.006, scoreWeight: 1800000, lowSideWeight: 240000 },
-            { key: "obp", closeEnough: 0.002, scoreWeight: 900000, lowSideWeight: 140000 },
-            { key: "slg", closeEnough: 0.004, scoreWeight: 700000, lowSideWeight: 100000 },
-            { key: "avg", closeEnough: 0.002, scoreWeight: 350000, lowSideWeight: 50000 },
-            { key: "babip", closeEnough: 0.004, scoreWeight: 220000, lowSideWeight: 30000 }
-        ]
-    }
-
-    private static getSupportMetricWeights(): any[] {
-        return [
-            { key: "teamHitsPerGame", scoreWeight: 9000 },
-            { key: "teamHomeRunsPerGame", scoreWeight: 14000 },
-            { key: "teamBBPerGame", scoreWeight: 9000 },
-            { key: "singlePercent", scoreWeight: 120000 },
-            { key: "doublePercent", scoreWeight: 80000 },
-            { key: "homeRunPercent", scoreWeight: 100000 },
-            { key: "swingAtStrikesPercent", scoreWeight: 16000 },
-            { key: "swingAtBallsPercent", scoreWeight: 16000 },
-            { key: "inZoneContactPercent", scoreWeight: 18000 },
-            { key: "outZoneContactPercent", scoreWeight: 18000 },
-            { key: "pitchesPerPA", scoreWeight: 7000 }
         ]
     }
 
@@ -808,115 +920,30 @@ class PitchEnvironmentTuner {
         return evaluateCandidateLocal(pitchEnvironment, candidateToEvaluate, candidateGamesPerIteration, seed, currentBaseDataDir)
     }
 
-    private static applyFocusedScore(rawResult: { actual: any, target: any, diff: any, score: number }, focusBaseResult: { diff: any }, topLevelMetricOrder: any[], supportMetricWeights: any[]): { actual: any, target: any, diff: any, score: number } {
+    private static applyStageScore(rawResult: { actual: any, target: any, diff: any, score: number }): { actual: any, target: any, diff: any, score: number } {
         const actual = rawResult.actual
         const target = rawResult.target
-
-        const abs = (value: number): number => Math.abs(Number.isFinite(value) ? value : 0)
-        const safeRatioError = (actualValue: number, targetValue: number): number => {
-            if (!Number.isFinite(actualValue) || !Number.isFinite(targetValue) || targetValue === 0) return 0
-            return Math.abs(actualValue - targetValue) / Math.abs(targetValue)
-        }
-        const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
-        const roundTier = (value: number, scale: number): number => clamp(Math.round(value * scale), 0, 999)
-
-        const runsTier = roundTier(abs(actual.teamRunsPerGame - target.teamRunsPerGame), 100)
-        const opsTier = roundTier(safeRatioError(actual.ops, target.ops), 1000)
-        const obpTier = roundTier(safeRatioError(actual.obp, target.obp), 1000)
-        const slgTier = roundTier(safeRatioError(actual.slg, target.slg), 1000)
-        const avgTier = roundTier(safeRatioError(actual.avg, target.avg), 1000)
-        const babipTier = roundTier(safeRatioError(actual.babip, target.babip), 1000)
-
-        const supportTier = roundTier(
-            safeRatioError(actual.teamHitsPerGame, target.teamHitsPerGame) +
-            safeRatioError(actual.teamHomeRunsPerGame, target.teamHomeRunsPerGame) +
-            safeRatioError(actual.teamBBPerGame, target.teamBBPerGame),
-            100
-        )
+        const diff = (key: string): number => Math.abs(Number(actual?.[key] ?? 0) - Number(target?.[key] ?? 0))
 
         const score =
-            runsTier +
-            (opsTier / 1_000) +
-            (obpTier / 1_000_000) +
-            (slgTier / 1_000_000_000) +
-            (avgTier / 1_000_000_000_000) +
-            (babipTier / 1_000_000_000_000_000) +
-            (supportTier / 1_000_000_000_000_000_000)
+            (diff("pitchesPerPA") * 100000) +
+            (diff("swingAtStrikesPercent") * 600000) +
+            (diff("swingAtBallsPercent") * 600000) +
+            (diff("inZoneContactPercent") * 600000) +
+            (diff("outZoneContactPercent") * 600000) +
+            (diff("avg") * 900000) +
+            (diff("babip") * 700000) +
+            (diff("obp") * 900000) +
+            (diff("bbPercent") * 700000) +
+            (diff("slg") * 900000) +
+            (diff("homeRunPercent") * 900000) +
+            (diff("ops") * 1000000) +
+            (diff("teamRunsPerGame") * 250000)
 
         return {
-            actual,
-            target,
-            diff: rawResult.diff,
-            score: Number(score.toFixed(18))
+            ...rawResult,
+            score
         }
-    }
-
-    private static getCurrentFocusIndex(result: { diff: any }, topLevelMetricOrder: any[]): number {
-        for (let i = 0; i < topLevelMetricOrder.length; i++) {
-            if (this.getMetricAbs(result, topLevelMetricOrder[i].key) > topLevelMetricOrder[i].closeEnough) return i
-        }
-        return topLevelMetricOrder.length - 1
-    }
-
-    private static getMetricAbs(result: { diff: any }, key: string): number {
-        return this.abs(Number(result?.diff?.[key] ?? 0))
-    }
-
-    private static getMetricValue(result: { diff: any }, key: string): number {
-        return Number(result?.diff?.[key] ?? 0)
-    }
-
-
-    private static mutateSingleKnobTrial(baseCandidate: PitchEnvironmentTuning, groupName: string, knob: any, baseDirection: number, decay: number, magnitude: number, result: { diff: any }, knobGroups: any[], metricToGroups: Record<string, string[]>, topLevelMetricOrder: any[], supportMetricWeights: any[]): PitchEnvironmentTuning | undefined {
-        const trial = this.cloneCandidate(baseCandidate)
-
-        const pressure = this.getGroupPressure(result, groupName, knobGroups, metricToGroups, topLevelMetricOrder, supportMetricWeights)
-        const activePressures = knobGroups.map(g => this.getGroupPressure(result, g.group, knobGroups, metricToGroups, topLevelMetricOrder, supportMetricWeights)).sort((a, b) => b - a)
-        const topPressure = activePressures[0] || 1
-        const groupBoost = this.clamp(topPressure > 0 ? pressure / topPressure : 0, 0.35, 1.35)
-
-        const currentValue = this.getNested(trial.tuning, knob.path)
-        const knobDirection = baseDirection
-
-        const rawStep = knob.step * decay * magnitude * groupBoost * knobDirection
-        const nextValue = this.round(this.clamp(currentValue + rawStep, knob.min, knob.max), knob.digits)
-
-        if (nextValue === currentValue) return undefined
-
-        this.setNested(trial.tuning, knob.path, nextValue)
-        return trial
-    }
-
-    private static getGroupPressure(result: { diff: any }, groupName: string, knobGroups: any[], metricToGroups: Record<string, string[]>, topLevelMetricOrder: any[], supportMetricWeights: any[]): number {
-        let pressure = 0
-        const focusIndex = this.getCurrentFocusIndex(result, topLevelMetricOrder)
-
-        for (let i = 0; i < topLevelMetricOrder.length; i++) {
-            const metric = topLevelMetricOrder[i]
-            const diffValue = this.getMetricValue(result, metric.key)
-            const absValue = this.abs(diffValue)
-
-            if (!(metricToGroups[metric.key] ?? []).includes(groupName)) continue
-
-            const proximityWeight =
-                i === focusIndex ? 1 :
-                i === focusIndex + 1 ? 0.6 :
-                i === focusIndex + 2 ? 0.3 :
-                0.12
-
-            pressure += absValue * metric.scoreWeight * proximityWeight
-
-            if (diffValue < 0) {
-                pressure += absValue * metric.lowSideWeight * proximityWeight
-            }
-        }
-
-        for (const metric of supportMetricWeights) {
-            if (!(metricToGroups[metric.key] ?? []).includes(groupName)) continue
-            pressure += this.abs(this.getMetricValue(result, metric.key)) * metric.scoreWeight * 0.15
-        }
-
-        return pressure
     }
 
     private static cloneCandidate(source: PitchEnvironmentTuning): PitchEnvironmentTuning {
@@ -927,26 +954,26 @@ class PitchEnvironmentTuner {
 
     private static getNested(obj: any, path: string[]): number {
         let current = obj
-        for (const key of path) current = current?.[key]
-        return current as number
+
+        for (const key of path) {
+            current = current?.[key]
+        }
+
+        return Number(current ?? 0)
     }
 
     private static setNested(obj: any, path: string[], value: number): void {
         let current = obj
-        for (let i = 0; i < path.length - 1; i++) current = current[path[i]]
+
+        for (let i = 0; i < path.length - 1; i++) {
+            if (!current[path[i]]) {
+                current[path[i]] = {}
+            }
+
+            current = current[path[i]]
+        }
+
         current[path[path.length - 1]] = value
-    }
-
-    private static sq(v: number): number {
-        return v * v
-    }
-
-    private static abs(v: number): number {
-        return Math.abs(v)
-    }
-
-    private static sign(v: number): number {
-        return v < 0 ? -1 : v > 0 ? 1 : 0
     }
 
     private static clamp(num: number, min: number, max: number): number {
@@ -958,7 +985,6 @@ class PitchEnvironmentTuner {
     }
 
 }
-
 
 
 export {

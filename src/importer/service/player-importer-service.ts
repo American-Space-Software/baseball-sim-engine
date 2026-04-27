@@ -2355,27 +2355,32 @@ class PlayerImporterService {
             _id: uuidv4(),
             tuning: {
                 contactQuality: {
-                    evScale: -10,
-                    laScale: -10,
-                    distanceScale: 0.167,
-                    fullPitchQualityBonus: -400
+                    evScale: -2.75,
+                    laScale: -2.125,
+                    distanceScale: -3,
+                },
+                pitch: {
+                    velocityToQualityScale: 8,
+                    movementToQualityScale: 8,
+                    controlToQualityScale: 25
                 },
                 swing: {
-                    pitchQualityZoneSwingEffect: -39.52,
-                    pitchQualityChaseSwingEffect: -40,
-                    disciplineZoneSwingEffect: 5.66,
-                    disciplineChaseSwingEffect: 9.34
+                    pitchQualityZoneSwingEffect: -4,
+                    pitchQualityChaseSwingEffect: -4,
+                    disciplineZoneSwingEffect: 2,
+                    disciplineChaseSwingEffect: 3
                 },
                 contact: {
-                    pitchQualityContactEffect: -40,
-                    contactSkillEffect: 11.06
-                },
-                defense: {
-                    fullTeamDefenseBonus: 62.03,
-                    fullFielderDefenseBonus: 37.81
+                    pitchQualityContactEffect: -8,
+                    contactSkillEffect: -4
                 },
                 running: {
-                    stealAttemptAggressionScale: 1.5
+                    stealAttemptAggressionScale: 1
+                },
+                meta: {
+                    fullPitchQualityBonus: 0,
+                    fullTeamDefenseBonus: 6,
+                    fullFielderDefenseBonus: 4
                 }
             },
             ratingTuning: {
@@ -2651,23 +2656,31 @@ class PlayerImporterService {
     }
 
     public printPitchEnvironmentIterationDiagnostics(stage: string, iteration: number, maxIterations: number, gamesPerIteration: number, candidate: PitchEnvironmentTuning, result: { actual: any, target: any, diff: any, score: number }): void {
+        const parts = String(stage).split("-")
+        const baseStage = parts[0]
+        const bracketLabel = parts.length > 1 ? parts.slice(1).join("-") : ""
+
         if (
-            stage !== "seed" &&
-            stage !== "trial" &&
-            stage !== "accepted" &&
-            stage !== "accepted-softened" &&
-            stage !== "stopped" &&
-            stage !== "close-enough" &&
-            stage !== "baseline" &&
-            stage !== "final"
+            baseStage !== "seed" &&
+            baseStage !== "probe" &&
+            baseStage !== "confirm" &&
+            baseStage !== "trial" &&
+            baseStage !== "accepted" &&
+            baseStage !== "accepted-softened" &&
+            baseStage !== "stopped" &&
+            baseStage !== "close-enough" &&
+            baseStage !== "baseline" &&
+            baseStage !== "final"
         ) {
             return
         }
 
         const r = (n: number, d: number = 3): number => Number(n.toFixed(d))
+        const stageToken = baseStage[0]
+        const labelToken = bracketLabel ? ` ${bracketLabel}` : ""
 
         console.log(
-            `L${iteration} ${stage[0]} | ` +
+            `L${iteration} ${stageToken}${labelToken} | ` +
             `G=${gamesPerIteration} ` +
             `S=${r(result.score, 1)} ` +
             `P/PA=${r(result.actual.pitchesPerPA)}(${r(result.diff.pitchesPerPA)}) ` +

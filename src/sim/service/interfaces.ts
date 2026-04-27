@@ -1283,12 +1283,16 @@ interface PitchEnvironmentTuning {
 
     tuning?: {
 
-
         contactQuality: {
             evScale: number
             laScale: number
             distanceScale: number
-            fullPitchQualityBonus: number
+        }
+
+        pitch: {
+            velocityToQualityScale: number
+            movementToQualityScale: number
+            controlToQualityScale: number
         }
 
         swing: {
@@ -1307,7 +1311,8 @@ interface PitchEnvironmentTuning {
             stealAttemptAggressionScale:number
         },
 
-        defense: {
+        meta: {
+            fullPitchQualityBonus: number
             fullTeamDefenseBonus: number
             fullFielderDefenseBonus: number
         }
