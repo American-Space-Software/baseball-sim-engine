@@ -433,7 +433,6 @@ class PlayerImporterService {
                 strikePercent: round(safeDiv(hitterTotals.strikesSeen, hitterTotals.pitchesSeen) * 100, 1),
                 ballPercent: round(safeDiv(hitterTotals.ballsSeen, hitterTotals.pitchesSeen) * 100, 1),
                 swingPercent: round(safeDiv(hitterTotals.swings, hitterTotals.pitchesSeen) * 100, 1),
-                foulContactPercent: round(safeDiv(pitcherTotals.foulsAllowed, pitcherTotals.inZoneContactAllowed + pitcherTotals.outZoneContactAllowed) * 100, 1),
                 pitchesPerPA: round(exactPitchesPerPA, 2),
                 inZoneByCount: finalizedInZoneByCount
             },
@@ -2358,11 +2357,7 @@ class PlayerImporterService {
                     evScale: -2.75,
                     laScale: -2.125,
                     distanceScale: -3,
-                },
-                pitch: {
-                    velocityToQualityScale: 8,
-                    movementToQualityScale: 8,
-                    controlToQualityScale: 25
+                    homeRunOutcomeScale: 0,
                 },
                 swing: {
                     pitchQualityZoneSwingEffect: -4,
@@ -2375,7 +2370,7 @@ class PlayerImporterService {
                     contactSkillEffect: -4
                 },
                 running: {
-                    stealAttemptAggressionScale: 1
+                    stealAttemptAggressionScale: 1.49
                 },
                 meta: {
                     fullPitchQualityBonus: 0,
@@ -2675,24 +2670,87 @@ class PlayerImporterService {
             return
         }
 
-        const r = (n: number, d: number = 3): number => Number(n.toFixed(d))
-        const stageToken = baseStage[0]
-        const labelToken = bracketLabel ? ` ${bracketLabel}` : ""
+        const r = (n: number, d: number = 3): number => {
+            const value = Number(n ?? 0)
+            if (!Number.isFinite(value)) return 0
+            return Number(value.toFixed(d))
+        }
+
+        const signed = (n: number, d: number = 3): string => {
+            const value = Number(n ?? 0)
+            if (!Number.isFinite(value)) return "+0"
+            const rounded = Number(value.toFixed(d))
+            return rounded >= 0 ? `+${rounded}` : `${rounded}`
+        }
+
+        const stageToken =
+            baseStage === "seed" ? "seed" :
+            baseStage === "trial" ? "try" :
+            baseStage === "confirm" ? "conf" :
+            baseStage === "accepted" ? "acc" :
+            baseStage === "final" ? "final" :
+            baseStage
+
+        const labelToken = bracketLabel ? `:${bracketLabel}` : ""
+
+        const stageGuess = (() => {
+            const diff = result.diff ?? {}
+            const pitchError =
+                Math.abs(Number(diff.pitchesPerPA ?? 0)) +
+                Math.abs(Number(diff.swingAtStrikesPercent ?? 0)) +
+                Math.abs(Number(diff.swingAtBallsPercent ?? 0)) +
+                Math.abs(Number(diff.inZoneContactPercent ?? 0)) +
+                Math.abs(Number(diff.outZoneContactPercent ?? 0))
+
+            if (pitchError > 0.085) return "pitch"
+            if (Math.abs(Number(diff.teamSBAttemptsPerGame ?? 0)) > 0.10 || Math.abs(Number(diff.teamSBPerGame ?? 0)) > 0.08) return "run"
+            if (Number(diff.homeRunPercent ?? 0) < -0.004 || Number(diff.teamHomeRunsPerGame ?? 0) < -0.14) return "slg-hr"
+            if (Number(diff.slg ?? 0) > 0.014 || Math.abs(Number(diff.homeRunPercent ?? 0)) > 0.004) return "slg"
+            if (Number(diff.teamHitsPerGame ?? 0) > 0.60 || Number(diff.avg ?? 0) > 0.005 || Number(diff.babip ?? 0) > 0.007) return "avg"
+            if (Number(diff.bbPercent ?? 0) < -0.006 || Number(diff.teamBBPerGame ?? 0) < -0.20) return "bb"
+            if (Math.abs(Number(diff.ops ?? 0)) > 0.014) return "ops"
+            if (Math.abs(Number(diff.teamRunsPerGame ?? 0)) > 0.25) return "runs"
+            return "done"
+        })()
+
+        const tuning = candidate?.tuning
 
         console.log(
             `L${iteration} ${stageToken}${labelToken} | ` +
             `G=${gamesPerIteration} ` +
             `S=${r(result.score, 1)} ` +
-            `P/PA=${r(result.actual.pitchesPerPA)}(${r(result.diff.pitchesPerPA)}) ` +
-            `ZSwng%=${r(result.actual.swingAtStrikesPercent)}(${r(result.diff.swingAtStrikesPercent)}) ` +
-            `CSwng%=${r(result.actual.swingAtBallsPercent)}(${r(result.diff.swingAtBallsPercent)}) ` +
-            `ZCnt%=${r(result.actual.inZoneContactPercent)}(${r(result.diff.inZoneContactPercent)}) ` +
-            `CCnt%=${r(result.actual.outZoneContactPercent)}(${r(result.diff.outZoneContactPercent)}) ` +
-            `AVG=${r(result.actual.avg)}(${r(result.diff.avg)}) ` +
-            `OBP=${r(result.actual.obp)}(${r(result.diff.obp)}) ` +
-            `SLG=${r(result.actual.slg)}(${r(result.diff.slg)}) ` +
-            `BABIP=${r(result.actual.babip)}(${r(result.diff.babip)}) ` +
-            `R/G=${r(result.actual.teamRunsPerGame)}(${r(result.diff.teamRunsPerGame)})`
+            `next=${stageGuess} ` +
+
+            `P/PA=${r(result.actual.pitchesPerPA)}(${signed(result.diff.pitchesPerPA)}) ` +
+            `ZSw=${r(result.actual.swingAtStrikesPercent)}(${signed(result.diff.swingAtStrikesPercent)}) ` +
+            `Ch=${r(result.actual.swingAtBallsPercent)}(${signed(result.diff.swingAtBallsPercent)}) ` +
+            `ZCt=${r(result.actual.inZoneContactPercent)}(${signed(result.diff.inZoneContactPercent)}) ` +
+            `ChCt=${r(result.actual.outZoneContactPercent)}(${signed(result.diff.outZoneContactPercent)}) ` +
+
+            `AVG=${r(result.actual.avg)}(${signed(result.diff.avg)}) ` +
+            `OBP=${r(result.actual.obp)}(${signed(result.diff.obp)}) ` +
+            `SLG=${r(result.actual.slg)}(${signed(result.diff.slg)}) ` +
+            `OPS=${r(result.actual.ops)}(${signed(result.diff.ops)}) ` +
+            `BABIP=${r(result.actual.babip)}(${signed(result.diff.babip)}) ` +
+
+            `BB%=${r(result.actual.bbPercent)}(${signed(result.diff.bbPercent)}) ` +
+            `SO%=${r(result.actual.soPercent)}(${signed(result.diff.soPercent)}) ` +
+            `1B%=${r(result.actual.singlePercent)}(${signed(result.diff.singlePercent)}) ` +
+            `HR%=${r(result.actual.homeRunPercent)}(${signed(result.diff.homeRunPercent)}) ` +
+
+            `R/G=${r(result.actual.teamRunsPerGame)}(${signed(result.diff.teamRunsPerGame)}) ` +
+            `H/G=${r(result.actual.teamHitsPerGame)}(${signed(result.diff.teamHitsPerGame)}) ` +
+            `HR/G=${r(result.actual.teamHomeRunsPerGame)}(${signed(result.diff.teamHomeRunsPerGame)}) ` +
+            `BB/G=${r(result.actual.teamBBPerGame)}(${signed(result.diff.teamBBPerGame)}) ` +
+            `SB/G=${r(result.actual.teamSBPerGame)}(${signed(result.diff.teamSBPerGame)}) ` +
+            `SBA/G=${r(result.actual.teamSBAttemptsPerGame)}(${signed(result.diff.teamSBAttemptsPerGame)}) ` +
+
+            `T[ev=${r(tuning?.contactQuality?.evScale ?? 0, 2)} la=${r(tuning?.contactQuality?.laScale ?? 0, 2)} dist=${r(tuning?.contactQuality?.distanceScale ?? 0, 2)} hrOut=${r(tuning?.contactQuality?.homeRunOutcomeScale ?? 1, 2)} ` +
+            `pqZ=${r(tuning?.swing?.pitchQualityZoneSwingEffect ?? 0, 2)} pqCh=${r(tuning?.swing?.pitchQualityChaseSwingEffect ?? 0, 2)} ` +
+            `dZ=${r(tuning?.swing?.disciplineZoneSwingEffect ?? 0, 2)} dCh=${r(tuning?.swing?.disciplineChaseSwingEffect ?? 0, 2)} ` +
+            `pCt=${r(tuning?.contact?.pitchQualityContactEffect ?? 0, 2)} cSk=${r(tuning?.contact?.contactSkillEffect ?? 0, 2)} ` +
+            `sb=${r(tuning?.running?.stealAttemptAggressionScale ?? 1, 2)} ` +
+            `meta=${r(tuning?.meta?.fullPitchQualityBonus ?? 0, 1)}/${r(tuning?.meta?.fullTeamDefenseBonus ?? 0, 1)}/${r(tuning?.meta?.fullFielderDefenseBonus ?? 0, 1)}]`
         )
     }
 

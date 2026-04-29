@@ -1085,7 +1085,6 @@ interface PitchEnvironmentTarget {
         strikePercent: number
         ballPercent: number
         swingPercent: number
-        foulContactPercent: number
         pitchesPerPA: number
         inZoneByCount: InZoneByCount[]
     }
@@ -1287,12 +1286,7 @@ interface PitchEnvironmentTuning {
             evScale: number
             laScale: number
             distanceScale: number
-        }
-
-        pitch: {
-            velocityToQualityScale: number
-            movementToQualityScale: number
-            controlToQualityScale: number
+            homeRunOutcomeScale: number
         }
 
         swing: {
