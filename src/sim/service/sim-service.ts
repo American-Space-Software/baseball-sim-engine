@@ -345,11 +345,49 @@ class SimService {
             command.pitcher.pitchRatings.pitches[Rolls.getRoll(command.rng, 0, pitches.length - 1)]
         const guessPitch: boolean = hitterPitchGuess == pitchType
 
-        const pitchQuality: PitchQuality = this.gameRolls.getPitchQuality(command.rng, command.pitcherChange, command.pitchEnvironmentTarget)
-        const pitcherPhysics = command.pitchEnvironmentTarget.importReference.pitcher.physics
-
         const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
         const asNumber = (value: any): number => Number.isFinite(Number(value)) ? Number(value) : 0
+        const sampleMoment = (stat: any): number => {
+            const avg = asNumber(stat?.avg)
+            const sd = _getStdDev(stat)
+            if (!Number.isFinite(sd) || sd <= 0) return avg
+            return avg + Rolls.getRollUnrounded(command.rng, -sd, sd)
+        }
+
+        const pitcherPhysics = command.pitchEnvironmentTarget.importReference.pitcher.physics
+        const pitchTypePhysics = pitcherPhysics.byPitchType?.[pitchType]
+
+        const leagueVelocity = pitchTypePhysics
+            ? sampleMoment({ count: pitchTypePhysics.count, total: pitchTypePhysics.totalVelocity, totalSquared: pitchTypePhysics.totalVelocitySquared, avg: pitchTypePhysics.avgVelocity })
+            : sampleMoment(pitcherPhysics.velocity)
+
+        const leagueHorizontalBreak = pitchTypePhysics
+            ? sampleMoment({ count: pitchTypePhysics.count, total: pitchTypePhysics.totalHorizontalBreak, totalSquared: pitchTypePhysics.totalHorizontalBreakSquared, avg: pitchTypePhysics.avgHorizontalBreak })
+            : sampleMoment(pitcherPhysics.horizontalBreak)
+
+        const leagueVerticalBreak = pitchTypePhysics
+            ? sampleMoment({ count: pitchTypePhysics.count, total: pitchTypePhysics.totalVerticalBreak, totalSquared: pitchTypePhysics.totalVerticalBreakSquared, avg: pitchTypePhysics.avgVerticalBreak })
+            : sampleMoment(pitcherPhysics.verticalBreak)
+
+        const velocityStdDev = _getStdDev(pitcherPhysics.velocity)
+        const horizontalBreakStdDev = _getStdDev(pitcherPhysics.horizontalBreak)
+        const verticalBreakStdDev = _getStdDev(pitcherPhysics.verticalBreak)
+
+        const handedPitchRatings = command.matchupHandedness.hits === Handedness.L
+            ? command.pitcher.pitchRatings.vsL
+            : command.pitcher.pitchRatings.vsR
+
+        const powerChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, command.pitcher.pitchRatings.power)
+        const movementChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, handedPitchRatings.movement)
+        const controlChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, handedPitchRatings.control)
+
+        const velocity = leagueVelocity + (velocityStdDev * powerChange)
+        const horizontalBreak = leagueHorizontalBreak + (horizontalBreakStdDev * movementChange)
+        const verticalBreak = leagueVerticalBreak + (verticalBreakStdDev * movementChange)
+
+        const velocityDelta = velocityStdDev > 0 ? (velocity - pitcherPhysics.velocity.avg) / velocityStdDev : 0
+        const horizontalBreakDelta = horizontalBreakStdDev > 0 ? (horizontalBreak - pitcherPhysics.horizontalBreak.avg) / horizontalBreakStdDev : 0
+        const verticalBreakDelta = verticalBreakStdDev > 0 ? (verticalBreak - pitcherPhysics.verticalBreak.avg) / verticalBreakStdDev : 0
 
         const velocityWeight = Math.max(0, asNumber(PITCH_QUALITY_WEIGHTS.velocity))
         const movementWeight = Math.max(0, asNumber(PITCH_QUALITY_WEIGHTS.movement))
@@ -364,29 +402,12 @@ class SimService {
         const normalizedMovementWeight = movementWeight / weightTotal
         const normalizedControlWeight = controlWeight / weightTotal
 
-        const velocityStdDev = _getStdDev(pitcherPhysics.velocity)
-        const horizontalBreakStdDev = _getStdDev(pitcherPhysics.horizontalBreak)
-        const verticalBreakStdDev = _getStdDev(pitcherPhysics.verticalBreak)
-
-        const velocityDelta = velocityStdDev > 0
-            ? (pitchQuality.velocity - pitcherPhysics.velocity.avg) / velocityStdDev
-            : 0
-
-        const horizontalBreakDelta = horizontalBreakStdDev > 0
-            ? (pitchQuality.horizontalBreak - pitcherPhysics.horizontalBreak.avg) / horizontalBreakStdDev
-            : 0
-
-        const verticalBreakDelta = verticalBreakStdDev > 0
-            ? (pitchQuality.verticalBreak - pitcherPhysics.verticalBreak.avg) / verticalBreakStdDev
-            : 0
-
         const avgAbsBreakDelta = (Math.abs(horizontalBreakDelta) + Math.abs(verticalBreakDelta)) / 2
         const centeredMovementDelta = avgAbsBreakDelta - 0.5
-        const controlDelta = command.pitcherChange.controlChange
 
         const velocityComponent = clamp(velocityDelta / 2, -0.5, 0.5)
         const movementComponent = clamp(centeredMovementDelta, -0.5, 0.5)
-        const controlComponent = clamp(controlDelta, -0.5, 0.5)
+        const controlComponent = clamp(command.pitcherChange.controlChange + controlChange, -0.5, 0.5)
 
         const pitchQualityChange =
             (velocityComponent * normalizedVelocityWeight) +
@@ -411,7 +432,11 @@ class SimService {
             intentZone,
             actualZone,
             type: pitchType,
-            quality: pitchQuality,
+            quality: {
+                velocity,
+                horizontalBreak,
+                verticalBreak
+            },
             overallQuality,
             powQ,
             movQ,
@@ -450,15 +475,12 @@ class SimService {
                 case SwingResult.FAIR:
                     pitch.result = PitchCall.IN_PLAY
                     break
-
                 case SwingResult.FOUL:
                     pitch.result = PitchCall.FOUL
                     break
-
                 case SwingResult.STRIKE:
                     pitch.result = PitchCall.STRIKE
                     break
-
                 case SwingResult.NO_SWING:
                     pitch.result = inZone ? PitchCall.STRIKE : PitchCall.BALL
                     break
@@ -472,15 +494,12 @@ class SimService {
                     command.play.pitchLog.count.strikes++
                 }
                 break
-
             case PitchCall.STRIKE:
                 command.play.pitchLog.count.strikes++
                 break
-
             case PitchCall.BALL:
                 command.play.pitchLog.count.balls++
                 break
-
             case PitchCall.HBP:
             case PitchCall.IN_PLAY:
                 break
@@ -935,7 +954,7 @@ class SimService {
         }
 
         if (contact === Contact.GROUNDBALL) {
-            triple += hr
+            out += hr
             hr = 0
         } else {
             const homeRunOutcomeScale = Math.max(
@@ -1853,7 +1872,8 @@ class RunnerActions {
 
     stealBases(runner1B: GamePlayer, runner2B: GamePlayer, runner3B: GamePlayer, gameRNG: () => number, runnerResult: RunnerResult, allEvents: RunnerEvent[], runnerEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], pitchEnvironmentTarget: PitchEnvironmentTarget, catcher: GamePlayer, defense: TeamInfo, offense: TeamInfo, pitcher: GamePlayer, pitchIndex: number, pitchCount: PitchCount) {
         let runners = [runner1B, runner2B, runner3B].filter(r => r != undefined)
-        const stealAttemptAggressionScale = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.running?.stealAttemptAggressionScale ?? 1
+        const stealAttemptAggressionScale = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.running?.stealAttemptAggressionScale ?? 0
+        const stealAttemptAggressionMultiplier = Math.max(0, 1 + stealAttemptAggressionScale)
 
         if (runnerEvents.length > 0) {
             for (let re of runnerEvents) {
@@ -1923,7 +1943,7 @@ class RunnerActions {
                     let successScale = (chanceRunnerSafe - MIN_SUCCESS) / (GREEN_LIGHT_SUCCESS - MIN_SUCCESS)
                     successScale = Math.max(0, Math.min(1, successScale))
 
-                    let greenLightAttempt = effectiveAttempt * successScale * stealAttemptAggressionScale
+                    let greenLightAttempt = effectiveAttempt * successScale * stealAttemptAggressionMultiplier
                     greenLightAttempt = Math.max(0, Math.min(100, Math.round(greenLightAttempt)))
 
                     if (greenLightAttempt <= 0) continue
@@ -2036,7 +2056,6 @@ class RunnerActions {
     }    
 
     getRunnerEvents(gameRNG: () => number, runnerResult: RunnerResult, halfInningRunnerEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], pitchEnvironmentTarget: PitchEnvironmentTarget, playResult: PlayResult, contact: Contact | undefined, shallowDeep: ShallowDeep | undefined, hitter: GamePlayer, fielderPlayer: GamePlayer | undefined, runner1B: GamePlayer | undefined, runner2B: GamePlayer | undefined, runner3B: GamePlayer | undefined, offense: TeamInfo, defense: TeamInfo, pitcher: GamePlayer, pitchIndex: number): RunnerEvent[] {
-            
         const requiresFielder =
             playResult === PlayResult.OUT ||
             playResult === PlayResult.SINGLE ||
@@ -2071,13 +2090,15 @@ class RunnerActions {
         let allEvents = [].concat(halfInningRunnerEvents).concat(events)
 
         const advancement = pitchEnvironmentTarget.running?.advancement
+        const advancementAggressionScale = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.running?.advancementAggressionScale ?? 0
+        const advancementMultiplier = Math.max(0, 1 + advancementAggressionScale)
 
-        const clampRate = (value:number | undefined): number => {
+        const clampRate = (value: number | undefined): number => {
             return Math.max(0, Math.min(1, value ?? 0))
         }
 
-        const shouldAdvance = (rate:number | undefined): boolean => {
-            return Rolls.getRollUnrounded(gameRNG, 0, 1) < clampRate(rate)
+        const shouldAdvance = (rate: number | undefined): boolean => {
+            return Rolls.getRollUnrounded(gameRNG, 0, 1) < clampRate(clampRate(rate) * advancementMultiplier)
         }
 
         const DEFAULT_SUCCESS = 95
@@ -2096,32 +2117,27 @@ class RunnerActions {
                         this.runnerIsOut(runnerResult, allEvents, defensiveCredits, fielderPlayer, hitterRA, RunnerActions.getTotalOuts(allEvents) + 1, BaseResult.HOME)
 
                         if (runnerResult.third && runner3bRA && shouldAdvance(advancement?.runnerOnThirdToHomeOnFlyBallDeep)) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(
-                                pitchEnvironmentTarget,
-                                fielderPlayer.hittingRatings.arm,
-                                runner3B.hittingRatings.speed,
-                                DEFAULT_SUCCESS
-                            )
+                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS)
 
                             this.runnerToBaseWithThrow({
-                                gameRNG: gameRNG,
-                                runnerResult: runnerResult,
-                                allEvents: allEvents,
+                                gameRNG,
+                                runnerResult,
+                                allEvents,
                                 runnerEvents: events,
                                 runnerEvent: runner3bRA,
                                 hitterEvent: hitterRA,
-                                defensiveCredits: defensiveCredits,
+                                defensiveCredits,
                                 start: BaseResult.THIRD,
                                 end: BaseResult.HOME,
                                 eventType: OfficialRunnerResult.THIRD_TO_HOME,
                                 eventTypeOut: OfficialRunnerResult.TAGGED_OUT,
-                                pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                pitcher: pitcher,
-                                offense: offense,
-                                pitchIndex: pitchIndex,
-                                defense: defense,
+                                pitchEnvironmentTarget,
+                                pitcher,
+                                offense,
+                                pitchIndex,
+                                defense,
                                 throwFrom: fielderPlayer,
-                                chanceRunnerSafe: chanceRunnerSafe,
+                                chanceRunnerSafe,
                                 isForce: false,
                                 isFieldersChoice: false
                             })
@@ -2142,32 +2158,27 @@ class RunnerActions {
                         this.runnerIsOut(runnerResult, allEvents, defensiveCredits, fielderPlayer, hitterRA, RunnerActions.getTotalOuts(allEvents) + 1, BaseResult.HOME)
 
                         if (runnerResult.third && runner3bRA && shouldAdvance(advancement?.runnerOnThirdToHomeOnFlyBallNormal)) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(
-                                pitchEnvironmentTarget,
-                                fielderPlayer.hittingRatings.arm,
-                                runner3B.hittingRatings.speed,
-                                DEFAULT_SUCCESS - 5
-                            )
+                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS - 5)
 
                             this.runnerToBaseWithThrow({
-                                gameRNG: gameRNG,
-                                runnerResult: runnerResult,
-                                allEvents: allEvents,
+                                gameRNG,
+                                runnerResult,
+                                allEvents,
                                 runnerEvents: events,
                                 runnerEvent: runner3bRA,
                                 hitterEvent: hitterRA,
-                                defensiveCredits: defensiveCredits,
+                                defensiveCredits,
                                 start: BaseResult.THIRD,
                                 end: BaseResult.HOME,
                                 eventType: OfficialRunnerResult.THIRD_TO_HOME,
                                 eventTypeOut: OfficialRunnerResult.TAGGED_OUT,
-                                pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                pitcher: pitcher,
-                                offense: offense,
-                                pitchIndex: pitchIndex,
-                                defense: defense,
+                                pitchEnvironmentTarget,
+                                pitcher,
+                                offense,
+                                pitchIndex,
+                                defense,
                                 throwFrom: fielderPlayer,
-                                chanceRunnerSafe: chanceRunnerSafe,
+                                chanceRunnerSafe,
                                 isForce: false,
                                 isFieldersChoice: false
                             })
@@ -2188,32 +2199,27 @@ class RunnerActions {
                         this.runnerIsOut(runnerResult, allEvents, defensiveCredits, fielderPlayer, hitterRA, RunnerActions.getTotalOuts(allEvents) + 1, BaseResult.HOME)
 
                         if (runnerResult.third && runner3bRA && shouldAdvance(advancement?.runnerOnThirdToHomeOnFlyBallShallow)) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(
-                                pitchEnvironmentTarget,
-                                fielderPlayer.hittingRatings.arm,
-                                runner3B.hittingRatings.speed,
-                                DEFAULT_SUCCESS - 30
-                            )
+                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS - 30)
 
                             this.runnerToBaseWithThrow({
-                                gameRNG: gameRNG,
-                                runnerResult: runnerResult,
-                                allEvents: allEvents,
+                                gameRNG,
+                                runnerResult,
+                                allEvents,
                                 runnerEvents: events,
                                 runnerEvent: runner3bRA,
                                 hitterEvent: hitterRA,
-                                defensiveCredits: defensiveCredits,
+                                defensiveCredits,
                                 start: BaseResult.THIRD,
                                 end: BaseResult.HOME,
                                 eventType: OfficialRunnerResult.THIRD_TO_HOME,
                                 eventTypeOut: OfficialRunnerResult.TAGGED_OUT,
-                                pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                pitcher: pitcher,
-                                offense: offense,
-                                pitchIndex: pitchIndex,
-                                defense: defense,
+                                pitchEnvironmentTarget,
+                                pitcher,
+                                offense,
+                                pitchIndex,
+                                defense,
                                 throwFrom: fielderPlayer,
-                                chanceRunnerSafe: chanceRunnerSafe,
+                                chanceRunnerSafe,
                                 isForce: false,
                                 isFieldersChoice: false
                             })
@@ -2231,15 +2237,7 @@ class RunnerActions {
                     }
 
                     if (AtBatInfo.isInAir(contact) && AtBatInfo.isToOF(fielderPlayer?.currentPosition)) {
-                        this.runnerIsOut(
-                            runnerResult,
-                            allEvents,
-                            defensiveCredits,
-                            fielderPlayer,
-                            hitterRA,
-                            RunnerActions.getTotalOuts(allEvents) + 1,
-                            BaseResult.HOME
-                        )
+                        this.runnerIsOut(runnerResult, allEvents, defensiveCredits, fielderPlayer, hitterRA, RunnerActions.getTotalOuts(allEvents) + 1, BaseResult.HOME)
                         break
                     }
 
@@ -2252,32 +2250,27 @@ class RunnerActions {
                         const outsBeforePlay = RunnerActions.getTotalOuts(allEvents)
 
                         if (outsBeforePlay >= 2) {
-                            const chanceRunnerSafe = this.getChanceRunnerSafe(
-                                pitchEnvironmentTarget,
-                                fielderPlayer.hittingRatings.arm,
-                                hitter.hittingRatings.speed,
-                                1
-                            )
+                            const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, hitter.hittingRatings.speed, 1)
 
                             this.runnerToBaseWithThrow({
-                                gameRNG: gameRNG,
-                                runnerResult: runnerResult,
-                                allEvents: allEvents,
+                                gameRNG,
+                                runnerResult,
+                                allEvents,
                                 runnerEvents: events,
                                 runnerEvent: hitterRA,
                                 hitterEvent: hitterRA,
-                                defensiveCredits: defensiveCredits,
+                                defensiveCredits,
                                 start: BaseResult.HOME,
                                 end: BaseResult.FIRST,
                                 eventType: OfficialRunnerResult.HOME_TO_FIRST,
                                 eventTypeOut: OfficialRunnerResult.FORCE_OUT,
-                                pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                defense: defense,
-                                pitcher: pitcher,
-                                offense: offense,
-                                pitchIndex: pitchIndex,
+                                pitchEnvironmentTarget,
+                                defense,
+                                pitcher,
+                                offense,
+                                pitchIndex,
                                 throwFrom: fielderPlayer,
-                                chanceRunnerSafe: chanceRunnerSafe,
+                                chanceRunnerSafe,
                                 isForce: true,
                                 isFieldersChoice: false
                             })
@@ -2292,54 +2285,49 @@ class RunnerActions {
                                 let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, 1)
 
                                 this.runnerToBaseWithThrow({
-                                    gameRNG: gameRNG,
-                                    runnerResult: runnerResult,
-                                    allEvents: allEvents,
+                                    gameRNG,
+                                    runnerResult,
+                                    allEvents,
                                     runnerEvents: events,
                                     runnerEvent: runner3bRA,
                                     hitterEvent: hitterRA,
-                                    defensiveCredits: defensiveCredits,
+                                    defensiveCredits,
                                     start: BaseResult.THIRD,
                                     end: BaseResult.HOME,
                                     eventType: OfficialRunnerResult.THIRD_TO_HOME,
                                     eventTypeOut: OfficialRunnerResult.FORCE_OUT,
-                                    pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                    pitcher: pitcher,
-                                    offense: offense,
-                                    pitchIndex: pitchIndex,
-                                    defense: defense,
+                                    pitchEnvironmentTarget,
+                                    pitcher,
+                                    offense,
+                                    pitchIndex,
+                                    defense,
                                     throwFrom: fielderPlayer,
-                                    chanceRunnerSafe: chanceRunnerSafe,
+                                    chanceRunnerSafe,
                                     isForce: true,
                                     isFieldersChoice: true
                                 })
                             } else if (shouldAdvance(advancement?.runnerOnThirdToHomeOnGroundBall)) {
-                                let chanceRunnerSafe = this.getChanceRunnerSafe(
-                                    pitchEnvironmentTarget,
-                                    fielderPlayer.hittingRatings.arm,
-                                    runner3B.hittingRatings.speed,
-                                    DEFAULT_SUCCESS - 30
-                                )
+                                let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS - 30)
 
                                 this.runnerToBaseWithThrow({
-                                    gameRNG: gameRNG,
-                                    runnerResult: runnerResult,
-                                    allEvents: allEvents,
+                                    gameRNG,
+                                    runnerResult,
+                                    allEvents,
                                     runnerEvents: events,
                                     runnerEvent: runner3bRA,
                                     hitterEvent: hitterRA,
-                                    defensiveCredits: defensiveCredits,
+                                    defensiveCredits,
                                     start: BaseResult.THIRD,
                                     end: BaseResult.HOME,
                                     eventType: OfficialRunnerResult.THIRD_TO_HOME,
                                     eventTypeOut: OfficialRunnerResult.TAGGED_OUT,
-                                    pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                    pitcher: pitcher,
-                                    offense: offense,
-                                    pitchIndex: pitchIndex,
-                                    defense: defense,
+                                    pitchEnvironmentTarget,
+                                    pitcher,
+                                    offense,
+                                    pitchIndex,
+                                    defense,
                                     throwFrom: fielderPlayer,
-                                    chanceRunnerSafe: chanceRunnerSafe,
+                                    chanceRunnerSafe,
                                     isForce: false,
                                     isFieldersChoice: true
                                 })
@@ -2353,24 +2341,24 @@ class RunnerActions {
                                 let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner2B.hittingRatings.speed, 1)
 
                                 this.runnerToBaseWithThrow({
-                                    gameRNG: gameRNG,
-                                    runnerResult: runnerResult,
-                                    allEvents: allEvents,
+                                    gameRNG,
+                                    runnerResult,
+                                    allEvents,
                                     runnerEvents: events,
                                     runnerEvent: runner2bRA,
                                     hitterEvent: hitterRA,
-                                    defensiveCredits: defensiveCredits,
+                                    defensiveCredits,
                                     start: BaseResult.SECOND,
                                     end: BaseResult.THIRD,
                                     eventType: OfficialRunnerResult.SECOND_TO_THIRD,
                                     eventTypeOut: OfficialRunnerResult.FORCE_OUT,
-                                    pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                    pitcher: pitcher,
-                                    offense: offense,
-                                    pitchIndex: pitchIndex,
-                                    defense: defense,
+                                    pitchEnvironmentTarget,
+                                    pitcher,
+                                    offense,
+                                    pitchIndex,
+                                    defense,
                                     throwFrom: fielderPlayer,
-                                    chanceRunnerSafe: chanceRunnerSafe,
+                                    chanceRunnerSafe,
                                     isForce: true,
                                     isFieldersChoice: true
                                 })
@@ -2386,24 +2374,24 @@ class RunnerActions {
                                 let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 1)
 
                                 this.runnerToBaseWithThrow({
-                                    gameRNG: gameRNG,
-                                    runnerResult: runnerResult,
-                                    allEvents: allEvents,
+                                    gameRNG,
+                                    runnerResult,
+                                    allEvents,
                                     runnerEvents: events,
                                     runnerEvent: runner1bRA,
                                     hitterEvent: hitterRA,
-                                    defensiveCredits: defensiveCredits,
+                                    defensiveCredits,
                                     start: BaseResult.FIRST,
                                     end: BaseResult.SECOND,
                                     eventType: OfficialRunnerResult.FIRST_TO_SECOND,
                                     eventTypeOut: OfficialRunnerResult.FORCE_OUT,
-                                    pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                    pitcher: pitcher,
-                                    offense: offense,
-                                    pitchIndex: pitchIndex,
-                                    defense: defense,
+                                    pitchEnvironmentTarget,
+                                    pitcher,
+                                    offense,
+                                    pitchIndex,
+                                    defense,
                                     throwFrom: fielderPlayer,
-                                    chanceRunnerSafe: chanceRunnerSafe,
+                                    chanceRunnerSafe,
                                     isForce: true,
                                     isFieldersChoice: true
                                 })
@@ -2416,24 +2404,24 @@ class RunnerActions {
                             let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, hitter.hittingRatings.speed, 75)
 
                             this.runnerToBaseWithThrow({
-                                gameRNG: gameRNG,
-                                runnerResult: runnerResult,
-                                allEvents: allEvents,
+                                gameRNG,
+                                runnerResult,
+                                allEvents,
                                 runnerEvents: events,
                                 runnerEvent: hitterRA,
                                 hitterEvent: hitterRA,
-                                defensiveCredits: defensiveCredits,
+                                defensiveCredits,
                                 start: BaseResult.HOME,
                                 end: BaseResult.FIRST,
                                 eventType: OfficialRunnerResult.HOME_TO_FIRST,
                                 eventTypeOut: OfficialRunnerResult.FORCE_OUT,
-                                pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                defense: defense,
-                                pitcher: pitcher,
-                                offense: offense,
-                                pitchIndex: pitchIndex,
+                                pitchEnvironmentTarget,
+                                defense,
+                                pitcher,
+                                offense,
+                                pitchIndex,
                                 throwFrom: fielderPlayer,
-                                chanceRunnerSafe: chanceRunnerSafe,
+                                chanceRunnerSafe,
                                 isForce: true,
                                 isFieldersChoice: true
                             })
@@ -2441,24 +2429,24 @@ class RunnerActions {
                             let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, hitter.hittingRatings.speed, 1)
 
                             this.runnerToBaseWithThrow({
-                                gameRNG: gameRNG,
-                                runnerResult: runnerResult,
-                                allEvents: allEvents,
+                                gameRNG,
+                                runnerResult,
+                                allEvents,
                                 runnerEvents: events,
                                 runnerEvent: hitterRA,
                                 hitterEvent: hitterRA,
-                                defensiveCredits: defensiveCredits,
+                                defensiveCredits,
                                 start: BaseResult.HOME,
                                 end: BaseResult.FIRST,
                                 eventType: OfficialRunnerResult.HOME_TO_FIRST,
                                 eventTypeOut: OfficialRunnerResult.FORCE_OUT,
-                                pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                defense: defense,
-                                pitcher: pitcher,
-                                offense: offense,
-                                pitchIndex: pitchIndex,
+                                pitchEnvironmentTarget,
+                                defense,
+                                pitcher,
+                                offense,
+                                pitchIndex,
                                 throwFrom: fielderPlayer,
-                                chanceRunnerSafe: chanceRunnerSafe,
+                                chanceRunnerSafe,
                                 isForce: true,
                                 isFieldersChoice: false
                             })
@@ -2517,12 +2505,7 @@ class RunnerActions {
                             (outsBeforePlay >= 2 || shouldAdvance(advancement?.runnerOnSecondToHomeOnSingle))
 
                         if (sendRunnerHome) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(
-                                pitchEnvironmentTarget,
-                                fielderPlayer.hittingRatings.arm,
-                                runner2B.hittingRatings.speed,
-                                75
-                            )
+                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner2B.hittingRatings.speed, 75)
 
                             let clone: RunnerEvent = JSON.parse(JSON.stringify(runner2bRA))
                             clone.movement.start = BaseResult.THIRD
@@ -2531,24 +2514,24 @@ class RunnerActions {
                             events.push(clone)
 
                             this.runnerToBaseWithThrow({
-                                gameRNG: gameRNG,
-                                runnerResult: runnerResult,
-                                allEvents: allEvents,
+                                gameRNG,
+                                runnerResult,
+                                allEvents,
                                 runnerEvents: events,
                                 runnerEvent: clone,
                                 hitterEvent: hitterRA,
-                                defensiveCredits: defensiveCredits,
+                                defensiveCredits,
                                 start: BaseResult.THIRD,
                                 end: BaseResult.HOME,
                                 eventType: OfficialRunnerResult.THIRD_TO_HOME,
                                 eventTypeOut: OfficialRunnerResult.TAGGED_OUT,
-                                pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                pitcher: pitcher,
-                                offense: offense,
-                                pitchIndex: pitchIndex,
-                                defense: defense,
+                                pitchEnvironmentTarget,
+                                pitcher,
+                                offense,
+                                pitchIndex,
+                                defense,
                                 throwFrom: fielderPlayer,
-                                chanceRunnerSafe: chanceRunnerSafe,
+                                chanceRunnerSafe,
                                 isForce: false,
                                 isFieldersChoice: false
                             })
@@ -2559,12 +2542,7 @@ class RunnerActions {
                         this.runnerToBase(runnerResult, runner1bRA, BaseResult.FIRST, BaseResult.SECOND, OfficialRunnerResult.FIRST_TO_SECOND, true)
 
                         if ((fielderPlayer.currentPosition == Position.RIGHT_FIELD || fielderPlayer.currentPosition == Position.CENTER_FIELD) && shouldAdvance(advancement?.runnerOnFirstToThirdOnSingle)) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(
-                                pitchEnvironmentTarget,
-                                fielderPlayer.hittingRatings.arm,
-                                runner1B.hittingRatings.speed,
-                                75
-                            )
+                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 75)
 
                             let clone: RunnerEvent = JSON.parse(JSON.stringify(runner1bRA))
                             clone.movement.start = BaseResult.SECOND
@@ -2573,24 +2551,24 @@ class RunnerActions {
                             events.push(clone)
 
                             this.runnerToBaseWithThrow({
-                                gameRNG: gameRNG,
-                                runnerResult: runnerResult,
-                                allEvents: allEvents,
+                                gameRNG,
+                                runnerResult,
+                                allEvents,
                                 runnerEvents: events,
                                 runnerEvent: clone,
                                 hitterEvent: hitterRA,
-                                defensiveCredits: defensiveCredits,
+                                defensiveCredits,
                                 start: BaseResult.SECOND,
                                 end: BaseResult.THIRD,
                                 eventType: OfficialRunnerResult.SECOND_TO_THIRD,
                                 eventTypeOut: OfficialRunnerResult.TAGGED_OUT,
-                                pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                pitcher: pitcher,
-                                offense: offense,
-                                pitchIndex: pitchIndex,
-                                defense: defense,
+                                pitchEnvironmentTarget,
+                                pitcher,
+                                offense,
+                                pitchIndex,
+                                defense,
                                 throwFrom: fielderPlayer,
-                                chanceRunnerSafe: chanceRunnerSafe,
+                                chanceRunnerSafe,
                                 isForce: false,
                                 isFieldersChoice: false
                             })
@@ -2609,12 +2587,7 @@ class RunnerActions {
                         this.runnerToBase(runnerResult, runner1bRA, BaseResult.FIRST, BaseResult.THIRD, OfficialRunnerResult.FIRST_TO_THIRD, false)
 
                         if (shallowDeep != ShallowDeep.SHALLOW && shouldAdvance(advancement?.runnerOnFirstToHomeOnDouble)) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(
-                                pitchEnvironmentTarget,
-                                fielderPlayer.hittingRatings.arm,
-                                runner1B.hittingRatings.speed,
-                                60
-                            )
+                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 60)
 
                             let clone: RunnerEvent = JSON.parse(JSON.stringify(runner1bRA))
                             clone.movement.start = BaseResult.THIRD
@@ -2623,24 +2596,24 @@ class RunnerActions {
                             events.push(clone)
 
                             this.runnerToBaseWithThrow({
-                                gameRNG: gameRNG,
-                                runnerResult: runnerResult,
-                                allEvents: allEvents,
+                                gameRNG,
+                                runnerResult,
+                                allEvents,
                                 runnerEvents: events,
                                 runnerEvent: clone,
                                 hitterEvent: hitterRA,
-                                defensiveCredits: defensiveCredits,
+                                defensiveCredits,
                                 start: BaseResult.THIRD,
                                 end: BaseResult.HOME,
                                 eventType: OfficialRunnerResult.THIRD_TO_HOME,
                                 eventTypeOut: OfficialRunnerResult.TAGGED_OUT,
-                                pitchEnvironmentTarget: pitchEnvironmentTarget,
-                                pitcher: pitcher,
-                                offense: offense,
-                                pitchIndex: pitchIndex,
-                                defense: defense,
+                                pitchEnvironmentTarget,
+                                pitcher,
+                                offense,
+                                pitchIndex,
+                                defense,
                                 throwFrom: fielderPlayer,
-                                chanceRunnerSafe: chanceRunnerSafe,
+                                chanceRunnerSafe,
                                 isForce: false,
                                 isFieldersChoice: false
                             })
@@ -2654,7 +2627,6 @@ class RunnerActions {
                     this.runnerToBase(runnerResult, runner3bRA, BaseResult.THIRD, BaseResult.HOME, OfficialRunnerResult.THIRD_TO_HOME, true)
                     this.runnerToBase(runnerResult, runner2bRA, BaseResult.SECOND, BaseResult.HOME, OfficialRunnerResult.SECOND_TO_HOME, true)
                     this.runnerToBase(runnerResult, runner1bRA, BaseResult.FIRST, BaseResult.HOME, OfficialRunnerResult.FIRST_TO_HOME, true)
-
                     this.runnerToBase(runnerResult, hitterRA, BaseResult.HOME, BaseResult.THIRD, PlayResult.TRIPLE, true)
                     break
 
@@ -2662,7 +2634,6 @@ class RunnerActions {
                     this.runnerToBase(runnerResult, runner3bRA, BaseResult.THIRD, BaseResult.HOME, OfficialRunnerResult.THIRD_TO_HOME, true)
                     this.runnerToBase(runnerResult, runner2bRA, BaseResult.SECOND, BaseResult.HOME, OfficialRunnerResult.SECOND_TO_HOME, true)
                     this.runnerToBase(runnerResult, runner1bRA, BaseResult.FIRST, BaseResult.HOME, OfficialRunnerResult.FIRST_TO_HOME, true)
-
                     this.runnerToBase(runnerResult, hitterRA, BaseResult.HOME, BaseResult.HOME, PlayResult.HR, true)
                     break
             }
@@ -3038,7 +3009,6 @@ class SimRolls {
     }
 
     getSwingResult(gameRNG: () => number, hitterChange: HitterChange, pitchEnvironmentTarget: PitchEnvironmentTarget, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult {
-        
         let pitchQualityChange = PlayerChange.getChange(AVG_PITCH_QUALITY, pitchQuality)
 
         const t = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning
@@ -3061,6 +3031,9 @@ class SimRolls {
                 swingRate += hitterChange.plateDisiplineChange * (swingTuning?.disciplineZoneSwingEffect ?? 0)
             }
         } else {
+            const walkRateScale = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.swing?.walkRateScale ?? 0
+            swingRate *= Math.max(0, 1 - walkRateScale)
+
             swingRate += pitchQualityChange * (swingTuning?.pitchQualityChaseSwingEffect ?? 0)
 
             if (APPLY_PLAYER_CHANGES) {

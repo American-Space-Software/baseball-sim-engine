@@ -1915,65 +1915,6 @@ class PlayerImporterService {
         }
     }
 
-    // public async exportPitchEnvironmentTargetForSeasons(baseDataDir: string, seasons: number[]): Promise<Record<number, PitchEnvironmentTarget>> {
-
-    //     const results: Record<number, PitchEnvironmentTarget> = {}
-
-    //     for (const season of seasons) {
-
-    //         const seasonDir = path.join(baseDataDir, String(season))
-
-    //         const resultsPath = path.join(seasonDir, "_results.json")
-    //         const outputPath = path.join(seasonDir, "_pitch_environment_tuning.json")
-
-    //         const raw = await fs.promises.readFile(resultsPath, "utf8")
-    //         const parsed = JSON.parse(raw)
-
-    //         const players = new Map<string, PlayerImportRaw>()
-
-    //         if (Array.isArray(parsed)) {
-    //             for (const row of parsed) {
-    //                 if (row?.playerId) {
-    //                     players.set(String(row.playerId), row as PlayerImportRaw)
-    //                 }
-    //             }
-    //         } else if (parsed && Array.isArray(parsed.players)) {
-    //             for (const row of parsed.players) {
-    //                 if (row?.playerId) {
-    //                     players.set(String(row.playerId), row as PlayerImportRaw)
-    //                 }
-    //             }
-    //         } else if (parsed && typeof parsed === "object") {
-    //             for (const [playerId, row] of Object.entries(parsed)) {
-    //                 if ((row as any)?.playerId) {
-    //                     players.set(String((row as any).playerId), row as PlayerImportRaw)
-    //                 } else if (row && typeof row === "object") {
-    //                     players.set(String(playerId), { ...(row as any), playerId: String(playerId) } as PlayerImportRaw)
-    //                 }
-    //             }
-    //         }
-
-    //         if (players.size === 0) {
-    //             throw new Error(`No player import rows found in ${resultsPath}`)
-    //         }
-
-    //         const pitchEnvironmentTarget = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
-    //         const rng = seedrandom(String(season))
-    //         const pitchEnvironmentTuning = await this.getTuningsForPitchEnvironment(pitchEnvironmentTarget, rng, defaultTuningConfig)
-
-    //         const fullPitchEnvironmentTarget: PitchEnvironmentTarget = {
-    //             ...pitchEnvironmentTarget,
-    //             pitchEnvironmentTuning
-    //         } as PitchEnvironmentTarget
-
-    //         await fs.promises.writeFile(outputPath, JSON.stringify(fullPitchEnvironmentTarget, null, 2) + "\n", "utf8")
-
-    //         results[season] = fullPitchEnvironmentTarget
-    //     }
-
-    //     return results
-    // }
-    
     public getPlayerImportBaseline(pitchEnvironment: PitchEnvironmentTarget, rng: Function): PlayerImportBaseline {
 
         const importReference = pitchEnvironment.importReference
@@ -2140,7 +2081,6 @@ class PlayerImporterService {
 
         return baseline
     }
-
 
     public buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId: string = "baseline-game"): Game {
         
@@ -2354,28 +2294,30 @@ class PlayerImporterService {
             _id: uuidv4(),
             tuning: {
                 contactQuality: {
-                    evScale: -2.75,
-                    laScale: -2.125,
-                    distanceScale: -3,
+                    evScale: 0,
+                    laScale: 0,
+                    distanceScale: 0,
                     homeRunOutcomeScale: 0,
                 },
                 swing: {
-                    pitchQualityZoneSwingEffect: -4,
-                    pitchQualityChaseSwingEffect: -4,
-                    disciplineZoneSwingEffect: 2,
-                    disciplineChaseSwingEffect: 3
+                    pitchQualityZoneSwingEffect: 0,
+                    pitchQualityChaseSwingEffect: 0,
+                    disciplineZoneSwingEffect: 0,
+                    disciplineChaseSwingEffect: 0,
+                    walkRateScale: 0
                 },
                 contact: {
-                    pitchQualityContactEffect: -8,
-                    contactSkillEffect: -4
+                    pitchQualityContactEffect: 0,
+                    contactSkillEffect: 0
                 },
                 running: {
-                    stealAttemptAggressionScale: 1.49
+                    stealAttemptAggressionScale: 0,
+                    advancementAggressionScale: 0
                 },
                 meta: {
                     fullPitchQualityBonus: 0,
-                    fullTeamDefenseBonus: 6,
-                    fullFielderDefenseBonus: 4
+                    fullTeamDefenseBonus: 0,
+                    fullFielderDefenseBonus: 0
                 }
             },
             ratingTuning: {
@@ -2749,7 +2691,7 @@ class PlayerImporterService {
             `pqZ=${r(tuning?.swing?.pitchQualityZoneSwingEffect ?? 0, 2)} pqCh=${r(tuning?.swing?.pitchQualityChaseSwingEffect ?? 0, 2)} ` +
             `dZ=${r(tuning?.swing?.disciplineZoneSwingEffect ?? 0, 2)} dCh=${r(tuning?.swing?.disciplineChaseSwingEffect ?? 0, 2)} ` +
             `pCt=${r(tuning?.contact?.pitchQualityContactEffect ?? 0, 2)} cSk=${r(tuning?.contact?.contactSkillEffect ?? 0, 2)} ` +
-            `sb=${r(tuning?.running?.stealAttemptAggressionScale ?? 1, 2)} ` +
+            `sb=${r(tuning?.running?.stealAttemptAggressionScale ?? 0, 2)} ` +
             `meta=${r(tuning?.meta?.fullPitchQualityBonus ?? 0, 1)}/${r(tuning?.meta?.fullTeamDefenseBonus ?? 0, 1)}/${r(tuning?.meta?.fullFielderDefenseBonus ?? 0, 1)}]`
         )
     }

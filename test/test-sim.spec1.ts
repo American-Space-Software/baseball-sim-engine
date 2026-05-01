@@ -59,14 +59,16 @@ const makeTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): Pitc
             pitchQualityZoneSwingEffect: overrides?.swing?.pitchQualityZoneSwingEffect ?? 0,
             pitchQualityChaseSwingEffect: overrides?.swing?.pitchQualityChaseSwingEffect ?? 0,
             disciplineZoneSwingEffect: overrides?.swing?.disciplineZoneSwingEffect ?? 0,
-            disciplineChaseSwingEffect: overrides?.swing?.disciplineChaseSwingEffect ?? 0
+            disciplineChaseSwingEffect: overrides?.swing?.disciplineChaseSwingEffect ?? 0,
+            walkRateScale: overrides?.swing?.walkRateScale ?? 0,            
         },
         contact: {
             pitchQualityContactEffect: overrides?.contact?.pitchQualityContactEffect ?? 0,
             contactSkillEffect: overrides?.contact?.contactSkillEffect ?? 0
         },
         running: {
-            stealAttemptAggressionScale: overrides?.running?.stealAttemptAggressionScale ?? 1
+            stealAttemptAggressionScale: overrides?.running?.stealAttemptAggressionScale ?? 1,
+            advancementAggressionScale: overrides?.running?.advancementAggressionScale ?? 1
         },
         meta: {
             fullPitchQualityBonus: overrides?.meta?.fullPitchQualityBonus ?? 0,
@@ -75,6 +77,7 @@ const makeTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): Pitc
         }
     }
 }
+
 
 const makeDisabledMetaTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): PitchEnvironmentTuning["tuning"] => {
     return makeTuning({

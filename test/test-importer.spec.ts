@@ -41,15 +41,44 @@ const evaluationGames = 100
 
 const options = {
     workers: 25,
-    gamesPerIteration: evaluationGames,
-    finalGamesPerIteration: 500
+    gamesPerIteration: evaluationGames
 }
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
+const makeTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): PitchEnvironmentTuning["tuning"] => {
+    return {
+        contactQuality: {
+            evScale: overrides?.contactQuality?.evScale ?? 0,
+            laScale: overrides?.contactQuality?.laScale ?? 0,
+            distanceScale: overrides?.contactQuality?.distanceScale ?? 0,
+            homeRunOutcomeScale: overrides?.contactQuality?.homeRunOutcomeScale ?? 0,
 
+        },
+        swing: {
+            pitchQualityZoneSwingEffect: overrides?.swing?.pitchQualityZoneSwingEffect ?? 0,
+            pitchQualityChaseSwingEffect: overrides?.swing?.pitchQualityChaseSwingEffect ?? 0,
+            disciplineZoneSwingEffect: overrides?.swing?.disciplineZoneSwingEffect ?? 0,
+            disciplineChaseSwingEffect: overrides?.swing?.disciplineChaseSwingEffect ?? 0,
+            walkRateScale: overrides?.swing?.walkRateScale ?? 0,            
+        },
+        contact: {
+            pitchQualityContactEffect: overrides?.contact?.pitchQualityContactEffect ?? 0,
+            contactSkillEffect: overrides?.contact?.contactSkillEffect ?? 0
+        },
+        running: {
+            stealAttemptAggressionScale: overrides?.running?.stealAttemptAggressionScale ?? 1,
+            advancementAggressionScale: overrides?.running?.advancementAggressionScale ?? 1
+        },
+        meta: {
+            fullPitchQualityBonus: overrides?.meta?.fullPitchQualityBonus ?? 0,
+            fullTeamDefenseBonus: overrides?.meta?.fullTeamDefenseBonus ?? 0,
+            fullFielderDefenseBonus: overrides?.meta?.fullFielderDefenseBonus ?? 0
+        }
+    }
+}
 
-describe("Importer", async () => {
+describe("Tuner", async () => {
 
     it("should calculate pitch environment target for season", async () => {
         pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
@@ -58,7 +87,417 @@ describe("Importer", async () => {
     })
 
 
+    // it("should print count progression and walk bottleneck report", () => {
+    //     const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
+
+    //     testPitchEnvironment.pitchEnvironmentTuning = {
+    //         tuning: makeTuning()
+    //     } as PitchEnvironmentTuning
+
+    //     const rng = seedrandom("walk-bottleneck-full-test")
+    //     const games = evaluationGames
+
+    //     const countRows = new Map<string, {
+    //         pitches: number
+    //         paEndingHere: number
+    //         bb: number
+    //         so: number
+    //         inPlay: number
+    //         hits: number
+    //         hr: number
+    //     }>()
+
+    //     const getRow = (count: string) => {
+    //         if (!countRows.has(count)) {
+    //             countRows.set(count, {
+    //                 pitches: 0,
+    //                 paEndingHere: 0,
+    //                 bb: 0,
+    //                 so: 0,
+    //                 inPlay: 0,
+    //                 hits: 0,
+    //                 hr: 0
+    //             })
+    //         }
+    //         return countRows.get(count)!
+    //     }
+
+    //     const getCountKey = (balls: number, strikes: number): string => `${balls}-${strikes}`
+
+    //     for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+    //         const game = playerImporterService.buildStartedBaselineGame(
+    //             clone(testPitchEnvironment),
+    //             `walk-bottleneck-full-${gameIndex}`
+    //         )
+
+    //         while (!game.isComplete) {
+    //             simService.simPitch(game, rng)
+    //         }
+
+    //         for (const play of game.halfInnings.flatMap(hi => hi.plays)) {
+    //             const pitches = play.pitchLog?.pitches ?? []
+
+    //             let balls = 0
+    //             let strikes = 0
+    //             let finalCount = getCountKey(balls, strikes)
+
+    //             for (const pitch of pitches) {
+    //                 const key = getCountKey(balls, strikes)
+    //                 const row = getRow(key)
+
+    //                 finalCount = key
+    //                 row.pitches++
+
+    //                 if (pitch.result === PitchCall.IN_PLAY) row.inPlay++
+
+    //                 if (pitch.result === PitchCall.BALL) {
+    //                     balls++
+    //                 } else if (pitch.result === PitchCall.STRIKE) {
+    //                     strikes++
+    //                 } else if (pitch.result === PitchCall.FOUL && strikes < 2) {
+    //                     strikes++
+    //                 }
+    //             }
+
+    //             const finalRow = getRow(finalCount)
+    //             finalRow.paEndingHere++
+
+    //             if (play.result === PlayResult.BB) finalRow.bb++
+    //             if (play.result === PlayResult.STRIKEOUT) finalRow.so++
+
+    //             if (
+    //                 play.result === PlayResult.SINGLE ||
+    //                 play.result === PlayResult.DOUBLE ||
+    //                 play.result === PlayResult.TRIPLE ||
+    //                 play.result === PlayResult.HR
+    //             ) {
+    //                 finalRow.hits++
+    //             }
+
+    //             if (play.result === PlayResult.HR) finalRow.hr++
+    //         }
+    //     }
+
+    //     const rows = Array.from(countRows.entries()).map(([count, row]) => ({
+    //         count,
+    //         ...row
+    //     }))
+
+    //     const totalPitches = rows.reduce((s, r) => s + r.pitches, 0)
+    //     const totalPA = rows.reduce((s, r) => s + r.paEndingHere, 0)
+    //     const totalBB = rows.reduce((s, r) => s + r.bb, 0)
+    //     const totalBIP = rows.reduce((s, r) => s + r.inPlay, 0)
+    //     const totalHits = rows.reduce((s, r) => s + r.hits, 0)
+    //     const totalHR = rows.reduce((s, r) => s + r.hr, 0)
+    //     const totalSO = rows.reduce((s, r) => s + r.so, 0)
+
+    //     const before3 = rows.filter(r => Number(r.count.split("-")[0]) < 3)
+    //     const at3 = rows.filter(r => Number(r.count.split("-")[0]) === 3)
+
+    //     console.log("=== WALK BOTTLENECK SUMMARY ===")
+    //     console.log({
+    //         countRows: rows.length,
+    //         totalPitches,
+    //         totalPAEnding: totalPA,
+    //         threeBallPitchShare: totalPitches > 0 ? at3.reduce((s, r) => s + r.pitches, 0) / totalPitches : 0,
+    //         walkShareFromThreeBallCounts: totalBB > 0 ? at3.reduce((s, r) => s + r.bb, 0) / totalBB : 0,
+    //         endedBeforeThreeBallsShare: totalPA > 0 ? before3.reduce((s, r) => s + r.paEndingHere, 0) / totalPA : 0,
+    //         bipBeforeThreeBallsShareOfPA: totalPA > 0 ? before3.reduce((s, r) => s + r.inPlay, 0) / totalPA : 0,
+    //         bipBeforeThreeBallsShareOfBIP: totalBIP > 0 ? before3.reduce((s, r) => s + r.inPlay, 0) / totalBIP : 0,
+    //         walksPerPA: totalPA > 0 ? totalBB / totalPA : 0,
+    //         ballsInPlayPerPA: totalPA > 0 ? totalBIP / totalPA : 0,
+    //         strikeoutsPerPA: totalPA > 0 ? totalSO / totalPA : 0,
+    //         hitsPerPA: totalPA > 0 ? totalHits / totalPA : 0,
+    //         homeRunsPerPA: totalPA > 0 ? totalHR / totalPA : 0
+    //     })
+
+    //     console.log("=== WALK BOTTLENECK BY COUNT ===")
+    //     for (const row of rows.sort((a, b) => {
+    //         const [ab, as] = a.count.split("-").map(Number)
+    //         const [bb, bs] = b.count.split("-").map(Number)
+    //         return as === bs ? ab - bb : as - bs
+    //     })) {
+    //         console.log(row)
+    //     }
+
+    //     assert.ok(totalPA > 0)
+    // })
+    
+    // it("should print tuning knob sensitivity against core offense metrics", async () => {
+    //     const baseEnvironment = clone(pitchEnvironment)
+    //     const games = 100
+
+    //     const baseTuning = clone(baseEnvironment.pitchEnvironmentTuning?.tuning ?? {
+    //         contactQuality: {
+    //             evScale: 0,
+    //             laScale: 0,
+    //             distanceScale: 0,
+    //             homeRunOutcomeScale: 0
+    //         },
+    //         swing: {
+    //             pitchQualityZoneSwingEffect: 0,
+    //             pitchQualityChaseSwingEffect: 0,
+    //             disciplineZoneSwingEffect: 0,
+    //             disciplineChaseSwingEffect: 0
+    //         },
+    //         contact: {
+    //             pitchQualityContactEffect: 0,
+    //             contactSkillEffect: 0
+    //         },
+    //         running: {
+    //             stealAttemptAggressionScale: 1
+    //         },
+    //         meta: {
+    //             fullPitchQualityBonus: 0,
+    //             fullTeamDefenseBonus: 0,
+    //             fullFielderDefenseBonus: 0
+    //         }
+    //     })
+
+    //     const makeEnvironment = (label: string, tuning: PitchEnvironmentTuning["tuning"]): PitchEnvironmentTarget => {
+    //         const testEnvironment = clone(baseEnvironment)
+
+    //         testEnvironment.pitchEnvironmentTuning = {
+    //             _id: `knob-sensitivity-${label}`,
+    //             tuning
+    //         } as PitchEnvironmentTuning
+
+    //         return testEnvironment
+    //     }
+
+    //     const evaluate = (label: string, tuning: PitchEnvironmentTuning["tuning"]) => {
+    //         const testEnvironment = makeEnvironment(label, tuning)
+    //         const result = playerImporterService.evaluatePitchEnvironment(
+    //             testEnvironment,
+    //             seedrandom(`knob-sensitivity-${label}`),
+    //             games
+    //         )
+
+    //         return {
+    //             label,
+    //             runs: result.actual.teamRunsPerGame,
+    //             avg: result.actual.avg,
+    //             obp: result.actual.obp,
+    //             slg: result.actual.slg,
+    //             ops: result.actual.ops,
+    //             babip: result.actual.babip,
+    //             bbPercent: result.actual.bbPercent,
+    //             homeRunPercent: result.actual.homeRunPercent,
+    //             teamHitsPerGame: result.actual.teamHitsPerGame,
+    //             teamHomeRunsPerGame: result.actual.teamHomeRunsPerGame,
+    //             teamBBPerGame: result.actual.teamBBPerGame,
+    //             pitchesPerPA: result.actual.pitchesPerPA,
+    //             chase: result.actual.swingAtBallsPercent,
+    //             zSwing: result.actual.swingAtStrikesPercent,
+    //             zContact: result.actual.inZoneContactPercent,
+    //             chaseContact: result.actual.outZoneContactPercent
+    //         }
+    //     }
+
+    //     const withPatch = (patch: Partial<PitchEnvironmentTuning["tuning"]>): PitchEnvironmentTuning["tuning"] => {
+    //         return {
+    //             contactQuality: {
+    //                 ...baseTuning.contactQuality,
+    //                 ...(patch.contactQuality ?? {})
+    //             },
+    //             swing: {
+    //                 ...baseTuning.swing,
+    //                 ...(patch.swing ?? {})
+    //             },
+    //             contact: {
+    //                 ...baseTuning.contact,
+    //                 ...(patch.contact ?? {})
+    //             },
+    //             running: {
+    //                 ...baseTuning.running,
+    //                 ...(patch.running ?? {})
+    //             },
+    //             meta: {
+    //                 ...baseTuning.meta,
+    //                 ...(patch.meta ?? {})
+    //             }
+    //         }
+    //     }
+
+    //     const baseline = evaluate("baseline", baseTuning)
+
+    //     const candidates = [
+    //         evaluate("defense-up", withPatch({
+    //             meta: {
+    //                 ...baseTuning.meta,
+    //                 fullFielderDefenseBonus: baseTuning.meta.fullFielderDefenseBonus + 100
+    //             }
+    //         })),
+    //         evaluate("defense-down", withPatch({
+    //             meta: {
+    //                 ...baseTuning.meta,
+    //                 fullFielderDefenseBonus: baseTuning.meta.fullFielderDefenseBonus - 100
+    //             }
+    //         })),
+    //         evaluate("hr-up", withPatch({
+    //             contactQuality: {
+    //                 ...baseTuning.contactQuality,
+    //                 homeRunOutcomeScale: baseTuning.contactQuality.homeRunOutcomeScale + 0.15
+    //             }
+    //         })),
+    //         evaluate("hr-down", withPatch({
+    //             contactQuality: {
+    //                 ...baseTuning.contactQuality,
+    //                 homeRunOutcomeScale: baseTuning.contactQuality.homeRunOutcomeScale - 0.15
+    //             }
+    //         })),
+    //         evaluate("bb-up-chase", withPatch({
+    //             swing: {
+    //                 ...baseTuning.swing,
+    //                 pitchQualityChaseSwingEffect: baseTuning.swing.pitchQualityChaseSwingEffect - 8,
+    //                 disciplineChaseSwingEffect: baseTuning.swing.disciplineChaseSwingEffect + 6
+    //             }
+    //         })),
+    //         evaluate("bb-down-chase", withPatch({
+    //             swing: {
+    //                 ...baseTuning.swing,
+    //                 pitchQualityChaseSwingEffect: baseTuning.swing.pitchQualityChaseSwingEffect + 8,
+    //                 disciplineChaseSwingEffect: baseTuning.swing.disciplineChaseSwingEffect - 6
+    //             }
+    //         })),
+    //         evaluate("contact-down", withPatch({
+    //             contact: {
+    //                 ...baseTuning.contact,
+    //                 pitchQualityContactEffect: baseTuning.contact.pitchQualityContactEffect - 8,
+    //                 contactSkillEffect: baseTuning.contact.contactSkillEffect - 4
+    //             }
+    //         })),
+    //         evaluate("contact-up", withPatch({
+    //             contact: {
+    //                 ...baseTuning.contact,
+    //                 pitchQualityContactEffect: baseTuning.contact.pitchQualityContactEffect + 8,
+    //                 contactSkillEffect: baseTuning.contact.contactSkillEffect + 4
+    //             }
+    //         }))
+    //     ]
+
+    //     const diff = (candidate: any) => {
+    //         return {
+    //             label: candidate.label,
+    //             runs: Number((candidate.runs - baseline.runs).toFixed(3)),
+    //             avg: Number((candidate.avg - baseline.avg).toFixed(3)),
+    //             obp: Number((candidate.obp - baseline.obp).toFixed(3)),
+    //             slg: Number((candidate.slg - baseline.slg).toFixed(3)),
+    //             ops: Number((candidate.ops - baseline.ops).toFixed(3)),
+    //             babip: Number((candidate.babip - baseline.babip).toFixed(3)),
+    //             bbPercent: Number((candidate.bbPercent - baseline.bbPercent).toFixed(3)),
+    //             homeRunPercent: Number((candidate.homeRunPercent - baseline.homeRunPercent).toFixed(3)),
+    //             teamHitsPerGame: Number((candidate.teamHitsPerGame - baseline.teamHitsPerGame).toFixed(3)),
+    //             teamHomeRunsPerGame: Number((candidate.teamHomeRunsPerGame - baseline.teamHomeRunsPerGame).toFixed(3)),
+    //             teamBBPerGame: Number((candidate.teamBBPerGame - baseline.teamBBPerGame).toFixed(3)),
+    //             pitchesPerPA: Number((candidate.pitchesPerPA - baseline.pitchesPerPA).toFixed(3)),
+    //             chase: Number((candidate.chase - baseline.chase).toFixed(3)),
+    //             zSwing: Number((candidate.zSwing - baseline.zSwing).toFixed(3)),
+    //             zContact: Number((candidate.zContact - baseline.zContact).toFixed(3)),
+    //             chaseContact: Number((candidate.chaseContact - baseline.chaseContact).toFixed(3))
+    //         }
+    //     }
+
+    //     console.log("=== TUNING KNOB SENSITIVITY BASELINE ===")
+    //     console.log(baseline)
+
+    //     console.log("=== TUNING KNOB SENSITIVITY DELTAS ===")
+    //     for (const candidate of candidates) {
+    //         console.log(diff(candidate))
+    //     }
+
+    //     assert.ok(candidates.length > 0)
+    // })    
+
+    // it("should print tuning decision report", () => {
+    //     const base = playerImporterService.evaluatePitchEnvironment(
+    //         pitchEnvironment,
+    //         seedrandom("tuning-decision-report-base"),
+    //         evaluationGames
+    //     )
+
+    //     const actual = base.actual
+    //     const target = base.target
+    //     const diff = base.diff
+
+    //     const actualBipPerPA = 1 - actual.bbPercent - actual.soPercent - actual.hbpPercent
+    //     const targetBipPerPA = 1 - target.bbPercent - target.soPercent - target.hbpPercent
+
+    //     const actualHitPerBip = actualBipPerPA > 0 ? (actual.avg * (actualBipPerPA + actual.soPercent)) / actualBipPerPA : 0
+    //     const targetHitPerBip = targetBipPerPA > 0 ? (target.avg * (targetBipPerPA + target.soPercent)) / targetBipPerPA : 0
+
+    //     const actualHrPerBip = actualBipPerPA > 0 ? actual.homeRunPercent / actualBipPerPA : 0
+    //     const targetHrPerBip = targetBipPerPA > 0 ? target.homeRunPercent / targetBipPerPA : 0
+
+    //     const actualIso = actual.slg - actual.avg
+    //     const targetIso = target.slg - target.avg
+
+    //     const needsDefense = diff.babip > 0.01 || diff.teamHitsPerGame > 0.5 || actualHitPerBip - targetHitPerBip > 0.01
+    //     const needsLessDefense = diff.babip < -0.01 || diff.teamHitsPerGame < -0.5 || actualHitPerBip - targetHitPerBip < -0.01
+    //     const needsHomeRun = diff.homeRunPercent < -0.003 || diff.teamHomeRunsPerGame < -0.15 || actualHrPerBip - targetHrPerBip < -0.005
+    //     const needsLessHomeRun = diff.homeRunPercent > 0.003 || diff.teamHomeRunsPerGame > 0.15 || actualHrPerBip - targetHrPerBip > 0.005
+    //     const triplesHigh = actual.triplePercent - target.triplePercent > 0.003
+    //     const triplesLow = actual.triplePercent - target.triplePercent < -0.003
+
+    //     const report = {
+    //         headline: {
+    //             runs: { actual: actual.teamRunsPerGame, target: target.teamRunsPerGame, diff: diff.teamRunsPerGame },
+    //             avg: { actual: actual.avg, target: target.avg, diff: diff.avg },
+    //             obp: { actual: actual.obp, target: target.obp, diff: diff.obp },
+    //             slg: { actual: actual.slg, target: target.slg, diff: diff.slg },
+    //             ops: { actual: actual.ops, target: target.ops, diff: diff.ops },
+    //             babip: { actual: actual.babip, target: target.babip, diff: diff.babip }
+    //         },
+    //         plateAppearanceShape: {
+    //             bipPerPA: { actual: actualBipPerPA, target: targetBipPerPA, diff: actualBipPerPA - targetBipPerPA },
+    //             bbPercent: { actual: actual.bbPercent, target: target.bbPercent, diff: diff.bbPercent },
+    //             soPercent: { actual: actual.soPercent, target: target.soPercent, diff: actual.soPercent - target.soPercent },
+    //             hbpPercent: { actual: actual.hbpPercent, target: target.hbpPercent, diff: actual.hbpPercent - target.hbpPercent },
+    //             pitchesPerPA: { actual: actual.pitchesPerPA, target: target.pitchesPerPA, diff: diff.pitchesPerPA }
+    //         },
+    //         contactOutcomeShape: {
+    //             hitPerBip: { actual: actualHitPerBip, target: targetHitPerBip, diff: actualHitPerBip - targetHitPerBip },
+    //             hrPerBip: { actual: actualHrPerBip, target: targetHrPerBip, diff: actualHrPerBip - targetHrPerBip },
+    //             iso: { actual: actualIso, target: targetIso, diff: actualIso - targetIso },
+    //             singlePercent: { actual: actual.singlePercent, target: target.singlePercent, diff: diff.singlePercent },
+    //             doublePercent: { actual: actual.doublePercent, target: target.doublePercent, diff: actual.doublePercent - target.doublePercent },
+    //             triplePercent: { actual: actual.triplePercent, target: target.triplePercent, diff: actual.triplePercent - target.triplePercent },
+    //             homeRunPercent: { actual: actual.homeRunPercent, target: target.homeRunPercent, diff: diff.homeRunPercent },
+    //             hitsPerGame: { actual: actual.teamHitsPerGame, target: target.teamHitsPerGame, diff: diff.teamHitsPerGame },
+    //             homeRunsPerGame: { actual: actual.teamHomeRunsPerGame, target: target.teamHomeRunsPerGame, diff: diff.teamHomeRunsPerGame }
+    //         },
+    //         processShape: {
+    //             zoneSwing: { actual: actual.swingAtStrikesPercent, target: target.swingAtStrikesPercent, diff: diff.swingAtStrikesPercent },
+    //             chase: { actual: actual.swingAtBallsPercent, target: target.swingAtBallsPercent, diff: diff.swingAtBallsPercent },
+    //             zoneContact: { actual: actual.inZoneContactPercent, target: target.inZoneContactPercent, diff: diff.inZoneContactPercent },
+    //             chaseContact: { actual: actual.outZoneContactPercent, target: target.outZoneContactPercent, diff: diff.outZoneContactPercent }
+    //         },
+    //         coupledOutcomeDiagnosis: {
+    //             needsDefense,
+    //             needsHomeRun,
+    //             defenseWillAlsoSuppressHomeRuns: needsDefense && needsHomeRun,
+    //             triplesHigh,
+    //             triplesLow
+    //         },
+    //         suggestedDirection: {
+    //             defense: needsDefense ? "increase moderately (primary BABIP/hitPerBip fix)" : needsLessDefense ? "decrease" : "hold",
+    //             homeRunOutcomeScale: needsHomeRun ? needsDefense ? "increase significantly (counteract defense + low HR)" : "increase" : needsLessHomeRun ? "decrease" : "hold",
+    //             contact: "hold",
+    //             chase: diff.swingAtBallsPercent > 0.01 ? "decrease" : diff.swingAtBallsPercent < -0.01 ? "increase" : "hold",
+    //             zoneSwing: diff.swingAtStrikesPercent < -0.01 ? "increase" : diff.swingAtStrikesPercent > 0.01 ? "decrease" : "hold",
+    //             evLa: !needsDefense && needsHomeRun ? "increase EV/LA power path" : "hold",
+    //             tripleOutcome: triplesHigh ? "reduce triples or convert some triple weight toward doubles/HR at outcome layer" : triplesLow ? "increase triples" : "hold"
+    //         }
+    //     }
+
+    //     console.log("=== TUNING DECISION REPORT ===")
+    //     console.log(JSON.stringify(report, null, 2))
+
+    //     assert.ok(Number.isFinite(actual.teamRunsPerGame))
+    // })
+
     it("should infer pitch environment tunings from target", async () => {
+
         tunedPitchEnvironment = await importPitchEnvironmentTarget(season, baseDataDir, options)
 
         console.log("=== FINAL TUNING ID ===")
@@ -397,4 +836,6 @@ describe("Importer", async () => {
         const scored = inPlayRunnerEvents.some(e => e?.movement?.end === BaseResult.HOME && !e?.movement?.isOut)
         assert.equal(scored, false)
     })
+
+
 })

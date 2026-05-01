@@ -1294,6 +1294,7 @@ interface PitchEnvironmentTuning {
             pitchQualityChaseSwingEffect: number
             disciplineZoneSwingEffect: number
             disciplineChaseSwingEffect: number
+            walkRateScale:number
         }
 
         contact: {
@@ -1303,6 +1304,7 @@ interface PitchEnvironmentTuning {
 
         running: {
             stealAttemptAggressionScale:number
+            advancementAggressionScale:number 
         },
 
         meta: {
