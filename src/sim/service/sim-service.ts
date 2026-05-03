@@ -849,6 +849,7 @@ class SimService {
         }
 
         const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
+        const move = (from: number, amount: number): number => Math.min(from, Math.max(0, amount))
 
         const evBin = clamp(rawEvBin, evBins[0], evBins[evBins.length - 1])
         const laBin = clamp(rawLaBin, laBins[0], laBins[laBins.length - 1])
@@ -905,8 +906,6 @@ class SimService {
         const maxShiftShare = clamp(pitchQualityBonus / 1000, 0, 0.6)
         const shiftWeight = total * Math.abs(cappedPitchQualityChange) * maxShiftShare
 
-        const move = (from: number, amount: number): number => Math.min(from, Math.max(0, amount))
-
         if (shiftWeight > 0 && cappedPitchQualityChange > 0) {
             let remaining = shiftWeight
 
@@ -957,23 +956,49 @@ class SimService {
             out += hr
             hr = 0
         } else {
-            const homeRunOutcomeScale = Math.max(
-                0,
-                1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.homeRunOutcomeScale ?? 0)
-            )
+            const doubleOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.doubleOutcomeScale ?? 0))
+            const tripleOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.tripleOutcomeScale ?? 0))
+            const homeRunOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.homeRunOutcomeScale ?? 0))
 
-            if (homeRunOutcomeScale !== 1 && hr > 0) {
-                const scaledHr = hr * homeRunOutcomeScale
+            const baseDouble = double
+            const baseTriple = triple
+            const baseHr = hr
 
-                if (scaledHr > hr) {
-                    const moved = move(out, scaledHr - hr)
-                    out -= moved
-                    hr += moved
-                } else {
-                    const moved = hr - scaledHr
-                    hr -= moved
-                    out += moved
-                }
+            const targetDouble = baseDouble * doubleOutcomeScale
+            const targetTriple = baseTriple * tripleOutcomeScale
+            const targetHr = baseHr * homeRunOutcomeScale
+
+            const addDouble = Math.max(0, targetDouble - baseDouble)
+            const addTriple = Math.max(0, targetTriple - baseTriple)
+            const addHr = Math.max(0, targetHr - baseHr)
+            const totalAdd = addDouble + addTriple + addHr
+
+            if (totalAdd > 0) {
+                const moved = move(out, totalAdd)
+                const fillRate = moved / totalAdd
+
+                out -= moved
+                double += addDouble * fillRate
+                triple += addTriple * fillRate
+                hr += addHr * fillRate
+            }
+
+            if (targetDouble < baseDouble) {
+                const moved = baseDouble - targetDouble
+                double -= moved
+                out += moved
+            }
+
+            if (targetTriple < baseTriple) {
+                const moved = baseTriple - targetTriple
+                triple -= moved
+                out += moved
+            }
+
+            if (targetHr < baseHr) {
+                const moved = baseHr - targetHr
+                hr -= moved
+                out += moved
             }
         }
 
@@ -3031,9 +3056,7 @@ class SimRolls {
                 swingRate += hitterChange.plateDisiplineChange * (swingTuning?.disciplineZoneSwingEffect ?? 0)
             }
         } else {
-            const walkRateScale = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.swing?.walkRateScale ?? 0
-            swingRate *= Math.max(0, 1 - walkRateScale)
-
+            swingRate -= swingTuning?.walkRateScale ?? 0
             swingRate += pitchQualityChange * (swingTuning?.pitchQualityChaseSwingEffect ?? 0)
 
             if (APPLY_PLAYER_CHANGES) {
@@ -3076,7 +3099,7 @@ class SimRolls {
 
         return SwingResult.NO_SWING
     }
-
+    
     isInZone(gameRNG: () => number, locationQuality:number, inZoneRate:number) {
 
         //90% of the chance should be a coin-flip (better location doesn't necessarily mean a strike)

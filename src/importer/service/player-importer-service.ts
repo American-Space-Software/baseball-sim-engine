@@ -2176,14 +2176,11 @@ class PlayerImporterService {
         }
 
         const hitterStatLine: any = this.statService.hitResultToHitterStatLine(totalHit)
-        const pitcherStatLine: any = this.statService.pitchResultToPitcherStatLine(totalPitch)
-
         const totalTeamGames = hitterStatLine.games / 9
 
         const sb = (totalHit as any).sb ?? hitterStatLine.sb ?? 0
         const cs = (totalHit as any).cs ?? hitterStatLine.cs ?? 0
         const sbAttempts = (totalHit as any).sbAttempts ?? hitterStatLine.sbAttempts ?? (sb + cs)
-        const timesOnFirst = (totalHit as any).timesOnFirst ?? hitterStatLine.timesOnFirst ?? 0
 
         const actual = {
             pitchesPerPA: hitterStatLine.pitchesPerPA,
@@ -2212,7 +2209,6 @@ class PlayerImporterService {
             teamHomeRunsPerGame: hitterStatLine.homeRuns / totalTeamGames,
             teamBBPerGame: hitterStatLine.bb / totalTeamGames,
             teamSOPerGame: hitterStatLine.so / totalTeamGames,
-            teamSBAttemptPerGame: hitterStatLine.sbAttempts / totalTeamGames,
             teamSBPerGame: sb / totalTeamGames,
             teamSBAttemptsPerGame: sbAttempts / totalTeamGames,
         }
@@ -2263,12 +2259,15 @@ class PlayerImporterService {
 
             bbPercent: actual.bbPercent - target.bbPercent,
             singlePercent: actual.singlePercent - target.singlePercent,
+            doublePercent: actual.doublePercent - target.doublePercent,
+            triplePercent: actual.triplePercent - target.triplePercent,
             homeRunPercent: actual.homeRunPercent - target.homeRunPercent,
 
             teamRunsPerGame: actual.teamRunsPerGame - target.teamRunsPerGame,
             teamHitsPerGame: actual.teamHitsPerGame - target.teamHitsPerGame,
             teamHomeRunsPerGame: actual.teamHomeRunsPerGame - target.teamHomeRunsPerGame,
             teamBBPerGame: actual.teamBBPerGame - target.teamBBPerGame,
+            teamSOPerGame: actual.teamSOPerGame - target.teamSOPerGame,
             teamSBPerGame: actual.teamSBPerGame - target.teamSBPerGame,
             teamSBAttemptsPerGame: actual.teamSBAttemptsPerGame - target.teamSBAttemptsPerGame,
         }
@@ -2282,6 +2281,9 @@ class PlayerImporterService {
             sq(diff.slg) * 100000000 +
             sq(diff.avg) * 100000000 +
             sq(diff.babip) * 90000000 +
+            sq(diff.doublePercent) * 60000000 +
+            sq(diff.triplePercent) * 60000000 +
+            sq(diff.homeRunPercent) * 60000000 +
             sq(diff.teamSBPerGame) * 1000000 +
             sq(diff.teamSBAttemptsPerGame) * 450000
 
@@ -2297,6 +2299,8 @@ class PlayerImporterService {
                     evScale: 0,
                     laScale: 0,
                     distanceScale: 0,
+                    doubleOutcomeScale:0,
+                    tripleOutcomeScale:0,
                     homeRunOutcomeScale: 0,
                 },
                 swing: {
@@ -2646,6 +2650,8 @@ class PlayerImporterService {
 
             if (pitchError > 0.085) return "pitch"
             if (Math.abs(Number(diff.teamSBAttemptsPerGame ?? 0)) > 0.10 || Math.abs(Number(diff.teamSBPerGame ?? 0)) > 0.08) return "run"
+            if (Math.abs(Number(diff.doublePercent ?? 0)) > 0.004) return "2b"
+            if (Math.abs(Number(diff.triplePercent ?? 0)) > 0.0015) return "3b"
             if (Number(diff.homeRunPercent ?? 0) < -0.004 || Number(diff.teamHomeRunsPerGame ?? 0) < -0.14) return "slg-hr"
             if (Number(diff.slg ?? 0) > 0.014 || Math.abs(Number(diff.homeRunPercent ?? 0)) > 0.004) return "slg"
             if (Number(diff.teamHitsPerGame ?? 0) > 0.60 || Number(diff.avg ?? 0) > 0.005 || Number(diff.babip ?? 0) > 0.007) return "avg"
@@ -2678,6 +2684,8 @@ class PlayerImporterService {
             `BB%=${r(result.actual.bbPercent)}(${signed(result.diff.bbPercent)}) ` +
             `SO%=${r(result.actual.soPercent)}(${signed(result.diff.soPercent)}) ` +
             `1B%=${r(result.actual.singlePercent)}(${signed(result.diff.singlePercent)}) ` +
+            `2B%=${r(result.actual.doublePercent)}(${signed(result.diff.doublePercent)}) ` +
+            `3B%=${r(result.actual.triplePercent)}(${signed(result.diff.triplePercent)}) ` +
             `HR%=${r(result.actual.homeRunPercent)}(${signed(result.diff.homeRunPercent)}) ` +
 
             `R/G=${r(result.actual.teamRunsPerGame)}(${signed(result.diff.teamRunsPerGame)}) ` +
@@ -2687,7 +2695,8 @@ class PlayerImporterService {
             `SB/G=${r(result.actual.teamSBPerGame)}(${signed(result.diff.teamSBPerGame)}) ` +
             `SBA/G=${r(result.actual.teamSBAttemptsPerGame)}(${signed(result.diff.teamSBAttemptsPerGame)}) ` +
 
-            `T[ev=${r(tuning?.contactQuality?.evScale ?? 0, 2)} la=${r(tuning?.contactQuality?.laScale ?? 0, 2)} dist=${r(tuning?.contactQuality?.distanceScale ?? 0, 2)} hrOut=${r(tuning?.contactQuality?.homeRunOutcomeScale ?? 1, 2)} ` +
+            `T[ev=${r(tuning?.contactQuality?.evScale ?? 0, 2)} la=${r(tuning?.contactQuality?.laScale ?? 0, 2)} dist=${r(tuning?.contactQuality?.distanceScale ?? 0, 2)} ` +
+            `2bOut=${r(tuning?.contactQuality?.doubleOutcomeScale ?? 0, 2)} 3bOut=${r(tuning?.contactQuality?.tripleOutcomeScale ?? 0, 2)} hrOut=${r(tuning?.contactQuality?.homeRunOutcomeScale ?? 0, 2)} ` +
             `pqZ=${r(tuning?.swing?.pitchQualityZoneSwingEffect ?? 0, 2)} pqCh=${r(tuning?.swing?.pitchQualityChaseSwingEffect ?? 0, 2)} ` +
             `dZ=${r(tuning?.swing?.disciplineZoneSwingEffect ?? 0, 2)} dCh=${r(tuning?.swing?.disciplineChaseSwingEffect ?? 0, 2)} ` +
             `pCt=${r(tuning?.contact?.pitchQualityContactEffect ?? 0, 2)} cSk=${r(tuning?.contact?.contactSkillEffect ?? 0, 2)} ` +

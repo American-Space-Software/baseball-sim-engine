@@ -239,101 +239,298 @@ class PitchEnvironmentTuner {
         return accepted.candidate
     }
 
-    private static async evaluateAcceptedCandidates(candidates: PitchEnvironmentTuning[], ctx: any, games: number, label: string): Promise<{ candidate: PitchEnvironmentTuning, result: any }[]> {
-        let accepted = candidates.map(candidate => this.normalizeTuningShape(candidate))
-        let evaluated = await ctx.evaluateBatch(accepted, games, `${label}-raw`)
-        let results = evaluated.map((message: any) => ctx.applyScore(message.result))
+    private static async evaluateAcceptedCandidate(candidate: PitchEnvironmentTuning, ctx: any, games: number, label: string): Promise<{ candidate: PitchEnvironmentTuning, result: any }> {
+        let accepted = await this.enforceDirectConstraints(candidate, ctx, games, label)
 
         for (let i = 0; i < ctx.directIterations; i++) {
-            accepted = accepted.map((candidate, index) => this.solveDirectKnobs(candidate, results[index], ctx, games))
-            evaluated = await ctx.evaluateBatch(accepted, games, `${label}-fixed-${i}`)
-            results = evaluated.map((message: any) => ctx.applyScore(message.result))
+            const next = await this.enforceDirectConstraints(accepted.candidate, ctx, games, `${label}-fixed-${i}`)
 
-            const allFixed = results.every((result: any) => {
-                const sbError = Math.abs(Number(result.actual?.teamSBPerGame ?? 0) - Number(result.target?.teamSBPerGame ?? 0))
-                const hrError = Math.abs(Number(result.actual?.teamHomeRunsPerGame ?? 0) - Number(result.target?.teamHomeRunsPerGame ?? 0))
-                const bbError = Math.abs(Number(result.actual?.bbPercent ?? 0) - Number(result.target?.bbPercent ?? 0))
+            const currentError =
+                Math.abs(Number(accepted.result.actual?.teamSBAttemptsPerGame ?? 0) - Number(accepted.result.target?.teamSBAttemptsPerGame ?? 0)) +
+                Math.abs(Number(accepted.result.actual?.teamHomeRunsPerGame ?? 0) - Number(accepted.result.target?.teamHomeRunsPerGame ?? 0)) +
+                Math.abs(Number(accepted.result.actual?.bbPercent ?? 0) - Number(accepted.result.target?.bbPercent ?? 0))
 
-                return sbError <= 0.01 && hrError <= 0.03 && bbError <= 0.003
+            const nextError =
+                Math.abs(Number(next.result.actual?.teamSBAttemptsPerGame ?? 0) - Number(next.result.target?.teamSBAttemptsPerGame ?? 0)) +
+                Math.abs(Number(next.result.actual?.teamHomeRunsPerGame ?? 0) - Number(next.result.target?.teamHomeRunsPerGame ?? 0)) +
+                Math.abs(Number(next.result.actual?.bbPercent ?? 0) - Number(next.result.target?.bbPercent ?? 0))
+
+            if (nextError >= currentError) break
+
+            accepted = next
+
+            if (nextError <= 0.04) break
+        }
+
+        return accepted
+    }
+
+    private static async enforceDirectConstraints(candidate: PitchEnvironmentTuning, ctx: any, games: number, label: string): Promise<{ candidate: PitchEnvironmentTuning, result: any }> {
+        const baseCandidate = this.normalizeTuningShape(candidate)
+
+        const specs = [
+            {
+                name: "sba",
+                min: ctx.stealMin,
+                max: ctx.stealMax,
+                tolerance: 0.005,
+                getActual: (result: any) => Number(result.actual?.teamSBAttemptsPerGame ?? 0),
+                getTarget: (result: any) => Number(result.target?.teamSBAttemptsPerGame ?? 0),
+                getValue: (candidate: PitchEnvironmentTuning) => Number(candidate.tuning!.running.stealAttemptAggressionScale ?? 0),
+                setValue: (candidate: PitchEnvironmentTuning, value: number) => candidate.tuning!.running.stealAttemptAggressionScale = value
+            },
+            {
+                name: "2b",
+                min: ctx.doubleMin,
+                max: ctx.doubleMax,
+                tolerance: 0.002,
+                getActual: (result: any) => Number(result.actual?.doublePercent ?? 0),
+                getTarget: (result: any) => Number(result.target?.doublePercent ?? 0),
+                getValue: (candidate: PitchEnvironmentTuning) => Number(candidate.tuning!.contactQuality.doubleOutcomeScale ?? 0),
+                setValue: (candidate: PitchEnvironmentTuning, value: number) => candidate.tuning!.contactQuality.doubleOutcomeScale = value
+            },
+            {
+                name: "3b",
+                min: ctx.tripleMin,
+                max: ctx.tripleMax,
+                tolerance: 0.00075,
+                getActual: (result: any) => Number(result.actual?.triplePercent ?? 0),
+                getTarget: (result: any) => Number(result.target?.triplePercent ?? 0),
+                getValue: (candidate: PitchEnvironmentTuning) => Number(candidate.tuning!.contactQuality.tripleOutcomeScale ?? 0),
+                setValue: (candidate: PitchEnvironmentTuning, value: number) => candidate.tuning!.contactQuality.tripleOutcomeScale = value
+            },
+            {
+                name: "hr",
+                min: ctx.homeRunMin,
+                max: ctx.homeRunMax,
+                tolerance: 0.002,
+                getActual: (result: any) => Number(result.actual?.homeRunPercent ?? 0),
+                getTarget: (result: any) => Number(result.target?.homeRunPercent ?? 0),
+                getValue: (candidate: PitchEnvironmentTuning) => Number(candidate.tuning!.contactQuality.homeRunOutcomeScale ?? 0),
+                setValue: (candidate: PitchEnvironmentTuning, value: number) => candidate.tuning!.contactQuality.homeRunOutcomeScale = value
+            },
+            {
+                name: "bb",
+                min: ctx.walkMin,
+                max: ctx.walkMax,
+                tolerance: 0.002,
+                getActual: (result: any) => Number(result.actual?.bbPercent ?? 0),
+                getTarget: (result: any) => Number(result.target?.bbPercent ?? 0),
+                getValue: (candidate: PitchEnvironmentTuning) => Number(candidate.tuning!.swing.walkRateScale ?? 0),
+                setValue: (candidate: PitchEnvironmentTuning, value: number) => candidate.tuning!.swing.walkRateScale = value
+            }
+        ]
+
+        const baselineBatch = await ctx.evaluateBatch([baseCandidate], games, `${label}-direct-baseline`)
+        const baselineResult = ctx.applyScore(baselineBatch[0].result)
+
+        const calculated = specs
+            .map(spec => {
+                const baseValue = this.clamp(Number(spec.getValue(baseCandidate)), spec.min, spec.max)
+                const actual = Number(spec.getActual(baselineResult))
+                const target = Number(spec.getTarget(baselineResult))
+                const error = Math.abs(actual - target)
+
+                if (error <= spec.tolerance || target <= 0 || actual <= 0) {
+                    return undefined
+                }
+
+                const baseMultiplier = Math.max(0.01, 1 + baseValue)
+                const targetMultiplier = baseMultiplier * (target / actual)
+                const nextValue = this.clamp(targetMultiplier - 1, spec.min, spec.max)
+
+                if (nextValue === baseValue) {
+                    return undefined
+                }
+
+                const trial = this.normalizeTuningShape(baseCandidate)
+                spec.setValue(trial, nextValue)
+                trial._id = uuidv4()
+
+                return {
+                    spec,
+                    candidate: trial,
+                    baseValue,
+                    trialValue: nextValue,
+                    baselineActual: actual,
+                    target,
+                    baselineError: error
+                }
             })
+            .filter(row => row !== undefined)
 
-            if (allFixed) {
-                break
+        const bestByName = new Map<string, { spec: any, candidate: PitchEnvironmentTuning, result: any, value: number, error: number, baseValue: number, trialValue: number, baselineActual: number, target: number }>()
+
+        for (const spec of specs) {
+            const baseValue = this.clamp(Number(spec.getValue(baseCandidate)), spec.min, spec.max)
+
+            bestByName.set(spec.name, {
+                spec,
+                candidate: baseCandidate,
+                result: baselineResult,
+                value: baseValue,
+                error: Math.abs(Number(spec.getActual(baselineResult)) - Number(spec.getTarget(baselineResult))),
+                baseValue,
+                trialValue: baseValue,
+                baselineActual: Number(spec.getActual(baselineResult)),
+                target: Number(spec.getTarget(baselineResult))
+            })
+        }
+
+        if (calculated.length > 0) {
+            const calculatedBatch = await ctx.evaluateBatch(calculated.map(row => row.candidate), games, `${label}-direct-calculated`)
+            const calculatedResults = calculatedBatch.map((message: any) => ctx.applyScore(message.result))
+
+            for (let i = 0; i < calculated.length; i++) {
+                const row = calculated[i]
+                const result = calculatedResults[i]
+                const error = Math.abs(Number(row.spec.getActual(result)) - row.target)
+                const best = bestByName.get(row.spec.name)
+
+                if (!best || error < best.error) {
+                    bestByName.set(row.spec.name, {
+                        spec: row.spec,
+                        candidate: row.candidate,
+                        result,
+                        value: row.trialValue,
+                        error,
+                        baseValue: row.baseValue,
+                        trialValue: row.trialValue,
+                        baselineActual: row.baselineActual,
+                        target: row.target
+                    })
+                }
+            }
+
+            const corrected = calculated
+                .map((row, index) => {
+                    const result = calculatedResults[index]
+                    const actual = Number(row.spec.getActual(result))
+                    const error = Math.abs(actual - row.target)
+
+                    if (error <= row.spec.tolerance || actual <= 0) {
+                        return undefined
+                    }
+
+                    const observedSlope = (actual - row.baselineActual) / (row.trialValue - row.baseValue)
+
+                    if (!Number.isFinite(observedSlope) || observedSlope === 0) {
+                        return undefined
+                    }
+
+                    const correctedValue = this.clamp(row.trialValue + ((row.target - actual) / observedSlope), row.spec.min, row.spec.max)
+
+                    if (correctedValue === row.trialValue || correctedValue === row.baseValue) {
+                        return undefined
+                    }
+
+                    const trial = this.normalizeTuningShape(baseCandidate)
+                    row.spec.setValue(trial, correctedValue)
+                    trial._id = uuidv4()
+
+                    return {
+                        spec: row.spec,
+                        candidate: trial,
+                        value: correctedValue,
+                        target: row.target,
+                        baseValue: row.baseValue,
+                        trialValue: row.trialValue,
+                        baselineActual: row.baselineActual
+                    }
+                })
+                .filter(row => row !== undefined)
+
+            if (corrected.length > 0) {
+                const correctedBatch = await ctx.evaluateBatch(corrected.map(row => row.candidate), games, `${label}-direct-corrected`)
+                const correctedResults = correctedBatch.map((message: any) => ctx.applyScore(message.result))
+
+                for (let i = 0; i < corrected.length; i++) {
+                    const row = corrected[i]
+                    const result = correctedResults[i]
+                    const error = Math.abs(Number(row.spec.getActual(result)) - row.target)
+                    const best = bestByName.get(row.spec.name)
+
+                    if (!best || error < best.error) {
+                        bestByName.set(row.spec.name, {
+                            spec: row.spec,
+                            candidate: row.candidate,
+                            result,
+                            value: row.value,
+                            error,
+                            baseValue: row.baseValue,
+                            trialValue: row.trialValue,
+                            baselineActual: row.baselineActual,
+                            target: row.target
+                        })
+                    }
+                }
             }
         }
 
-        return accepted.map((candidate, index) => ({
-            candidate,
-            result: results[index]
-        }))
-    }
+        const merged = this.normalizeTuningShape(baseCandidate)
+        let changed = false
 
-    private static async evaluateAcceptedCandidate(candidate: PitchEnvironmentTuning, ctx: any, games: number, label: string): Promise<{ candidate: PitchEnvironmentTuning, result: any }> {
-        const accepted = await this.evaluateAcceptedCandidates([candidate], ctx, games, label)
-        return accepted[0]
-    }
+        for (const spec of specs) {
+            const best = bestByName.get(spec.name)
+            if (!best) continue
 
+            const currentValue = this.clamp(Number(spec.getValue(merged)), spec.min, spec.max)
+            const nextValue = this.clamp(Number(best.value), spec.min, spec.max)
 
-    private static solveDirectKnobs(candidate: PitchEnvironmentTuning, result: any, ctx: any, games: number): PitchEnvironmentTuning {
-        const c = this.normalizeTuningShape(candidate)
-
-        const actualSB = Number(result.actual?.teamSBPerGame ?? 0)
-        const targetSB = Number(result.target?.teamSBPerGame ?? 0)
-
-        if (actualSB > 0 && targetSB > 0) {
-            const currentMultiplier = Math.max(0.0001, 1 + Number(c.tuning!.running.stealAttemptAggressionScale ?? 0))
-            c.tuning!.running.stealAttemptAggressionScale = this.clamp(
-                (currentMultiplier * (targetSB / actualSB)) - 1,
-                ctx.stealMin,
-                ctx.stealMax
-            )
+            if (nextValue !== currentValue) {
+                spec.setValue(merged, nextValue)
+                changed = true
+            }
         }
 
-        const actualHR = Number(result.actual?.teamHomeRunsPerGame ?? 0)
-        const targetHR = Number(result.target?.teamHomeRunsPerGame ?? 0)
-
-        if (actualHR > 0 && targetHR > 0) {
-            const currentMultiplier = Math.max(0.0001, 1 + Number(c.tuning!.contactQuality.homeRunOutcomeScale ?? 0))
-            c.tuning!.contactQuality.homeRunOutcomeScale = this.clamp(
-                (currentMultiplier * (targetHR / actualHR)) - 1,
-                ctx.homeRunMin,
-                ctx.homeRunMax
-            )
+        if (!changed) {
+            return {
+                candidate: baseCandidate,
+                result: baselineResult
+            }
         }
 
-        const actualBB = Number(result.actual?.bbPercent ?? 0)
-        const targetBB = Number(result.target?.bbPercent ?? 0)
+        merged._id = uuidv4()
 
-        if (actualBB > 0 && targetBB > 0) {
-            const currentMultiplier = Math.max(0.0001, 1 + Number(c.tuning!.swing.walkRateScale ?? 0))
-            c.tuning!.swing.walkRateScale = this.clamp(
-                (currentMultiplier * (targetBB / actualBB)) - 1,
-                ctx.walkMin,
-                ctx.walkMax
-            )
+        const mergedBatch = await ctx.evaluateBatch([merged], games, `${label}-direct-merged`)
+        const mergedResult = ctx.applyScore(mergedBatch[0].result)
+
+        return {
+            candidate: this.normalizeTuningShape(merged),
+            result: mergedResult
         }
-
-        c._id = uuidv4()
-
-        return this.normalizeTuningShape(c)
     }
+
 
     private static async solveDefense(candidate: PitchEnvironmentTuning, result: any, ctx: any, games: number): Promise<PitchEnvironmentTuning> {
         const baseCandidate = this.normalizeTuningShape(candidate)
         const currentDefense = Number(baseCandidate.tuning!.meta.fullFielderDefenseBonus ?? 0)
 
-        const candidates = [
+        const defenseValues = Array.from(new Set([
             ctx.defenseMin,
             (ctx.defenseMin + currentDefense) / 2,
             currentDefense,
             (currentDefense + ctx.defenseMax) / 2,
             ctx.defenseMax
-        ].map(value => this.withDefense(baseCandidate, this.clamp(value, ctx.defenseMin, ctx.defenseMax)))
+        ].map(value => this.clamp(value, ctx.defenseMin, ctx.defenseMax))))
 
-        const accepted = await this.evaluateAcceptedCandidates(candidates, ctx, games, "defense")
-        const best = accepted.sort((a, b) => this.getShapeError(a.result) - this.getShapeError(b.result))[0]
+        const candidates = defenseValues.map(value => this.withDefense(baseCandidate, value))
+        const evaluated = await ctx.evaluateBatch(candidates, games, "defense")
+        const results = evaluated.map((message: any) => ctx.applyScore(message.result))
 
-        return this.normalizeTuningShape(best.candidate)
+        let bestCandidate = baseCandidate
+        let bestScore = this.getShapeError(result)
+
+        for (let i = 0; i < results.length; i++) {
+            const score = this.getShapeError(results[i])
+
+            if (score < bestScore) {
+                bestCandidate = candidates[i]
+                bestScore = score
+            }
+        }
+
+        return this.normalizeTuningShape(bestCandidate)
     }
 
     private static withDefense(candidate: PitchEnvironmentTuning, defenseValue: number): PitchEnvironmentTuning {
@@ -413,15 +610,21 @@ class PitchEnvironmentTuner {
             maxIterations,
             gamesPerIteration,
             finalGamesPerIteration: params?.finalGamesPerIteration ?? Math.max(gamesPerIteration, 250),
-            directIterations: params?.directIterations ?? 6,
-            defenseIterations: params?.defenseIterations ?? 4,
+            directIterations: params?.directIterations ?? 2,
+            directConstraintIterations: params?.directConstraintIterations ?? 2,
+            directStep: params?.directStep ?? 0.1,
+            defenseIterations: params?.defenseIterations ?? 1,
             workers,
             stealMin: -0.99,
             stealMax: 4,
-            advancementMin: -0.99,
-            advancementMax: 4,
-            walkMin: -0.99,
-            walkMax: 4,
+            advancementMin: -0.5,
+            advancementMax: 1,
+            walkMin: -0.5,
+            walkMax: 0.5,
+            doubleMin: -0.75,
+            doubleMax: 1.5,
+            tripleMin: -0.75,
+            tripleMax: 2.5,
             homeRunMin: -0.75,
             homeRunMax: 0.75,
             defenseMin: -400,
@@ -458,7 +661,7 @@ class PitchEnvironmentTuner {
         t.swing.pitchQualityChaseSwingEffect = 0
         t.swing.disciplineZoneSwingEffect = 0
         t.swing.disciplineChaseSwingEffect = 0
-        t.swing.walkRateScale = this.clamp(Number(t.swing.walkRateScale ?? 0), -0.99, 4)
+        t.swing.walkRateScale = this.clamp(Number(t.swing.walkRateScale ?? 0), -0.5, 0.5)
 
         t.contact.pitchQualityContactEffect = 0
         t.contact.contactSkillEffect = 0
