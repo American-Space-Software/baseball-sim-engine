@@ -1,3 +1,4 @@
+import { asNumber, clamp } from "../../util.js"
 import { HomeAway, Position, Handedness, PitchType, PitchCall, SwingResult, PlayResult, Contact, ShallowDeep, OfficialPlayResult, BaseResult, DefenseCreditType, OfficialRunnerResult, PitchZone, ThrowResult } from "./enums.js"
 import { StartGameCommand, GamePlayer, MatchupHandedness, Score, RunnerResult, DefensiveCredit, PitchLog, HalfInning, UpcomingMatchup, RunnerEvent, HitterChange, PitcherChange, SimPitchCommand, SimPitchResult, InningEndingEvent, Pitch, RollChart, Game, HitResultCount, HittingRatings,  Lineup, PitchCount, PitchRatings, PitchResultCount, Play, Player, RotationPitcher, RunnerThrowCommand, StolenBaseByCount, Team, TeamInfo, ThrowRoll, PitchEnvironmentTarget, ContactQuality, PitchQuality } from "./interfaces.js"
 import { RollChartService } from "./roll-chart-service.js"
@@ -18,8 +19,9 @@ const PITCH_QUALITY_WEIGHTS = {
 } 
 
 const DEFAULT_FULL_PITCH_QUALITY_BONUS = 500
-const DEFAULT_FULL_TEAM_DEFENSE_BONUS = 100
-const DEFAULT_FULL_FIELDER_DEFENSE_BONUS = 100
+
+
+
 
 class SimService {
 
@@ -345,8 +347,6 @@ class SimService {
             command.pitcher.pitchRatings.pitches[Rolls.getRoll(command.rng, 0, pitches.length - 1)]
         const guessPitch: boolean = hitterPitchGuess == pitchType
 
-        const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
-        const asNumber = (value: any): number => Number.isFinite(Number(value)) ? Number(value) : 0
         const sampleMoment = (stat: any): number => {
             const avg = asNumber(stat?.avg)
             const sd = _getStdDev(stat)
@@ -419,10 +419,12 @@ class SimService {
         const locQ = clamp(Math.round(50 + (controlComponent * 99)), 0, 99)
         const overallQuality = clamp(Math.round(50 + (pitchQualityChange * 99)), 0, 99)
 
-        let inZoneRate = command.pitchEnvironmentTarget.pitch.inZoneByCount.find(
+        const countInZoneRate = command.pitchEnvironmentTarget.pitch.inZoneByCount.find(
             r => r.balls === command.play.pitchLog.count.balls && r.strikes === command.play.pitchLog.count.strikes
         )?.inZone
 
+        const walkRateScale = Number(command.pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.swing?.walkRateScale ?? 0)
+        const inZoneRate = clamp(Number(countInZoneRate ?? command.pitchEnvironmentTarget.pitch.inZonePercent ?? 0) - walkRateScale, 0, 100)
         const inZone = this.gameRolls.isInZone(command.rng, locQ, inZoneRate)
 
         const intentZone = this.gameRolls.getIntentZone(command.rng)
@@ -462,7 +464,7 @@ class SimService {
                 command.rng,
                 command.hitterChange,
                 command.pitchEnvironmentTarget,
-                inZone,
+                pitch.inZone,
                 pitch.overallQuality,
                 guessPitch,
                 command.play.pitchLog.count
@@ -482,7 +484,7 @@ class SimService {
                     pitch.result = PitchCall.STRIKE
                     break
                 case SwingResult.NO_SWING:
-                    pitch.result = inZone ? PitchCall.STRIKE : PitchCall.BALL
+                    pitch.result = pitch.inZone ? PitchCall.STRIKE : PitchCall.BALL
                     break
             }
         }
@@ -588,8 +590,6 @@ class SimService {
                     command.pitcher.pitchRatings.contactProfile,
                     APPLY_PLAYER_CHANGES
                 )
-
-                const clamp = (value:number, min:number, max:number) => Math.max(min, Math.min(max, value))
 
                 let hitQuality:ContactQuality
                 let overallContactQuality:number
@@ -848,7 +848,6 @@ class SimService {
             throw new Error("Missing outcomeByEvLa bin data")
         }
 
-        const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
         const move = (from: number, amount: number): number => Math.min(from, Math.max(0, amount))
 
         const evBin = clamp(rawEvBin, evBins[0], evBins[evBins.length - 1])
@@ -903,7 +902,7 @@ class SimService {
 
         const pitchQualityBonus = DEFAULT_FULL_PITCH_QUALITY_BONUS + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.meta?.fullPitchQualityBonus ?? 0)
         const cappedPitchQualityChange = clamp(pitchQualityChange, -0.5, 0.5)
-        const maxShiftShare = clamp(pitchQualityBonus / 1000, 0, 0.6)
+        const maxShiftShare = clamp(pitchQualityBonus / 1000, -0.6, 0.6)
         const shiftWeight = total * Math.abs(cappedPitchQualityChange) * maxShiftShare
 
         if (shiftWeight > 0 && cappedPitchQualityChange > 0) {
@@ -955,51 +954,62 @@ class SimService {
         if (contact === Contact.GROUNDBALL) {
             out += hr
             hr = 0
-        } else {
-            const doubleOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.doubleOutcomeScale ?? 0))
-            const tripleOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.tripleOutcomeScale ?? 0))
-            const homeRunOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.homeRunOutcomeScale ?? 0))
+        }
 
-            const baseDouble = double
-            const baseTriple = triple
-            const baseHr = hr
+        const singleOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.singleOutcomeScale ?? 0))
+        const doubleOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.doubleOutcomeScale ?? 0))
+        const tripleOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.tripleOutcomeScale ?? 0))
+        const homeRunOutcomeScale = contact === Contact.GROUNDBALL ? 0 : Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.homeRunOutcomeScale ?? 0))
 
-            const targetDouble = baseDouble * doubleOutcomeScale
-            const targetTriple = baseTriple * tripleOutcomeScale
-            const targetHr = baseHr * homeRunOutcomeScale
+        const baseSingle = single
+        const baseDouble = double
+        const baseTriple = triple
+        const baseHr = hr
 
-            const addDouble = Math.max(0, targetDouble - baseDouble)
-            const addTriple = Math.max(0, targetTriple - baseTriple)
-            const addHr = Math.max(0, targetHr - baseHr)
-            const totalAdd = addDouble + addTriple + addHr
+        const targetSingle = baseSingle * singleOutcomeScale
+        const targetDouble = baseDouble * doubleOutcomeScale
+        const targetTriple = baseTriple * tripleOutcomeScale
+        const targetHr = baseHr * homeRunOutcomeScale
 
-            if (totalAdd > 0) {
-                const moved = move(out, totalAdd)
-                const fillRate = moved / totalAdd
+        const addSingle = Math.max(0, targetSingle - baseSingle)
+        const addDouble = Math.max(0, targetDouble - baseDouble)
+        const addTriple = Math.max(0, targetTriple - baseTriple)
+        const addHr = Math.max(0, targetHr - baseHr)
+        const totalAdd = addSingle + addDouble + addTriple + addHr
 
-                out -= moved
-                double += addDouble * fillRate
-                triple += addTriple * fillRate
-                hr += addHr * fillRate
-            }
+        if (totalAdd > 0) {
+            const moved = move(out, totalAdd)
+            const fillRate = moved / totalAdd
 
-            if (targetDouble < baseDouble) {
-                const moved = baseDouble - targetDouble
-                double -= moved
-                out += moved
-            }
+            out -= moved
+            single += addSingle * fillRate
+            double += addDouble * fillRate
+            triple += addTriple * fillRate
+            hr += addHr * fillRate
+        }
 
-            if (targetTriple < baseTriple) {
-                const moved = baseTriple - targetTriple
-                triple -= moved
-                out += moved
-            }
+        if (targetSingle < baseSingle) {
+            const moved = baseSingle - targetSingle
+            single -= moved
+            out += moved
+        }
 
-            if (targetHr < baseHr) {
-                const moved = baseHr - targetHr
-                hr -= moved
-                out += moved
-            }
+        if (targetDouble < baseDouble) {
+            const moved = baseDouble - targetDouble
+            double -= moved
+            out += moved
+        }
+
+        if (targetTriple < baseTriple) {
+            const moved = baseTriple - targetTriple
+            triple -= moved
+            out += moved
+        }
+
+        if (targetHr < baseHr) {
+            const moved = baseHr - targetHr
+            hr -= moved
+            out += moved
         }
 
         const adjustedTotal = out + single + double + triple + hr
@@ -1024,26 +1034,16 @@ class SimService {
     }
 
     private applyDefenseToOutcomeModel(command: SimPitchCommand, model: { count: number, out: number, single: number, double: number, triple: number, hr: number, evBin: number, laBin: number, expectedBases: number }, fielderPlayer: GamePlayer): { count: number, out: number, single: number, double: number, triple: number, hr: number, evBin: number, laBin: number, expectedBases: number } {
-        const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
         const meta = command.pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.meta
-        const contact = command.play.contact
 
         const teamDefense = GameInfo.getTeamDefense(command.defense)
         const teamDefenseChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, teamDefense)
         const fielderDefenseChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, fielderPlayer.hittingRatings.defense)
 
-        const fullTeamDefenseBonus = DEFAULT_FULL_TEAM_DEFENSE_BONUS + Number(meta?.fullTeamDefenseBonus ?? 0)
-        const fullFielderDefenseBonus = DEFAULT_FULL_FIELDER_DEFENSE_BONUS + Number(meta?.fullFielderDefenseBonus ?? 0)
-
-        const baselineDefenseShift =
-            contact === Contact.GROUNDBALL ? (fullTeamDefenseBonus + fullFielderDefenseBonus) / 5000 :
-            contact === Contact.LINE_DRIVE ? (fullTeamDefenseBonus + fullFielderDefenseBonus) / 9000 :
-            contact === Contact.FLY_BALL ? (fullTeamDefenseBonus + fullFielderDefenseBonus) / 12000 :
-            0
-
-        const teamRatingShift = teamDefenseChange * (fullTeamDefenseBonus / 1000)
-        const fielderRatingShift = fielderDefenseChange * (fullFielderDefenseBonus / 1000)
-        const defenseShift = clamp(baselineDefenseShift + teamRatingShift + fielderRatingShift, -0.35, 0.35)
+        const tuningDefenseShift = Number(meta?.fullFielderDefenseBonus ?? 0) / 1000
+        const teamRatingShift = teamDefenseChange * (Number(meta?.fullTeamDefenseBonus ?? 0) / 1000)
+        const fielderRatingShift = fielderDefenseChange * (Number(meta?.fullFielderDefenseBonus ?? 0) / 1000)
+        const defenseShift = clamp(tuningDefenseShift + teamRatingShift + fielderRatingShift, -0.25, 0.25)
 
         let out = model.out
         let single = model.single
@@ -1060,49 +1060,21 @@ class SimService {
         const move = (from: number, amount: number): number => Math.min(from, Math.max(0, amount))
 
         if (defenseShift > 0) {
-            let remaining = total * defenseShift
-
-            let moved = move(single, remaining)
+            let moved = move(single, total * defenseShift)
             single -= moved
             out += moved
-            remaining -= moved
 
-            if (contact === Contact.GROUNDBALL) {
-                moved = move(double, remaining)
-                double -= moved
-                single += moved
-                remaining -= moved
+            moved = move(double, total * defenseShift * 0.25)
+            double -= moved
+            single += moved
 
-                moved = move(triple, remaining)
-                triple -= moved
-                double += moved
-            }
-
-            if (contact === Contact.LINE_DRIVE) {
-                moved = move(double, remaining * 0.5)
-                double -= moved
-                single += moved
-                remaining -= moved
-
-                moved = move(triple, remaining * 0.25)
-                triple -= moved
-                double += moved
-            }
+            moved = move(triple, total * defenseShift * 0.10)
+            triple -= moved
+            double += moved
         } else {
-            let remaining = total * Math.abs(defenseShift)
-
-            let moved = move(out, remaining)
+            let moved = move(out, total * Math.abs(defenseShift))
             out -= moved
-
-            if (contact === Contact.GROUNDBALL) {
-                single += moved
-            } else if (contact === Contact.LINE_DRIVE) {
-                single += moved * 0.8
-                double += moved * 0.2
-            } else {
-                single += moved * 0.65
-                double += moved * 0.35
-            }
+            single += moved
         }
 
         const adjustedTotal = out + single + double + triple + hr
@@ -2804,8 +2776,6 @@ class SimRolls {
             contact === Contact.LINE_DRIVE ? "lineDrive" :
             "flyBall"
 
-        const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
-        const asNumber = (value: any, fallback = 0): number => Number.isFinite(Number(value)) ? Number(value) : fallback
 
         const weightedPick = <T extends { count?: number }>(rows: T[]): T | undefined => {
             if (!rows.length) return undefined
@@ -3056,7 +3026,6 @@ class SimRolls {
                 swingRate += hitterChange.plateDisiplineChange * (swingTuning?.disciplineZoneSwingEffect ?? 0)
             }
         } else {
-            swingRate -= swingTuning?.walkRateScale ?? 0
             swingRate += pitchQualityChange * (swingTuning?.pitchQualityChaseSwingEffect ?? 0)
 
             if (APPLY_PLAYER_CHANGES) {

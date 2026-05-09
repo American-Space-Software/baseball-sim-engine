@@ -52,8 +52,10 @@ const makeTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): Pitc
             evScale: overrides?.contactQuality?.evScale ?? 0,
             laScale: overrides?.contactQuality?.laScale ?? 0,
             distanceScale: overrides?.contactQuality?.distanceScale ?? 0,
+            singleOutcomeScale: overrides?.contactQuality?.singleOutcomeScale ?? 0,
+            doubleOutcomeScale: overrides?.contactQuality?.doubleOutcomeScale ?? 0,
+            tripleOutcomeScale: overrides?.contactQuality?.tripleOutcomeScale ?? 0,
             homeRunOutcomeScale: overrides?.contactQuality?.homeRunOutcomeScale ?? 0,
-
         },
         swing: {
             pitchQualityZoneSwingEffect: overrides?.swing?.pitchQualityZoneSwingEffect ?? 0,
@@ -95,20 +97,26 @@ const HIGH_OFFENSE_TUNING: PitchEnvironmentTuning["tuning"] = makeTuning({
         evScale: 42,
         laScale: -18,
         distanceScale: 45,
+        singleOutcomeScale: 0,
+        doubleOutcomeScale: 0,
+        tripleOutcomeScale: 0,        
         homeRunOutcomeScale: 0,
+
     },
     swing: {
         pitchQualityZoneSwingEffect: 12,
         pitchQualityChaseSwingEffect: 6,
         disciplineZoneSwingEffect: 16,
-        disciplineChaseSwingEffect: 22
+        disciplineChaseSwingEffect: 22,
+        walkRateScale: 0
     },
     contact: {
         pitchQualityContactEffect: -34,
         contactSkillEffect: -24
     },
     running: {
-        stealAttemptAggressionScale: 1.6
+        stealAttemptAggressionScale: 1.6,
+        advancementAggressionScale: 0
     },
     meta: {
         fullPitchQualityBonus: 350,
@@ -122,21 +130,26 @@ const LOW_OFFENSE_TUNING: PitchEnvironmentTuning["tuning"] = makeTuning({
         evScale: -18,
         laScale: 18,
         distanceScale: -35,
+        singleOutcomeScale: 0,
+        doubleOutcomeScale: 0,
+        tripleOutcomeScale: 0,        
         homeRunOutcomeScale: 0,
-
+    
     },
     swing: {
         pitchQualityZoneSwingEffect: -36,
         pitchQualityChaseSwingEffect: 55,
         disciplineZoneSwingEffect: -22,
-        disciplineChaseSwingEffect: 22
+        disciplineChaseSwingEffect: 22,
+        walkRateScale: 0
     },
     contact: {
         pitchQualityContactEffect: 95,
         contactSkillEffect: 80
     },
     running: {
-        stealAttemptAggressionScale: 0.1
+        stealAttemptAggressionScale: 0.1,
+        advancementAggressionScale: 0
     },
     meta: {
         fullPitchQualityBonus: -250,
@@ -163,8 +176,6 @@ describe("Baseball Sim Engine", async () => {
 
         assert.ok(pitchEnvironment)
     })
-
-
     
     it("should expose lineup wrap when next hitter is still on base", () => {
         const baselineGame = playerImporterService.buildStartedBaselineGame(pitchEnvironment)
@@ -1292,6 +1303,300 @@ describe("Baseball Sim Engine", async () => {
         assert.ok(totalBallsInPlay > 0)
     })
 
+    it("default tuning should print batter outs versus runner advancement outs", () => {
+        const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
+
+        testPitchEnvironment.pitchEnvironmentTuning = {
+            tuning: makeTuning()
+        } as PitchEnvironmentTuning
+
+        const rng = seedrandom("default-batter-outs-versus-runner-outs-report")
+        const games = evaluationGames
+
+        const report = {
+            games,
+            totalRuns: 0,
+            totalPlateAppearances: 0,
+            batterOuts: 0,
+            runnerOuts: 0,
+            runnerOutsTryingToScore: 0,
+            runnerOutsTryingExtraBase: 0,
+            runnerScoringEvents: 0,
+            runnerNonHrScoringEvents: 0,
+            batterHrScoringEvents: 0,
+            runnerOutsByStartEnd: new Map<string, number>(),
+            runnerScoringByStartEnd: new Map<string, number>(),
+            runnerOutsByPlayResult: new Map<string, number>(),
+            runnerScoringByPlayResult: new Map<string, number>()
+        }
+
+        const bump = (map: Map<string, number>, key: string) => {
+            map.set(key, (map.get(key) ?? 0) + 1)
+        }
+
+        const formatMap = (map: Map<string, number>) => {
+            return Array.from(map.entries())
+                .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                .map(([key, value]) => ({ key, value }))
+        }
+
+        for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+            const game = playerImporterService.buildStartedBaselineGame(
+                clone(testPitchEnvironment),
+                `default-batter-runner-out-report-${gameIndex}`
+            )
+
+            while (!game.isComplete) {
+                simService.simPitch(game, rng)
+            }
+
+            report.totalRuns += game.score.away + game.score.home
+
+            for (const play of game.halfInnings.flatMap(halfInning => halfInning.plays)) {
+                report.totalPlateAppearances++
+
+                for (const event of play.runner?.events ?? []) {
+                    const isBatterEvent = event.runner?._id === play.hitterId
+                    const startEnd = `${event.movement?.start ?? "?"}->${event.movement?.end ?? "?"}`
+                    const playResult = String(play.result)
+
+                    if (event.movement?.isOut) {
+                        if (isBatterEvent) {
+                            report.batterOuts++
+                        } else {
+                            report.runnerOuts++
+                            bump(report.runnerOutsByStartEnd, startEnd)
+                            bump(report.runnerOutsByPlayResult, playResult)
+
+                            if (event.movement?.end === BaseResult.HOME || event.movement?.outBase === BaseResult.HOME) {
+                                report.runnerOutsTryingToScore++
+                            } else {
+                                report.runnerOutsTryingExtraBase++
+                            }
+                        }
+                    }
+
+                    if (event.isScoringEvent) {
+                        report.runnerScoringEvents++
+
+                        if (isBatterEvent && play.result === PlayResult.HR) {
+                            report.batterHrScoringEvents++
+                        } else {
+                            report.runnerNonHrScoringEvents++
+                            bump(report.runnerScoringByStartEnd, startEnd)
+                            bump(report.runnerScoringByPlayResult, playResult)
+                        }
+                    }
+                }
+            }
+        }
+
+        console.log("[DEFAULT BATTER OUTS VS RUNNER OUTS]", {
+            games,
+            teamRunsPerGame: report.totalRuns / games / 2,
+            paPerTeamGame: report.totalPlateAppearances / games / 2,
+            batterOutsPerTeamGame: report.batterOuts / games / 2,
+            runnerOutsPerTeamGame: report.runnerOuts / games / 2,
+            runnerOutsTryingToScorePerTeamGame: report.runnerOutsTryingToScore / games / 2,
+            runnerOutsTryingExtraBasePerTeamGame: report.runnerOutsTryingExtraBase / games / 2,
+            runnerScoringEventsPerTeamGame: report.runnerScoringEvents / games / 2,
+            runnerNonHrScoringEventsPerTeamGame: report.runnerNonHrScoringEvents / games / 2,
+            batterHrScoringEventsPerTeamGame: report.batterHrScoringEvents / games / 2
+        })
+
+        console.log("[DEFAULT RUNNER OUTS BY START END]", formatMap(report.runnerOutsByStartEnd))
+        console.log("[DEFAULT RUNNER OUTS BY PLAY RESULT]", formatMap(report.runnerOutsByPlayResult))
+        console.log("[DEFAULT RUNNER SCORING BY START END]", formatMap(report.runnerScoringByStartEnd))
+        console.log("[DEFAULT RUNNER SCORING BY PLAY RESULT]", formatMap(report.runnerScoringByPlayResult))
+
+        assert.ok(report.totalRuns > 0)
+        assert.ok(report.totalPlateAppearances > 0)
+    })
+
+    it("default tuning should print runner advancement run conversion report", () => {
+        const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
+
+        testPitchEnvironment.pitchEnvironmentTuning = {
+            tuning: makeTuning()
+        } as PitchEnvironmentTuning
+
+        const rng = seedrandom("default-runner-advancement-run-conversion-report")
+        const games = evaluationGames
+
+        const report = {
+            games,
+            totalRuns: 0,
+            totalPlateAppearances: 0,
+            totalLeftOnBase: 0,
+
+            byPlayResult: new Map<string, { plays: number, runs: number, scoredEvents: number }>(),
+            byRunnerEvent: new Map<string, { events: number, scored: number, outs: number }>(),
+            byStartEnd: new Map<string, { events: number, scored: number, outs: number }>(),
+
+            scoringEvents: {
+                thirdToHome: 0,
+                secondToHome: 0,
+                firstToHome: 0,
+                hitterHome: 0
+            },
+
+            advancementEvents: {
+                firstToThird: 0,
+                secondToHomeOnSingle: 0,
+                firstToHomeOnDouble: 0,
+                thirdToHomeOnFlyOut: 0,
+                thirdToHomeOnGroundBall: 0
+            },
+
+            outsOnBases: {
+                home: 0,
+                first: 0,
+                second: 0,
+                third: 0
+            }
+        }
+
+        const bumpPlayResult = (playResult: PlayResult, runs: number, scoredEvents: number) => {
+            const key = String(playResult)
+
+            if (!report.byPlayResult.has(key)) {
+                report.byPlayResult.set(key, { plays: 0, runs: 0, scoredEvents: 0 })
+            }
+
+            const row = report.byPlayResult.get(key)!
+            row.plays++
+            row.runs += runs
+            row.scoredEvents += scoredEvents
+        }
+
+        const bumpRunnerEvent = (key: string, event: RunnerEvent) => {
+            if (!report.byRunnerEvent.has(key)) {
+                report.byRunnerEvent.set(key, { events: 0, scored: 0, outs: 0 })
+            }
+
+            const row = report.byRunnerEvent.get(key)!
+            row.events++
+            if (event.isScoringEvent) row.scored++
+            if (event.movement?.isOut) row.outs++
+        }
+
+        const bumpStartEnd = (event: RunnerEvent) => {
+            const key = `${event.movement?.start ?? "?"}->${event.movement?.end ?? "?"}`
+
+            if (!report.byStartEnd.has(key)) {
+                report.byStartEnd.set(key, { events: 0, scored: 0, outs: 0 })
+            }
+
+            const row = report.byStartEnd.get(key)!
+            row.events++
+            if (event.isScoringEvent) row.scored++
+            if (event.movement?.isOut) row.outs++
+        }
+
+        for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+            const game = playerImporterService.buildStartedBaselineGame(
+                clone(testPitchEnvironment),
+                `default-runner-advancement-report-${gameIndex}`
+            )
+
+            while (!game.isComplete) {
+                simService.simPitch(game, rng)
+            }
+
+            report.totalRuns += game.score.away + game.score.home
+
+            for (const halfInning of game.halfInnings) {
+                const plays = halfInning.plays ?? []
+                const finalPlay = plays[plays.length - 1]
+                const finalEnd = finalPlay?.runner?.result?.end
+
+                if (finalEnd?.first) report.totalLeftOnBase++
+                if (finalEnd?.second) report.totalLeftOnBase++
+                if (finalEnd?.third) report.totalLeftOnBase++
+
+                for (const play of plays) {
+                    const events = play.runner?.events ?? []
+                    const scoredEvents = events.filter((event: RunnerEvent) => event.isScoringEvent).length
+                    const runs = play.runner?.result?.end?.scored?.length ?? scoredEvents
+
+                    report.totalPlateAppearances++
+
+                    bumpPlayResult(play.result, runs, scoredEvents)
+
+                    for (const event of events) {
+                        bumpRunnerEvent(String(event.eventType ?? play.result), event)
+                        bumpStartEnd(event)
+
+                        if (event.isScoringEvent && event.movement?.start === BaseResult.THIRD && event.movement?.end === BaseResult.HOME) {
+                            report.scoringEvents.thirdToHome++
+                        }
+
+                        if (event.isScoringEvent && event.movement?.start === BaseResult.SECOND && event.movement?.end === BaseResult.HOME) {
+                            report.scoringEvents.secondToHome++
+                        }
+
+                        if (event.isScoringEvent && event.movement?.start === BaseResult.FIRST && event.movement?.end === BaseResult.HOME) {
+                            report.scoringEvents.firstToHome++
+                        }
+
+                        if (event.isScoringEvent && event.movement?.start === BaseResult.HOME && event.movement?.end === BaseResult.HOME) {
+                            report.scoringEvents.hitterHome++
+                        }
+
+                        if (event.movement?.start === BaseResult.FIRST && event.movement?.end === BaseResult.THIRD) {
+                            report.advancementEvents.firstToThird++
+                        }
+
+                        if (play.result === PlayResult.SINGLE && event.movement?.start === BaseResult.THIRD && event.movement?.end === BaseResult.HOME && event.eventType !== PlayResult.SINGLE) {
+                            report.advancementEvents.secondToHomeOnSingle++
+                        }
+
+                        if (play.result === PlayResult.DOUBLE && event.movement?.start === BaseResult.THIRD && event.movement?.end === BaseResult.HOME && event.eventType !== PlayResult.DOUBLE) {
+                            report.advancementEvents.firstToHomeOnDouble++
+                        }
+
+                        if (play.result === PlayResult.OUT && play.contact === Contact.FLY_BALL && event.movement?.start === BaseResult.THIRD && event.movement?.end === BaseResult.HOME) {
+                            report.advancementEvents.thirdToHomeOnFlyOut++
+                        }
+
+                        if (play.result === PlayResult.OUT && play.contact === Contact.GROUNDBALL && event.movement?.start === BaseResult.THIRD && event.movement?.end === BaseResult.HOME) {
+                            report.advancementEvents.thirdToHomeOnGroundBall++
+                        }
+
+                        if (event.movement?.isOut && event.movement?.outBase === BaseResult.HOME) report.outsOnBases.home++
+                        if (event.movement?.isOut && event.movement?.outBase === BaseResult.FIRST) report.outsOnBases.first++
+                        if (event.movement?.isOut && event.movement?.outBase === BaseResult.SECOND) report.outsOnBases.second++
+                        if (event.movement?.isOut && event.movement?.outBase === BaseResult.THIRD) report.outsOnBases.third++
+                    }
+                }
+            }
+        }
+
+        const formatMap = (map: Map<string, any>) => {
+            return Array.from(map.entries())
+                .sort((a, b) => b[1].events - a[1].events || String(a[0]).localeCompare(String(b[0])))
+                .map(([key, row]) => ({ key, ...row }))
+        }
+
+        console.log("[DEFAULT RUNNER ADVANCEMENT RUN CONVERSION]", {
+            games,
+            teamRunsPerGame: report.totalRuns / games / 2,
+            leftOnBasePerTeamGame: report.totalLeftOnBase / games / 2,
+            paPerTeamGame: report.totalPlateAppearances / games / 2,
+            scoringEventsPerTeamGame: Object.values(report.scoringEvents).reduce((sum, value) => sum + value, 0) / games / 2,
+            scoringEvents: report.scoringEvents,
+            advancementEvents: report.advancementEvents,
+            outsOnBases: report.outsOnBases
+        })
+
+        console.log("[DEFAULT RUNNER ADVANCEMENT BY PLAY RESULT]", formatMap(report.byPlayResult))
+        console.log("[DEFAULT RUNNER ADVANCEMENT BY EVENT TYPE]", formatMap(report.byRunnerEvent))
+        console.log("[DEFAULT RUNNER ADVANCEMENT BY START END]", formatMap(report.byStartEnd))
+
+        assert.ok(report.totalRuns > 0)
+        assert.ok(report.totalPlateAppearances > 0)
+    })
+
     it("default tuning should print baseline offense", () => {
         const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
 
@@ -2389,7 +2694,7 @@ describe("Baseball Sim Engine", async () => {
         assert.ok((tenToTwenty + twentyPlus) / sampleCount < 0.15)
     })
 
-    it("getOutcomeModelForContactQuality should allow ground ball triples but not ground ball home runs", () => {
+    it("getOutcomeModelForContactQuality should suppress ground ball home runs without inflating triples", () => {
         const pitchEnvironmentTarget = {
             pitchEnvironmentTuning: {
                 tuning: makeDisabledMetaTuning()
@@ -2414,8 +2719,8 @@ describe("Baseball Sim Engine", async () => {
         )
 
         assert.strictEqual(model.hr, 0)
-        assert.strictEqual(model.triple, 10)
-        assert.strictEqual(model.out, 70)
+        assert.strictEqual(model.triple, 4)
+        assert.strictEqual(model.out, 76)
         assert.strictEqual(model.single, 15)
         assert.strictEqual(model.double, 5)
         assert.strictEqual(model.count, 100)

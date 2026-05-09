@@ -1286,6 +1286,7 @@ interface PitchEnvironmentTuning {
             evScale: number
             laScale: number
             distanceScale: number
+            singleOutcomeScale:number
             doubleOutcomeScale: number
             tripleOutcomeScale: number
             homeRunOutcomeScale: number

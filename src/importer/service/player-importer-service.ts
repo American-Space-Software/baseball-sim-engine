@@ -2299,6 +2299,7 @@ class PlayerImporterService {
                     evScale: 0,
                     laScale: 0,
                     distanceScale: 0,
+                    singleOutcomeScale: 0,
                     doubleOutcomeScale:0,
                     tripleOutcomeScale:0,
                     homeRunOutcomeScale: 0,

@@ -52,8 +52,10 @@ const makeTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): Pitc
             evScale: overrides?.contactQuality?.evScale ?? 0,
             laScale: overrides?.contactQuality?.laScale ?? 0,
             distanceScale: overrides?.contactQuality?.distanceScale ?? 0,
+            singleOutcomeScale: overrides?.contactQuality?.singleOutcomeScale ?? 0,
+            doubleOutcomeScale: overrides?.contactQuality?.doubleOutcomeScale ?? 0,
+            tripleOutcomeScale: overrides?.contactQuality?.tripleOutcomeScale ?? 0,
             homeRunOutcomeScale: overrides?.contactQuality?.homeRunOutcomeScale ?? 0,
-
         },
         swing: {
             pitchQualityZoneSwingEffect: overrides?.swing?.pitchQualityZoneSwingEffect ?? 0,
