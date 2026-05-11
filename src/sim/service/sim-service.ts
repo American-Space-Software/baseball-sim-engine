@@ -19,7 +19,8 @@ const PITCH_QUALITY_WEIGHTS = {
 } 
 
 const DEFAULT_FULL_PITCH_QUALITY_BONUS = 500
-
+const DEFAULT_FULL_TEAM_DEFENSE_BONUS = 75
+const DEFAULT_FULL_FIELDER_DEFENSE_BONUS = 75
 
 
 
@@ -342,10 +343,8 @@ class SimService {
         const weights = [50, 25, 15, 5, 5]
 
         const pitchType: PitchType = Rolls.weightedRandom(command.rng, pitches, weights.slice(0, pitches.length))
-
-        const hitterPitchGuess: PitchType =
-            command.pitcher.pitchRatings.pitches[Rolls.getRoll(command.rng, 0, pitches.length - 1)]
-        const guessPitch: boolean = hitterPitchGuess == pitchType
+        const hitterPitchGuess: PitchType = pitches[Rolls.getRoll(command.rng, 0, pitches.length - 1)]
+        const guessPitch = hitterPitchGuess === pitchType
 
         const sampleMoment = (stat: any): number => {
             const avg = asNumber(stat?.avg)
@@ -377,17 +376,13 @@ class SimService {
             ? command.pitcher.pitchRatings.vsL
             : command.pitcher.pitchRatings.vsR
 
-        const powerChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, command.pitcher.pitchRatings.power)
-        const movementChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, handedPitchRatings.movement)
-        const controlChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, handedPitchRatings.control)
+        const powerChange = clamp(PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, command.pitcher.pitchRatings.power), MIN_CHANGE, MAX_CHANGE)
+        const movementChange = clamp(PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, handedPitchRatings.movement), MIN_CHANGE, MAX_CHANGE)
+        const controlChange = clamp(PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, handedPitchRatings.control), MIN_CHANGE, MAX_CHANGE)
 
-        const velocity = leagueVelocity + (velocityStdDev * powerChange)
+        const velocity = Math.max(0, leagueVelocity + (velocityStdDev * powerChange))
         const horizontalBreak = leagueHorizontalBreak + (horizontalBreakStdDev * movementChange)
         const verticalBreak = leagueVerticalBreak + (verticalBreakStdDev * movementChange)
-
-        const velocityDelta = velocityStdDev > 0 ? (velocity - pitcherPhysics.velocity.avg) / velocityStdDev : 0
-        const horizontalBreakDelta = horizontalBreakStdDev > 0 ? (horizontalBreak - pitcherPhysics.horizontalBreak.avg) / horizontalBreakStdDev : 0
-        const verticalBreakDelta = verticalBreakStdDev > 0 ? (verticalBreak - pitcherPhysics.verticalBreak.avg) / verticalBreakStdDev : 0
 
         const velocityWeight = Math.max(0, asNumber(PITCH_QUALITY_WEIGHTS.velocity))
         const movementWeight = Math.max(0, asNumber(PITCH_QUALITY_WEIGHTS.movement))
@@ -398,33 +393,25 @@ class SimService {
             throw new Error("Pitch quality weights must total more than zero.")
         }
 
-        const normalizedVelocityWeight = velocityWeight / weightTotal
-        const normalizedMovementWeight = movementWeight / weightTotal
-        const normalizedControlWeight = controlWeight / weightTotal
+        const pitchQualityChange = clamp(
+            (powerChange * (velocityWeight / weightTotal)) +
+            (movementChange * (movementWeight / weightTotal)) +
+            (controlChange * (controlWeight / weightTotal)),
+            MIN_CHANGE,
+            MAX_CHANGE
+        )
 
-        const avgAbsBreakDelta = (Math.abs(horizontalBreakDelta) + Math.abs(verticalBreakDelta)) / 2
-        const centeredMovementDelta = avgAbsBreakDelta - 0.5
-
-        const velocityComponent = clamp(velocityDelta / 2, -0.5, 0.5)
-        const movementComponent = clamp(centeredMovementDelta, -0.5, 0.5)
-        const controlComponent = clamp(command.pitcherChange.controlChange + controlChange, -0.5, 0.5)
-
-        const pitchQualityChange =
-            (velocityComponent * normalizedVelocityWeight) +
-            (movementComponent * normalizedMovementWeight) +
-            (controlComponent * normalizedControlWeight)
-
-        const powQ = clamp(Math.round(50 + (velocityComponent * 99)), 0, 99)
-        const movQ = clamp(Math.round(50 + (movementComponent * 99)), 0, 99)
-        const locQ = clamp(Math.round(50 + (controlComponent * 99)), 0, 99)
+        const powQ = clamp(Math.round(50 + (powerChange * 99)), 0, 99)
+        const movQ = clamp(Math.round(50 + (movementChange * 99)), 0, 99)
+        const locQ = clamp(Math.round(50 + (controlChange * 99)), 0, 99)
         const overallQuality = clamp(Math.round(50 + (pitchQualityChange * 99)), 0, 99)
 
         const countInZoneRate = command.pitchEnvironmentTarget.pitch.inZoneByCount.find(
             r => r.balls === command.play.pitchLog.count.balls && r.strikes === command.play.pitchLog.count.strikes
         )?.inZone
 
-        const walkRateScale = Number(command.pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.swing?.walkRateScale ?? 0)
-        const inZoneRate = clamp(Number(countInZoneRate ?? command.pitchEnvironmentTarget.pitch.inZonePercent ?? 0) - walkRateScale, 0, 100)
+        const walkRateScale = clamp(Number(command.pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.swing?.walkRateScale ?? 0), -1, 1)
+        const inZoneRate = clamp(Number(countInZoneRate ?? command.pitchEnvironmentTarget.pitch.inZonePercent ?? 0) - (walkRateScale * 100), 0, 100)
         const inZone = this.gameRolls.isInZone(command.rng, locQ, inZoneRate)
 
         const intentZone = this.gameRolls.getIntentZone(command.rng)
@@ -470,8 +457,8 @@ class SimService {
                 command.play.pitchLog.count
             )
 
-            pitch.swing = (swingResult != SwingResult.NO_SWING)
-            pitch.con = (swingResult == SwingResult.FAIR || swingResult == SwingResult.FOUL)
+            pitch.swing = swingResult !== SwingResult.NO_SWING
+            pitch.con = swingResult === SwingResult.FAIR || swingResult === SwingResult.FOUL
 
             switch (swingResult) {
                 case SwingResult.FAIR:
@@ -512,26 +499,28 @@ class SimService {
 
         let continueAtBat = true
 
-        if (pitch.result == PitchCall.HBP) {
+        if (pitch.result === PitchCall.HBP) {
             command.play.result = PlayResult.HIT_BY_PITCH
             continueAtBat = false
         }
 
-        if (pitch.result == PitchCall.IN_PLAY) continueAtBat = false
+        if (pitch.result === PitchCall.IN_PLAY) {
+            continueAtBat = false
+        }
 
-        if (command.play.pitchLog.count.balls == 4) {
+        if (command.play.pitchLog.count.balls === 4) {
             command.play.result = PlayResult.BB
             continueAtBat = false
         }
 
-        if (command.play.pitchLog.count.strikes == 3) {
+        if (command.play.pitchLog.count.strikes === 3) {
             command.play.result = PlayResult.STRIKEOUT
             continueAtBat = false
         }
 
         const result: SimPitchResult = {
             continueAtBat,
-            pitch,
+            pitch
         }
 
         this.runnerActions.generateRunnerEventsFromPitch(command, pitchIndex, result)
@@ -570,45 +559,31 @@ class SimService {
     }
 
     private finishPlay(game:Game, command:SimPitchCommand, isInningEndingEvent:boolean) {
-        let fielderPlayer:GamePlayer
-
-        let ballInPlay:Pitch = command.play.pitchLog.pitches.find(p => p.result == PitchCall.IN_PLAY)
-
+        let fielderPlayer: GamePlayer | undefined
         let isFieldingError = false
 
+        const ballInPlay = command.play.pitchLog.pitches.find(p => p.result == PitchCall.IN_PLAY)
+
         if (!isInningEndingEvent) {
-            
             if (ballInPlay) {
+                const pitch = ballInPlay
+                const pitchQualityChange = PlayerChange.getChange(AVG_PITCH_QUALITY, pitch.overallQuality)
 
-                let pitch = ballInPlay
-
-                let pitchQualityChange = PlayerChange.getChange(AVG_PITCH_QUALITY, pitch.overallQuality)
-
-                let contactRollChart:RollChart = this.rollChartService.getMatchupContactRollChart(
+                const contactRollChart: RollChart = this.rollChartService.getMatchupContactRollChart(
                     command.pitchEnvironmentTarget,
                     command.hitter.hittingRatings.contactProfile,
                     command.pitcher.pitchRatings.contactProfile,
                     APPLY_PLAYER_CHANGES
                 )
 
-                let hitQuality:ContactQuality
-                let overallContactQuality:number
-
                 command.play.contact = contactRollChart.entries.get(Rolls.getRoll(command.rng, 0, 99)) as Contact
 
-                hitQuality = this.gameRolls.getHitQuality(
+                const hitQuality = this.gameRolls.getHitQuality(
                     command.rng,
                     command.pitchEnvironmentTarget,
                     pitchQualityChange,
                     pitch.guess,
                     command.play.contact
-                )
-
-                let outcomeModel = this.getOutcomeModelForContactQuality(
-                    command.pitchEnvironmentTarget,
-                    hitQuality,
-                    command.play.contact,
-                    pitchQualityChange
                 )
 
                 const fieldingResult = this.pickFielderFromLocation(
@@ -621,17 +596,23 @@ class SimService {
                 command.play.shallowDeep = fieldingResult.shallowDeep
                 fielderPlayer = fieldingResult.fielderPlayer
 
-                outcomeModel = this.applyDefenseToOutcomeModel(
+                const baseOutcomeModel = this.getOutcomeModelForContactQuality(
+                    command.pitchEnvironmentTarget,
+                    hitQuality,
+                    command.play.contact,
+                    pitchQualityChange
+                )
+
+                const finalOutcomeModel = this.applyDefenseToOutcomeModel(
                     command,
-                    outcomeModel,
+                    baseOutcomeModel,
                     fielderPlayer
                 )
 
-                overallContactQuality = clamp(Math.round((outcomeModel.expectedBases / 4) * 999), 0, 999)
-                command.play.result = this.getPlayResultFromOutcomeModel(outcomeModel, command.rng)
+                command.play.result = this.getPlayResultFromOutcomeModel(finalOutcomeModel, command.rng)
 
                 pitch.contactQuality = hitQuality
-                pitch.overallContactQuality = overallContactQuality
+                pitch.overallContactQuality = clamp(Math.round((finalOutcomeModel.expectedBases / 4) * 999), 0, 999)
 
                 if (command.play.result === PlayResult.HR) {
                     command.play.shallowDeep = ShallowDeep.DEEP
@@ -640,23 +621,17 @@ class SimService {
                 if (command.play.result === PlayResult.TRIPLE && AtBatInfo.isToOF(command.play.fielder)) {
                     command.play.shallowDeep = ShallowDeep.DEEP
                 }
-
-            } else {
-
-                if (
-                    command.play.result != PlayResult.STRIKEOUT &&
-                    command.play.result != PlayResult.BB &&
-                    command.play.result != PlayResult.HIT_BY_PITCH &&
-                    !isInningEndingEvent
-                ) {
-                    throw new Error("Error with pitchlog")
-                }
-
+            } else if (
+                command.play.result != PlayResult.STRIKEOUT &&
+                command.play.result != PlayResult.BB &&
+                command.play.result != PlayResult.HIT_BY_PITCH
+            ) {
+                throw new Error("Error with pitchlog")
             }
 
-            let runner1B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.first)
-            let runner2B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.second)
-            let runner3B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.third)
+            const runner1B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.first)
+            const runner2B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.second)
+            const runner3B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.third)
 
             if (command.play.runner.result.end.first && !runner1B) {
                 throw new Error("Missing 1B runner.")
@@ -670,11 +645,11 @@ class SimService {
                 throw new Error("Missing 3B runner.")
             }
 
-            let inPlayRunnerEvents: RunnerEvent[] = this.runnerActions.getRunnerEvents(
+            const inPlayRunnerEvents: RunnerEvent[] = this.runnerActions.getRunnerEvents(
                 command.rng,
                 command.play.runner.result.end,
                 command.halfInningRunnerEvents,
-                command.play.credits, 
+                command.play.credits,
                 command.pitchEnvironmentTarget,
                 command.play.result,
                 command.play.contact,
@@ -693,7 +668,6 @@ class SimService {
             isFieldingError = inPlayRunnerEvents.filter(re => re.isError)?.length > 0
 
             command.play.runner.events.push(...inPlayRunnerEvents)
-
         }
 
         this.runnerActions.validateRunnerResult(command.play.runner.result.end)
@@ -712,9 +686,9 @@ class SimService {
 
         command.play.fielderId = fielderPlayer?._id
 
-        let runner1B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.first)
-        let runner2B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.second)
-        let runner3B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.third)
+        const runner1B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.first)
+        const runner2B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.second)
+        const runner3B: GamePlayer = command.offense.players.find(p => p._id == command.play.runner.result.end.third)
 
         LogResult.logPlayResults(
             command.offense,
@@ -755,13 +729,11 @@ class SimService {
             //@ts-ignore
             command.play.officialPlayResult != OfficialRunnerResult.CAUGHT_STEALING_3B
         ) {
-
             if (command.offense.currentHitterIndex >= 8) {
                 command.offense.currentHitterIndex = 0
             } else {
                 command.offense.currentHitterIndex++
             }
-
         }
 
         this.validateNextHitterIsNotOnBase(command.offense, game, command.play)
@@ -769,8 +741,7 @@ class SimService {
         const isWalkoff = (game.currentInning >= STANDARD_INNINGS && !game.isTopInning && game.score.home > game.score.away)
 
         if (game.count.outs >= 3 || isWalkoff) {
-
-            let leftOnBase = [command.offense.runner1BId, command.offense.runner2BId, command.offense.runner3BId]
+            const leftOnBase = [command.offense.runner1BId, command.offense.runner2BId, command.offense.runner3BId]
                 .filter(r => r != undefined).length
 
             if (leftOnBase > 0) {
@@ -784,7 +755,6 @@ class SimService {
             game.isComplete = GameInfo.isGameOver(game)
 
             if (!game.isComplete) {
-
                 if (game.isTopInning) {
                     game.isTopInning = false
                 } else {
@@ -793,7 +763,7 @@ class SimService {
                 }
 
                 game.halfInnings.push(GameInfo.initHalfInning(game.currentInning, game.isTopInning))
-            } 
+            }
         }
     }
 
@@ -848,8 +818,6 @@ class SimService {
             throw new Error("Missing outcomeByEvLa bin data")
         }
 
-        const move = (from: number, amount: number): number => Math.min(from, Math.max(0, amount))
-
         const evBin = clamp(rawEvBin, evBins[0], evBins[evBins.length - 1])
         const laBin = clamp(rawLaBin, laBins[0], laBins[laBins.length - 1])
 
@@ -883,15 +851,15 @@ class SimService {
         const finalEvBin = Number(exact.evBin)
         const finalLaBin = Number(exact.laBin)
 
-        const count = Number(exact.count ?? 0)
-        let out = Number(exact.out ?? 0)
-        let single = Number(exact.single ?? 0)
-        let double = Number(exact.double ?? 0)
-        let triple = Number(exact.triple ?? 0)
-        let hr = Number(exact.hr ?? 0)
+        let out = Math.max(0, Number(exact.out ?? 0))
+        let single = Math.max(0, Number(exact.single ?? 0))
+        let double = Math.max(0, Number(exact.double ?? 0))
+        let triple = Math.max(0, Number(exact.triple ?? 0))
+        let hr = Math.max(0, Number(exact.hr ?? 0))
 
-        if (count <= 0) {
-            throw new Error(`Empty outcomeByEvLa bucket for evBin=${finalEvBin} laBin=${finalLaBin}`)
+        if (contact === Contact.GROUNDBALL) {
+            out += hr
+            hr = 0
         }
 
         const total = out + single + double + triple + hr
@@ -900,128 +868,87 @@ class SimService {
             throw new Error(`Empty outcomeByEvLa result totals for evBin=${finalEvBin} laBin=${finalLaBin}`)
         }
 
-        const pitchQualityBonus = DEFAULT_FULL_PITCH_QUALITY_BONUS + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.meta?.fullPitchQualityBonus ?? 0)
-        const cappedPitchQualityChange = clamp(pitchQualityChange, -0.5, 0.5)
-        const maxShiftShare = clamp(pitchQualityBonus / 1000, -0.6, 0.6)
-        const shiftWeight = total * Math.abs(cappedPitchQualityChange) * maxShiftShare
+        const tuning = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality
+        const outOutcomeScale = Number(tuning?.outOutcomeScale ?? 0)
+        const doubleOutcomeScale = Number(tuning?.doubleOutcomeScale ?? 0)
+        const tripleOutcomeScale = Number(tuning?.tripleOutcomeScale ?? 0)
+        const homeRunOutcomeScale = contact === Contact.GROUNDBALL ? 0 : Number(tuning?.homeRunOutcomeScale ?? 0)
 
-        if (shiftWeight > 0 && cappedPitchQualityChange > 0) {
-            let remaining = shiftWeight
+        const move = (from: number, amount: number): number => Math.min(from, Math.max(0, amount))
 
-            let moved = move(hr, remaining)
-            hr -= moved
-            triple += moved
-            remaining -= moved
+        if (outOutcomeScale > 0) {
+            const movableHits = single + double + triple + hr
 
-            moved = move(triple, remaining)
-            triple -= moved
-            double += moved
-            remaining -= moved
+            if (movableHits > 0) {
+                const moved = move(movableHits, movableHits * outOutcomeScale)
 
-            moved = move(double, remaining)
-            double -= moved
-            single += moved
-            remaining -= moved
+                const singleMoved = moved * (single / movableHits)
+                const doubleMoved = moved * (double / movableHits)
+                const tripleMoved = moved * (triple / movableHits)
+                const hrMoved = moved * (hr / movableHits)
 
-            moved = move(single, remaining)
-            single -= moved
-            out += moved
+                single -= singleMoved
+                double -= doubleMoved
+                triple -= tripleMoved
+                hr -= hrMoved
+                out += moved
+            }
+        } else if (outOutcomeScale < 0) {
+            const moved = move(out, out * Math.abs(outOutcomeScale))
+            const totalHits = single + double + triple + hr
+
+            out -= moved
+
+            if (totalHits > 0) {
+                single += moved * (single / totalHits)
+                double += moved * (double / totalHits)
+                triple += moved * (triple / totalHits)
+                hr += moved * (hr / totalHits)
+            } else {
+                single += moved
+            }
         }
 
-        if (shiftWeight > 0 && cappedPitchQualityChange < 0) {
-            let remaining = shiftWeight
-
-            let moved = move(out, remaining)
-            out -= moved
-            single += moved
-            remaining -= moved
-
-            moved = move(single, remaining)
+        if (doubleOutcomeScale > 0) {
+            const moved = move(single, single * doubleOutcomeScale)
             single -= moved
             double += moved
-            remaining -= moved
+        } else if (doubleOutcomeScale < 0) {
+            const moved = move(double, double * Math.abs(doubleOutcomeScale))
+            double -= moved
+            single += moved
+        }
 
-            moved = move(double, remaining)
+        if (tripleOutcomeScale > 0) {
+            const moved = move(double, double * tripleOutcomeScale)
             double -= moved
             triple += moved
-            remaining -= moved
+        } else if (tripleOutcomeScale < 0) {
+            const moved = move(triple, triple * Math.abs(tripleOutcomeScale))
+            triple -= moved
+            double += moved
+        }
 
-            moved = move(triple, remaining)
+        if (homeRunOutcomeScale > 0) {
+            const moved = move(triple, triple * homeRunOutcomeScale)
             triple -= moved
             hr += moved
-        }
-
-        if (contact === Contact.GROUNDBALL) {
-            out += hr
-            hr = 0
-        }
-
-        const singleOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.singleOutcomeScale ?? 0))
-        const doubleOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.doubleOutcomeScale ?? 0))
-        const tripleOutcomeScale = Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.tripleOutcomeScale ?? 0))
-        const homeRunOutcomeScale = contact === Contact.GROUNDBALL ? 0 : Math.max(0, 1 + Number(pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality?.homeRunOutcomeScale ?? 0))
-
-        const baseSingle = single
-        const baseDouble = double
-        const baseTriple = triple
-        const baseHr = hr
-
-        const targetSingle = baseSingle * singleOutcomeScale
-        const targetDouble = baseDouble * doubleOutcomeScale
-        const targetTriple = baseTriple * tripleOutcomeScale
-        const targetHr = baseHr * homeRunOutcomeScale
-
-        const addSingle = Math.max(0, targetSingle - baseSingle)
-        const addDouble = Math.max(0, targetDouble - baseDouble)
-        const addTriple = Math.max(0, targetTriple - baseTriple)
-        const addHr = Math.max(0, targetHr - baseHr)
-        const totalAdd = addSingle + addDouble + addTriple + addHr
-
-        if (totalAdd > 0) {
-            const moved = move(out, totalAdd)
-            const fillRate = moved / totalAdd
-
-            out -= moved
-            single += addSingle * fillRate
-            double += addDouble * fillRate
-            triple += addTriple * fillRate
-            hr += addHr * fillRate
-        }
-
-        if (targetSingle < baseSingle) {
-            const moved = baseSingle - targetSingle
-            single -= moved
-            out += moved
-        }
-
-        if (targetDouble < baseDouble) {
-            const moved = baseDouble - targetDouble
-            double -= moved
-            out += moved
-        }
-
-        if (targetTriple < baseTriple) {
-            const moved = baseTriple - targetTriple
-            triple -= moved
-            out += moved
-        }
-
-        if (targetHr < baseHr) {
-            const moved = baseHr - targetHr
+        } else if (homeRunOutcomeScale < 0) {
+            const moved = move(hr, hr * Math.abs(homeRunOutcomeScale))
             hr -= moved
-            out += moved
+            triple += moved
         }
 
-        const adjustedTotal = out + single + double + triple + hr
+        const finalTotal = out + single + double + triple + hr
 
-        if (adjustedTotal <= 0) {
+        if (finalTotal <= 0) {
             throw new Error(`Empty adjusted outcomeByEvLa result totals for evBin=${finalEvBin} laBin=${finalLaBin}`)
         }
 
-        const expectedBases = (single + (double * 2) + (triple * 3) + (hr * 4)) / adjustedTotal
+        const expectedBases = (single + (double * 2) + (triple * 3) + (hr * 4)) / finalTotal
 
         return {
-            count: adjustedTotal,
+            count: finalTotal,
             out,
             single,
             double,
@@ -1034,22 +961,52 @@ class SimService {
     }
 
     private applyDefenseToOutcomeModel(command: SimPitchCommand, model: { count: number, out: number, single: number, double: number, triple: number, hr: number, evBin: number, laBin: number, expectedBases: number }, fielderPlayer: GamePlayer): { count: number, out: number, single: number, double: number, triple: number, hr: number, evBin: number, laBin: number, expectedBases: number } {
+
         const meta = command.pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.meta
 
         const teamDefense = GameInfo.getTeamDefense(command.defense)
-        const teamDefenseChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, teamDefense)
-        const fielderDefenseChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, fielderPlayer.hittingRatings.defense)
 
-        const tuningDefenseShift = Number(meta?.fullFielderDefenseBonus ?? 0) / 1000
-        const teamRatingShift = teamDefenseChange * (Number(meta?.fullTeamDefenseBonus ?? 0) / 1000)
-        const fielderRatingShift = fielderDefenseChange * (Number(meta?.fullFielderDefenseBonus ?? 0) / 1000)
-        const defenseShift = clamp(tuningDefenseShift + teamRatingShift + fielderRatingShift, -0.25, 0.25)
+        const teamDefenseChange = clamp(
+            PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, teamDefense),
+            MIN_CHANGE,
+            MAX_CHANGE
+        )
 
-        let out = model.out
-        let single = model.single
-        let double = model.double
-        let triple = model.triple
-        let hr = model.hr
+        const fielderDefenseChange = clamp(
+            PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, fielderPlayer.hittingRatings.defense),
+            MIN_CHANGE,
+            MAX_CHANGE
+        )
+
+        const fullChange = Math.max(Math.abs(MIN_CHANGE), Math.abs(MAX_CHANGE))
+
+        if (fullChange <= 0) {
+            return model
+        }
+
+        const teamDefenseBonus =
+            DEFAULT_FULL_TEAM_DEFENSE_BONUS +
+            Number(meta?.fullTeamDefenseBonus ?? 0)
+
+        const fielderDefenseBonus =
+            DEFAULT_FULL_FIELDER_DEFENSE_BONUS +
+            Number(meta?.fullFielderDefenseBonus ?? 0)
+
+        const teamDefenseShare = teamDefenseChange / fullChange
+        const fielderDefenseShare = fielderDefenseChange / fullChange
+
+        const defenseShift = clamp(
+            ((teamDefenseBonus / 1000) * teamDefenseShare) +
+            ((fielderDefenseBonus / 1000) * fielderDefenseShare),
+            -1,
+            1
+        )
+
+        let out = Math.max(0, model.out)
+        let single = Math.max(0, model.single)
+        let double = Math.max(0, model.double)
+        let triple = Math.max(0, model.triple)
+        let hr = Math.max(0, model.hr)
 
         const total = out + single + double + triple + hr
 
@@ -1057,24 +1014,33 @@ class SimService {
             return model
         }
 
-        const move = (from: number, amount: number): number => Math.min(from, Math.max(0, amount))
+        const move = (from:number, amount:number): number => {
+            return Math.min(from, Math.max(0, amount))
+        }
 
         if (defenseShift > 0) {
-            let moved = move(single, total * defenseShift)
-            single -= moved
-            out += moved
 
-            moved = move(double, total * defenseShift * 0.25)
-            double -= moved
-            single += moved
+            const convertedOuts = out * defenseShift
 
-            moved = move(triple, total * defenseShift * 0.10)
-            triple -= moved
-            double += moved
+            const singleMoved = move(single, convertedOuts * 0.80)
+            const doubleMoved = move(double, convertedOuts * 0.18)
+            const tripleMoved = move(triple, convertedOuts * 0.02)
+
+            single -= singleMoved
+            double -= doubleMoved
+            triple -= tripleMoved
+
+            out += singleMoved + doubleMoved + tripleMoved
+
         } else {
-            let moved = move(out, total * Math.abs(defenseShift))
+
+            const convertedHits = out * Math.abs(defenseShift)
+
+            const moved = move(out, convertedHits)
+
             out -= moved
             single += moved
+
         }
 
         const adjustedTotal = out + single + double + triple + hr
@@ -1083,7 +1049,13 @@ class SimService {
             return model
         }
 
-        const expectedBases = (single + (double * 2) + (triple * 3) + (hr * 4)) / adjustedTotal
+        const expectedBases =
+            (
+                single +
+                (double * 2) +
+                (triple * 3) +
+                (hr * 4)
+            ) / adjustedTotal
 
         return {
             count: adjustedTotal,
@@ -2771,22 +2743,38 @@ class SimRolls {
     getHitQuality(gameRNG: () => number, pitchEnvironmentTarget: PitchEnvironmentTarget, pitchQualityChange: number, guessPitch: boolean, contact: Contact): ContactQuality {
         const tuning = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.contactQuality
         const hitterPhysics = pitchEnvironmentTarget.importReference.hitter.physics
+
         const trajectory =
             contact === Contact.GROUNDBALL ? "groundBall" :
             contact === Contact.LINE_DRIVE ? "lineDrive" :
             "flyBall"
 
-
         const weightedPick = <T extends { count?: number }>(rows: T[]): T | undefined => {
             if (!rows.length) return undefined
 
-            const total = rows.reduce((sum, row) => sum + Math.max(0, asNumber(row.count, 0)), 0)
+            const getWeight = (row: any): number => {
+                const explicitCount = asNumber(row.count, Number.NaN)
+
+                if (Number.isFinite(explicitCount) && explicitCount > 0) {
+                    return explicitCount
+                }
+
+                return Math.max(0,
+                    asNumber(row.out, 0) +
+                    asNumber(row.single, 0) +
+                    asNumber(row.double, 0) +
+                    asNumber(row.triple, 0) +
+                    asNumber(row.hr, 0)
+                )
+            }
+
+            const total = rows.reduce((sum, row) => sum + getWeight(row), 0)
             if (total <= 0) return rows[0]
 
             let roll = Rolls.getRollUnrounded(gameRNG, 0, total)
 
             for (const row of rows) {
-                roll -= Math.max(0, asNumber(row.count, 0))
+                roll -= getWeight(row)
                 if (roll <= 0) return row
             }
 
@@ -2807,10 +2795,7 @@ class SimRolls {
 
             for (let i = 1; i < values.length; i++) {
                 const diff = values[i] - values[i - 1]
-
-                if (diff > 0 && diff < minStep) {
-                    minStep = diff
-                }
+                if (diff > 0 && diff < minStep) minStep = diff
             }
 
             return Number.isFinite(minStep) ? minStep : fallback
@@ -2856,37 +2841,8 @@ class SimRolls {
 
         const sampleMoment = (stat: { count: number, total: number, totalSquared: number, avg: number }): number => {
             const sd = _getStdDev(stat)
-
-            if (!Number.isFinite(sd) || sd <= 0) {
-                return stat.avg
-            }
-
+            if (!Number.isFinite(sd) || sd <= 0) return stat.avg
             return stat.avg + Rolls.getRollUnrounded(gameRNG, -sd, sd)
-        }
-
-        const aggregateEvLaRows = (rows: any[]): { evBin: number, laBin: number, count: number }[] => {
-            const byKey = new Map<string, { evBin: number, laBin: number, count: number }>()
-
-            for (const row of rows) {
-                if (row?.trajectory !== trajectory) continue
-
-                const evBin = asNumber(row.evBin, Number.NaN)
-                const laBin = asNumber(row.laBin, Number.NaN)
-                const count = Math.max(0, asNumber(row.count, 0))
-
-                if (!Number.isFinite(evBin) || !Number.isFinite(laBin) || count <= 0) continue
-
-                const key = `${evBin}:${laBin}`
-                const existing = byKey.get(key)
-
-                if (existing) {
-                    existing.count += count
-                } else {
-                    byKey.set(key, { evBin, laBin, count })
-                }
-            }
-
-            return Array.from(byKey.values())
         }
 
         const trajectoryPhysics: any = (hitterPhysics.byTrajectory as any)?.[trajectory]
@@ -2895,49 +2851,75 @@ class SimRolls {
             throw new Error(`Missing hitter physics for trajectory ${trajectory}`)
         }
 
+        const outcomeByEvLa = pitchEnvironmentTarget.battedBall?.outcomeByEvLa ?? []
+
+        if (outcomeByEvLa.length === 0) {
+            throw new Error("Missing outcomeByEvLa data")
+        }
+
+        const getMatchingOutcomeBuckets = (): any[] => {
+            if (contact === Contact.GROUNDBALL) {
+                return outcomeByEvLa.filter((row: any) => {
+                    const laBin = asNumber(row.laBin, Number.NaN)
+                    return Number.isFinite(laBin) && laBin < 6
+                })
+            }
+
+            if (contact === Contact.LINE_DRIVE) {
+                return outcomeByEvLa.filter((row: any) => {
+                    const laBin = asNumber(row.laBin, Number.NaN)
+                    return Number.isFinite(laBin) && laBin >= 6 && laBin < 26
+                })
+            }
+
+            const flyBallRows = outcomeByEvLa.filter((row: any) => {
+                const laBin = asNumber(row.laBin, Number.NaN)
+                return Number.isFinite(laBin) && laBin >= 26 && laBin < 38
+            })
+
+            const popupRows = outcomeByEvLa.filter((row: any) => {
+                const laBin = asNumber(row.laBin, Number.NaN)
+                return Number.isFinite(laBin) && laBin >= 38
+            })
+
+            const flyBalls = asNumber(pitchEnvironmentTarget.importReference?.hitter?.flyBalls, 0)
+            const popups = asNumber(pitchEnvironmentTarget.importReference?.hitter?.popups, 0)
+            const popupShare = (flyBalls + popups) > 0 ? popups / (flyBalls + popups) : 0
+
+            if (gameRNG() < popupShare && popupRows.length > 0) {
+                return popupRows
+            }
+
+            if (flyBallRows.length > 0) {
+                return flyBallRows
+            }
+
+            return popupRows
+        }
+
+        const matchingOutcomeBuckets = getMatchingOutcomeBuckets()
+        const sampledOutcomeBucket = weightedPick(matchingOutcomeBuckets) ?? weightedPick(outcomeByEvLa)
+
+        if (!sampledOutcomeBucket) {
+            throw new Error(`Missing sampled outcomeByEvLa bucket for trajectory ${trajectory}`)
+        }
+
         const pitchEffect = clamp(pitchQualityChange * -1, -1, 1)
         const guessEffect = guessPitch ? Math.max(0, pitchEffect) : 0
 
-        const xyByTrajectoryEvLa = (pitchEnvironmentTarget.battedBall.xy?.byTrajectoryEvLa ?? []).filter((row: any) =>
-            row?.trajectory === trajectory
-        )
+        const evStep = inferStep(outcomeByEvLa, "evBin", 2)
+        const laStep = inferStep(outcomeByEvLa, "laBin", 2)
 
-        const xyByTrajectory = (pitchEnvironmentTarget.battedBall.xy?.byTrajectory ?? []).filter((row: any) =>
-            row?.trajectory === trajectory
-        )
+        let exitVelocity =
+            asNumber((sampledOutcomeBucket as any).evBin, 0) +
+            Rolls.getRollUnrounded(gameRNG, 0, evStep)
 
-        const sprayByTrajectoryEvLa = (pitchEnvironmentTarget.battedBall.spray?.byTrajectoryEvLa ?? []).filter((row: any) =>
-            row?.trajectory === trajectory
-        )
+        let launchAngle =
+            asNumber((sampledOutcomeBucket as any).laBin, 0) +
+            Rolls.getRollUnrounded(gameRNG, 0, laStep)
 
-        const sprayByTrajectory = (pitchEnvironmentTarget.battedBall.spray?.byTrajectory ?? []).filter((row: any) =>
-            row?.trajectory === trajectory
-        )
-
-        const evLaRows = aggregateEvLaRows(xyByTrajectoryEvLa)
-        const sprayEvLaRows = aggregateEvLaRows(sprayByTrajectoryEvLa)
-        const evLaSourceRows = evLaRows.length > 0 ? evLaRows : sprayEvLaRows
-
-        const exitVelocityStat = getStat(trajectoryPhysics, "exitVelocity")
-        const launchAngleStat = getStat(trajectoryPhysics, "launchAngle")
         const distanceStat = getStat(trajectoryPhysics, "distance")
-
-        let exitVelocity: number
-        let launchAngle: number
         let distance = sampleMoment(distanceStat)
-
-        const pickedEvLa = weightedPick(evLaSourceRows)
-
-        if (pickedEvLa) {
-            const evStep = inferStep(evLaSourceRows, "evBin", 2)
-            const laStep = inferStep(evLaSourceRows, "laBin", 2)
-
-            exitVelocity = pickedEvLa.evBin + Rolls.getRollUnrounded(gameRNG, 0, evStep)
-            launchAngle = pickedEvLa.laBin + Rolls.getRollUnrounded(gameRNG, 0, laStep)
-        } else {
-            exitVelocity = sampleMoment(exitVelocityStat)
-            launchAngle = sampleMoment(launchAngleStat)
-        }
 
         exitVelocity += (asNumber(tuning?.evScale, 0) * (pitchEffect + guessEffect))
         launchAngle += (asNumber(tuning?.laScale, 0) * pitchEffect)
@@ -2948,6 +2930,11 @@ class SimRolls {
 
         const evBin = Math.floor(exitVelocity / 2) * 2
         const laBin = Math.floor(launchAngle / 2) * 2
+
+        const xyByTrajectoryEvLa = (pitchEnvironmentTarget.battedBall.xy?.byTrajectoryEvLa ?? []).filter((row: any) => row?.trajectory === trajectory)
+        const xyByTrajectory = (pitchEnvironmentTarget.battedBall.xy?.byTrajectory ?? []).filter((row: any) => row?.trajectory === trajectory)
+        const sprayByTrajectoryEvLa = (pitchEnvironmentTarget.battedBall.spray?.byTrajectoryEvLa ?? []).filter((row: any) => row?.trajectory === trajectory)
+        const sprayByTrajectory = (pitchEnvironmentTarget.battedBall.spray?.byTrajectory ?? []).filter((row: any) => row?.trajectory === trajectory)
 
         let coordX: number | undefined
         let coordY: number | undefined
@@ -3002,7 +2989,7 @@ class SimRolls {
             coordY
         }
     }
-
+    
     getSwingResult(gameRNG: () => number, hitterChange: HitterChange, pitchEnvironmentTarget: PitchEnvironmentTarget, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult {
         let pitchQualityChange = PlayerChange.getChange(AVG_PITCH_QUALITY, pitchQuality)
 

@@ -37,7 +37,7 @@ const downloaderservice = new DownloaderService("data", 1000)
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
 
 const evaluationSeed = 4
-const evaluationGames = 100
+const evaluationGames = 30
 
 const options = {
     workers: 25,
@@ -52,6 +52,7 @@ const makeTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): Pitc
             evScale: overrides?.contactQuality?.evScale ?? 0,
             laScale: overrides?.contactQuality?.laScale ?? 0,
             distanceScale: overrides?.contactQuality?.distanceScale ?? 0,
+            outOutcomeScale: overrides?.contactQuality?.outOutcomeScale ?? 0,
             singleOutcomeScale: overrides?.contactQuality?.singleOutcomeScale ?? 0,
             doubleOutcomeScale: overrides?.contactQuality?.doubleOutcomeScale ?? 0,
             tripleOutcomeScale: overrides?.contactQuality?.tripleOutcomeScale ?? 0,

@@ -52,6 +52,7 @@ const makeTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): Pitc
             evScale: overrides?.contactQuality?.evScale ?? 0,
             laScale: overrides?.contactQuality?.laScale ?? 0,
             distanceScale: overrides?.contactQuality?.distanceScale ?? 0,
+            outOutcomeScale: overrides?.contactQuality?.outOutcomeScale ?? 0,
             singleOutcomeScale: overrides?.contactQuality?.singleOutcomeScale ?? 0,
             doubleOutcomeScale: overrides?.contactQuality?.doubleOutcomeScale ?? 0,
             tripleOutcomeScale: overrides?.contactQuality?.tripleOutcomeScale ?? 0,
@@ -92,34 +93,35 @@ const makeDisabledMetaTuning = (overrides?: Partial<PitchEnvironmentTuning["tuni
     })
 }
 
+
 const HIGH_OFFENSE_TUNING: PitchEnvironmentTuning["tuning"] = makeTuning({
     contactQuality: {
-        evScale: 42,
-        laScale: -18,
-        distanceScale: 45,
+        evScale: 0,
+        laScale: 0,
+        distanceScale: 0,
         singleOutcomeScale: 0,
-        doubleOutcomeScale: 0,
-        tripleOutcomeScale: 0,        
-        homeRunOutcomeScale: 0,
-
+        doubleOutcomeScale: 0.35,
+        tripleOutcomeScale: 0.15,
+        homeRunOutcomeScale: 1.25,
+        outOutcomeScale: -0.35
     },
     swing: {
-        pitchQualityZoneSwingEffect: 12,
-        pitchQualityChaseSwingEffect: 6,
-        disciplineZoneSwingEffect: 16,
-        disciplineChaseSwingEffect: 22,
-        walkRateScale: 0
+        pitchQualityZoneSwingEffect: 0,
+        pitchQualityChaseSwingEffect: 0,
+        disciplineZoneSwingEffect: 0,
+        disciplineChaseSwingEffect: 0,
+        walkRateScale: 0.1
     },
     contact: {
-        pitchQualityContactEffect: -34,
-        contactSkillEffect: -24
+        pitchQualityContactEffect: 0,
+        contactSkillEffect: 0
     },
     running: {
         stealAttemptAggressionScale: 1.6,
-        advancementAggressionScale: 0
+        advancementAggressionScale: 1.2
     },
     meta: {
-        fullPitchQualityBonus: 350,
+        fullPitchQualityBonus: 0,
         fullTeamDefenseBonus: -100,
         fullFielderDefenseBonus: -100
     }
@@ -127,34 +129,34 @@ const HIGH_OFFENSE_TUNING: PitchEnvironmentTuning["tuning"] = makeTuning({
 
 const LOW_OFFENSE_TUNING: PitchEnvironmentTuning["tuning"] = makeTuning({
     contactQuality: {
-        evScale: -18,
-        laScale: 18,
-        distanceScale: -35,
+        evScale: 0,
+        laScale: 0,
+        distanceScale: 0,
         singleOutcomeScale: 0,
-        doubleOutcomeScale: 0,
-        tripleOutcomeScale: 0,        
-        homeRunOutcomeScale: 0,
-    
+        doubleOutcomeScale: -0.35,
+        tripleOutcomeScale: -0.15,
+        homeRunOutcomeScale: -0.75,
+        outOutcomeScale: 0.35
     },
     swing: {
-        pitchQualityZoneSwingEffect: -36,
-        pitchQualityChaseSwingEffect: 55,
-        disciplineZoneSwingEffect: -22,
-        disciplineChaseSwingEffect: 22,
-        walkRateScale: 0
+        pitchQualityZoneSwingEffect: 0,
+        pitchQualityChaseSwingEffect: 0,
+        disciplineZoneSwingEffect: 0,
+        disciplineChaseSwingEffect: 0,
+        walkRateScale: -0.1
     },
     contact: {
-        pitchQualityContactEffect: 95,
-        contactSkillEffect: 80
+        pitchQualityContactEffect: 0,
+        contactSkillEffect: 0
     },
     running: {
         stealAttemptAggressionScale: 0.1,
-        advancementAggressionScale: 0
+        advancementAggressionScale: 0.4
     },
     meta: {
-        fullPitchQualityBonus: -250,
-        fullTeamDefenseBonus: 150,
-        fullFielderDefenseBonus: 150
+        fullPitchQualityBonus: 0,
+        fullTeamDefenseBonus: 100,
+        fullFielderDefenseBonus: 100
     }
 })
 
@@ -173,7 +175,7 @@ describe("Baseball Sim Engine", async () => {
 
     it("should calculate pitch environment target for season", async () => {
         pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
-
+        console.log(JSON.stringify(pitchEnvironment))
         assert.ok(pitchEnvironment)
     })
     
