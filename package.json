@@ -19,7 +19,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "test": "node --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
+    "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
     "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
     "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
     "build": "npm run build:js && npm run build:types",
@@ -55,9 +55,8 @@
     "webpack-cli": "6.0.1",
     "seedrandom": "3.0.5",
     "mlb-stats-api": "2.0.0",
-    "uuid": "9.0.1"
-
-
+    "uuid": "9.0.1",
+    "openai": "6.37.0"
   },
   "dependencies": {
     "big.js": "7.0.1"

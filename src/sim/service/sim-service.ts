@@ -877,15 +877,15 @@ class SimService {
         const move = (from: number, amount: number): number => Math.min(from, Math.max(0, amount))
 
         if (outOutcomeScale > 0) {
-            const movableHits = single + double + triple + hr
+            const hits = single + double + triple + hr
 
-            if (movableHits > 0) {
-                const moved = move(movableHits, movableHits * outOutcomeScale)
+            if (hits > 0) {
+                const moved = move(hits, hits * outOutcomeScale)
 
-                const singleMoved = moved * (single / movableHits)
-                const doubleMoved = moved * (double / movableHits)
-                const tripleMoved = moved * (triple / movableHits)
-                const hrMoved = moved * (hr / movableHits)
+                const singleMoved = moved * (single / hits)
+                const doubleMoved = moved * (double / hits)
+                const tripleMoved = moved * (triple / hits)
+                const hrMoved = moved * (hr / hits)
 
                 single -= singleMoved
                 double -= doubleMoved
@@ -894,49 +894,73 @@ class SimService {
                 out += moved
             }
         } else if (outOutcomeScale < 0) {
+            const hits = single + double + triple + hr
             const moved = move(out, out * Math.abs(outOutcomeScale))
-            const totalHits = single + double + triple + hr
 
             out -= moved
 
-            if (totalHits > 0) {
-                single += moved * (single / totalHits)
-                double += moved * (double / totalHits)
-                triple += moved * (triple / totalHits)
-                hr += moved * (hr / totalHits)
+            if (hits > 0) {
+                single += moved * (single / hits)
+                double += moved * (double / hits)
+                triple += moved * (triple / hits)
+                hr += moved * (hr / hits)
             } else {
                 single += moved
             }
         }
 
-        if (doubleOutcomeScale > 0) {
-            const moved = move(single, single * doubleOutcomeScale)
-            single -= moved
-            double += moved
-        } else if (doubleOutcomeScale < 0) {
-            const moved = move(double, double * Math.abs(doubleOutcomeScale))
-            double -= moved
+        if (homeRunOutcomeScale > 0) {
+            const movable = single + double + triple
+
+            if (movable > 0) {
+                const moved = move(movable, movable * homeRunOutcomeScale)
+
+                const singleMoved = moved * (single / movable)
+                const doubleMoved = moved * (double / movable)
+                const tripleMoved = moved * (triple / movable)
+
+                single -= singleMoved
+                double -= doubleMoved
+                triple -= tripleMoved
+                hr += moved
+            }
+        } else if (homeRunOutcomeScale < 0) {
+            const moved = move(hr, hr * Math.abs(homeRunOutcomeScale))
+
+            hr -= moved
             single += moved
         }
 
         if (tripleOutcomeScale > 0) {
-            const moved = move(double, double * tripleOutcomeScale)
-            double -= moved
-            triple += moved
+            const movable = single + double
+
+            if (movable > 0) {
+                const moved = move(movable, movable * tripleOutcomeScale)
+
+                const singleMoved = moved * (single / movable)
+                const doubleMoved = moved * (double / movable)
+
+                single -= singleMoved
+                double -= doubleMoved
+                triple += moved
+            }
         } else if (tripleOutcomeScale < 0) {
             const moved = move(triple, triple * Math.abs(tripleOutcomeScale))
+
             triple -= moved
-            double += moved
+            single += moved
         }
 
-        if (homeRunOutcomeScale > 0) {
-            const moved = move(triple, triple * homeRunOutcomeScale)
-            triple -= moved
-            hr += moved
-        } else if (homeRunOutcomeScale < 0) {
-            const moved = move(hr, hr * Math.abs(homeRunOutcomeScale))
-            hr -= moved
-            triple += moved
+        if (doubleOutcomeScale > 0) {
+            const moved = move(single, single * doubleOutcomeScale)
+
+            single -= moved
+            double += moved
+        } else if (doubleOutcomeScale < 0) {
+            const moved = move(double, double * Math.abs(doubleOutcomeScale))
+
+            double -= moved
+            single += moved
         }
 
         const finalTotal = out + single + double + triple + hr
@@ -2070,6 +2094,24 @@ class RunnerActions {
             return Rolls.getRollUnrounded(gameRNG, 0, 1) < clampRate(clampRate(rate) * advancementMultiplier)
         }
 
+        const getMinimumSafeChance = (minimumSafeChance: number): number => {
+            const adjusted = minimumSafeChance - (advancementAggressionScale * 5)
+            return Math.max(60, Math.min(99, Math.round(adjusted)))
+        }
+
+        const shouldRiskAdvance = (rate: number | undefined, chanceRunnerSafe: number, minimumSafeChance: number): boolean => {
+            if (!shouldAdvance(rate)) return false
+
+            const adjustedMinimum = getMinimumSafeChance(minimumSafeChance)
+
+            if (chanceRunnerSafe < adjustedMinimum) {
+                const desperationRate = Math.max(0, Math.min(1, (chanceRunnerSafe / adjustedMinimum) * 0.5))
+                return Rolls.getRollUnrounded(gameRNG, 0, 1) <= desperationRate
+            }
+
+            return true
+        }
+
         const DEFAULT_SUCCESS = 95
 
         try {
@@ -2468,14 +2510,16 @@ class RunnerActions {
                     if (runnerResult.second != undefined) {
                         this.runnerToBase(runnerResult, runner2bRA, BaseResult.SECOND, BaseResult.THIRD, OfficialRunnerResult.SECOND_TO_THIRD, runnerResult.first != undefined)
 
+                        const chanceRunnerSafe = AtBatInfo.isToOF(fielderPlayer?.currentPosition) && shallowDeep != ShallowDeep.SHALLOW
+                            ? this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner2B.hittingRatings.speed, 75)
+                            : 0
+
                         const sendRunnerHome =
                             AtBatInfo.isToOF(fielderPlayer?.currentPosition) &&
                             shallowDeep != ShallowDeep.SHALLOW &&
-                            (outsBeforePlay >= 2 || shouldAdvance(advancement?.runnerOnSecondToHomeOnSingle))
+                            (outsBeforePlay >= 2 || shouldRiskAdvance(advancement?.runnerOnSecondToHomeOnSingle, chanceRunnerSafe, 90))
 
                         if (sendRunnerHome) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner2B.hittingRatings.speed, 75)
-
                             let clone: RunnerEvent = JSON.parse(JSON.stringify(runner2bRA))
                             clone.movement.start = BaseResult.THIRD
                             clone.movement.end = undefined
@@ -2510,9 +2554,15 @@ class RunnerActions {
                     if (runnerResult.first != undefined) {
                         this.runnerToBase(runnerResult, runner1bRA, BaseResult.FIRST, BaseResult.SECOND, OfficialRunnerResult.FIRST_TO_SECOND, true)
 
-                        if ((fielderPlayer.currentPosition == Position.RIGHT_FIELD || fielderPlayer.currentPosition == Position.CENTER_FIELD) && shouldAdvance(advancement?.runnerOnFirstToThirdOnSingle)) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 75)
+                        const chanceRunnerSafe = (fielderPlayer.currentPosition == Position.RIGHT_FIELD || fielderPlayer.currentPosition == Position.CENTER_FIELD)
+                            ? this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 75)
+                            : 0
 
+                        const sendRunnerToThird =
+                            (fielderPlayer.currentPosition == Position.RIGHT_FIELD || fielderPlayer.currentPosition == Position.CENTER_FIELD) &&
+                            shouldRiskAdvance(advancement?.runnerOnFirstToThirdOnSingle, chanceRunnerSafe, outsBeforePlay === 1 ? 90 : 95)
+
+                        if (sendRunnerToThird) {
                             let clone: RunnerEvent = JSON.parse(JSON.stringify(runner1bRA))
                             clone.movement.start = BaseResult.SECOND
                             clone.movement.end = undefined
@@ -2548,16 +2598,24 @@ class RunnerActions {
                     break
                 }
 
-                case PlayResult.DOUBLE:
+                case PlayResult.DOUBLE: {
+                    const outsBeforePlay = RunnerActions.getTotalOuts(allEvents)
+
                     this.runnerToBase(runnerResult, runner3bRA, BaseResult.THIRD, BaseResult.HOME, OfficialRunnerResult.THIRD_TO_HOME, (runnerResult.first != undefined && runnerResult.second != undefined))
                     this.runnerToBase(runnerResult, runner2bRA, BaseResult.SECOND, BaseResult.HOME, OfficialRunnerResult.SECOND_TO_HOME, false)
 
                     if (runnerResult.first != undefined) {
                         this.runnerToBase(runnerResult, runner1bRA, BaseResult.FIRST, BaseResult.THIRD, OfficialRunnerResult.FIRST_TO_THIRD, false)
 
-                        if (shallowDeep != ShallowDeep.SHALLOW && shouldAdvance(advancement?.runnerOnFirstToHomeOnDouble)) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 60)
+                        const chanceRunnerSafe = shallowDeep != ShallowDeep.SHALLOW
+                            ? this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 60)
+                            : 0
 
+                        const sendRunnerHome =
+                            shallowDeep != ShallowDeep.SHALLOW &&
+                            shouldRiskAdvance(advancement?.runnerOnFirstToHomeOnDouble, chanceRunnerSafe, outsBeforePlay >= 2 ? 95 : 90)
+
+                        if (sendRunnerHome) {
                             let clone: RunnerEvent = JSON.parse(JSON.stringify(runner1bRA))
                             clone.movement.start = BaseResult.THIRD
                             clone.movement.end = undefined
@@ -2591,6 +2649,7 @@ class RunnerActions {
 
                     this.runnerToBase(runnerResult, hitterRA, BaseResult.HOME, BaseResult.SECOND, PlayResult.DOUBLE, true)
                     break
+                }
 
                 case PlayResult.TRIPLE:
                     this.runnerToBase(runnerResult, runner3bRA, BaseResult.THIRD, BaseResult.HOME, OfficialRunnerResult.THIRD_TO_HOME, true)

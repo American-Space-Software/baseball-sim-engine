@@ -2182,6 +2182,19 @@ class PlayerImporterService {
         const cs = (totalHit as any).cs ?? hitterStatLine.cs ?? 0
         const sbAttempts = (totalHit as any).sbAttempts ?? hitterStatLine.sbAttempts ?? (sb + cs)
 
+        const targetHitsPerPA = safeDiv(
+            pitchEnvironment.importReference.hitter.hits,
+            pitchEnvironment.importReference.hitter.pa
+        )
+
+        const targetSinglePercent = Math.max(
+            0,
+            targetHitsPerPA -
+            Number(pitchEnvironment.outcome.doublePercent ?? 0) -
+            Number(pitchEnvironment.outcome.triplePercent ?? 0) -
+            Number(pitchEnvironment.outcome.homeRunPercent ?? 0)
+        )
+
         const actual = {
             pitchesPerPA: hitterStatLine.pitchesPerPA,
             swingAtStrikesPercent: hitterStatLine.swingAtStrikesPercent,
@@ -2230,7 +2243,7 @@ class PlayerImporterService {
             soPercent: pitchEnvironment.outcome.soPercent,
             hbpPercent: pitchEnvironment.outcome.hbpPercent,
 
-            singlePercent: pitchEnvironment.outcome.avg - pitchEnvironment.outcome.doublePercent - pitchEnvironment.outcome.triplePercent - pitchEnvironment.outcome.homeRunPercent,
+            singlePercent: targetSinglePercent,
             doublePercent: pitchEnvironment.outcome.doublePercent,
             triplePercent: pitchEnvironment.outcome.triplePercent,
             homeRunPercent: pitchEnvironment.outcome.homeRunPercent,
@@ -2300,7 +2313,6 @@ class PlayerImporterService {
                     laScale: 0,
                     distanceScale: 0,
                     outOutcomeScale: 0,
-                    singleOutcomeScale: 0,
                     doubleOutcomeScale:0,
                     tripleOutcomeScale:0,
                     homeRunOutcomeScale: 0,

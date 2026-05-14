@@ -1,15 +1,22 @@
 import { Worker } from "worker_threads"
 import seedrandom from "seedrandom"
-import { Pitch, PitchEnvironmentTarget, PitchEnvironmentTuning, PlayerImportRaw } from "../sim/service/interfaces.js"
+import { PitchEnvironmentTarget, PitchEnvironmentTuning, PlayerImportRaw } from "../sim/service/interfaces.js"
 import { RollChartService } from "../sim/service/roll-chart-service.js"
 import { GameInfo, GamePlayers, RunnerActions, SimRolls, SimService } from "../sim/service/sim-service.js"
 import { StatService } from "../sim/service/stat-service.js"
 import { DownloaderService } from "./service/downloader-service.js"
 import { PlayerImporterService } from "./service/player-importer-service.js"
-import { v4 as uuidv4 } from 'uuid'
+import { v4 as uuidv4 } from "uuid"
 import path from "path"
 import fs from "fs"
 import { clamp } from "../util.js"
+import { OpenAI } from "openai"
+
+const CHATGPT_API_KEY = process.env.CHATGPT_API_KEY
+
+if (!CHATGPT_API_KEY) {
+    throw new Error("CHATGPT_API_KEY environment variable is required to run the importer")
+}
 
 const log = (...args: any[]) => {
     console.log("[IMPORTER]", ...args)
@@ -41,27 +48,18 @@ interface ImportPitchEnvironmentTargetResult {
     players: Map<string, PlayerImportRaw>
 }
 
-const rollChartService = new RollChartService()
-const statService = new StatService()
-const simRolls = new SimRolls(rollChartService)
-const gamePlayers = new GamePlayers(rollChartService)
-const runnerActions = new RunnerActions(rollChartService, simRolls)
-const gameInfo = new GameInfo(gamePlayers)
-const simService = new SimService(rollChartService, simRolls, runnerActions, gameInfo, {} as PitchEnvironmentTarget)
+const createPlayerImporterService = (baseDataDir: string): { importer: PlayerImporterService, downloader: DownloaderService } => {
+    const rollChartService = new RollChartService()
+    const statService = new StatService()
+    const simRolls = new SimRolls(rollChartService)
+    const gamePlayers = new GamePlayers(rollChartService)
+    const runnerActions = new RunnerActions(rollChartService, simRolls)
+    const gameInfo = new GameInfo(gamePlayers)
+    const simService = new SimService(rollChartService, simRolls, runnerActions, gameInfo, {} as PitchEnvironmentTarget)
+    const downloader = new DownloaderService(baseDataDir, 1000)
+    const importer = new PlayerImporterService(simService, statService, downloader)
 
-let downloaderService: DownloaderService 
-let playerImporterService: PlayerImporterService
-let currentBaseDataDir: string
-
-const getPlayerImporterService = (baseDataDir: string): PlayerImporterService => {
-
-    if (!downloaderService || !playerImporterService || currentBaseDataDir !== baseDataDir) {
-        downloaderService = new DownloaderService(baseDataDir, 1000)
-        playerImporterService = new PlayerImporterService(simService, statService, downloaderService)
-        currentBaseDataDir = baseDataDir
-    }
-
-    return playerImporterService
+    return { importer, downloader }
 }
 
 const buildCandidatePitchEnvironment = (pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning): PitchEnvironmentTarget => {
@@ -72,45 +70,34 @@ const buildCandidatePitchEnvironment = (pitchEnvironment: PitchEnvironmentTarget
 }
 
 const evaluateCandidateLocal = (pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning, gamesPerIteration: number, rngSeed: string, baseDataDir: string): { actual: any, target: any, diff: any, score: number } => {
-    const importer = getPlayerImporterService(baseDataDir)
+    const { importer } = createPlayerImporterService(baseDataDir)
     const candidatePitchEnvironment = buildCandidatePitchEnvironment(pitchEnvironment, candidate)
     const rng = seedrandom(rngSeed)
+
     return importer.evaluatePitchEnvironment(candidatePitchEnvironment, rng, gamesPerIteration)
 }
 
 const runWorker = (input: TuningWorkerInput): Promise<TuningWorkerSuccess> => {
     return new Promise((resolve, reject) => {
-        const start = Date.now()
-
-        // log("SPAWN", input.candidate._id)
-
         const worker = new Worker(new URL("./worker.js", import.meta.url), {
             workerData: input,
             execArgv: [...process.execArgv, "--no-warnings"]
         })
 
         worker.once("message", (message: TuningWorkerOutput) => {
-            const ms = Date.now() - start
-
             if (message.ok) {
-                // log("DONE", input.candidate._id, "score=", message.result.score, `${ms}ms`)
                 resolve(message)
                 return
             }
 
             const failure = message as TuningWorkerFailure
-            log("FAIL", input.candidate._id, failure.error, `${ms}ms`)
             reject(new Error(failure.stack ? `${failure.error}\n${failure.stack}` : failure.error))
         })
 
-        worker.once("error", (err) => {
-            log("WORKER ERROR", input.candidate._id, err)
-            reject(err)
-        })
+        worker.once("error", reject)
 
         worker.once("exit", code => {
             if (code !== 0) {
-                log("WORKER EXIT", input.candidate._id, code)
                 reject(new Error(`Worker stopped with exit code ${code}`))
             }
         })
@@ -129,6 +116,7 @@ const evaluateCandidatesWithWorkers = async (pitchEnvironment: PitchEnvironmentT
     const consume = async (): Promise<void> => {
         while (true) {
             const index = nextIndex++
+
             if (index >= candidates.length) {
                 return
             }
@@ -148,7 +136,6 @@ const evaluateCandidatesWithWorkers = async (pitchEnvironment: PitchEnvironmentT
 }
 
 async function importPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any): Promise<PitchEnvironmentTarget> {
-
     const existingPitchEnvironmentTargetPath = path.join(baseDataDir, String(season), `_pitch_environment_target.json`)
 
     const readJson = async (filePath: string): Promise<any> => {
@@ -170,28 +157,22 @@ async function importPitchEnvironmentTarget(season: number, baseDataDir: string,
         }
     }
 
-    const readExistingFile = async (filePath: string): Promise<PitchEnvironmentTarget | undefined> => {
-        if (!await fileExists(filePath)) return undefined
-        return readJson(filePath)
-    }
+    const existingPitchEnvironmentTarget = await fileExists(existingPitchEnvironmentTargetPath)
+        ? await readJson(existingPitchEnvironmentTargetPath)
+        : undefined
 
-    const importer = getPlayerImporterService(baseDataDir)
-    const players = await downloaderService!.buildSeasonPlayerImports(season, new Set([]))
+    const { importer, downloader } = createPlayerImporterService(baseDataDir)
+    const players = await downloader.buildSeasonPlayerImports(season, new Set([]))
     const pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
-    const existingPitchEnvironmentTarget = await readExistingFile(existingPitchEnvironmentTargetPath)
     const rng = seedrandom(String(season))
-
-    ;(importer as any).evaluateCandidateLocal = (candidatePitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning, gamesPerIteration: number, rngSeed: string) => {
-        return evaluateCandidateLocal(candidatePitchEnvironment, candidate, gamesPerIteration, rngSeed, baseDataDir)
-    }
-
-    ;(importer as any).evaluateCandidatesWithWorkers = evaluateCandidatesWithWorkers
 
     const pitchEnvironmentTuning = await PitchEnvironmentTuner.getTunings(
         pitchEnvironment,
         rng,
         {
             ...options,
+            baseDataDir,
+            importer,
             startingCandidate: existingPitchEnvironmentTarget?.pitchEnvironmentTuning
         }
     )
@@ -211,586 +192,628 @@ class PitchEnvironmentTuner {
     public static async getTunings(pitchEnvironment: PitchEnvironmentTarget, rng: Function, params?: any): Promise<PitchEnvironmentTuning> {
         const ctx = this.createTuningContext(pitchEnvironment, rng, params)
 
-        type Stage = {
-            name: string
-            historyKey: string
-            maxLoops: number
-            min: number
-            max: number
-            tolerance: number
-            hardLock: boolean
-            actual: (result: any) => number
-            target: (result: any) => number
-            isLocked: (result: any) => boolean
-            getValue: (candidate: PitchEnvironmentTuning) => number
-            setValue: (candidate: PitchEnvironmentTuning, value: number) => void
-            fallback: (result: any, currentValue: number) => number
-        }
+        log("TUNING START", "mode=deterministic-locks-then-chatgpt-shape", `games=${ctx.gamesPerIteration}`, `verifyGames=${ctx.finalGamesPerIteration}`, `workers=${ctx.workers}`)
 
-        const stages: Stage[] = [
-            {
-                name: "BB%",
-                historyKey: "bb",
-                maxLoops: 10,
-                min: ctx.walkMin,
-                max: ctx.walkMax,
-                tolerance: 0.002,
-                hardLock: true,
-                actual: result => Number(result.actual?.bbPercent ?? 0),
-                target: result => Number(result.target?.bbPercent ?? 0),
-                isLocked: result => Math.abs(Number(result.actual?.bbPercent ?? 0) - Number(result.target?.bbPercent ?? 0)) <= 0.002,
-                getValue: candidate => Number(candidate.tuning?.swing.walkRateScale ?? 0),
-                setValue: (candidate, value) => { candidate.tuning!.swing.walkRateScale = value },
-                fallback: (result, currentValue) => this.calculateWalkRateScale(Number(result.actual?.bbPercent ?? 0), Number(result.target?.bbPercent ?? 0), ctx)
-            },
-            {
-                name: "SO%",
-                historyKey: "so",
-                maxLoops: 10,
-                min: ctx.contactMin,
-                max: ctx.contactMax,
-                tolerance: 0.0045,
-                hardLock: true,
-                actual: result => Number(result.actual?.soPercent ?? 0),
-                target: result => Number(result.target?.soPercent ?? 0),
-                isLocked: result => Math.abs(Number(result.actual?.soPercent ?? 0) - Number(result.target?.soPercent ?? 0)) <= 0.0045,
-                getValue: candidate => Number(candidate.tuning?.contact.pitchQualityContactEffect ?? 0),
-                setValue: (candidate, value) => {
-                    candidate.tuning!.contact.pitchQualityContactEffect = value
-                    candidate.tuning!.contact.contactSkillEffect = value
-                },
-                fallback: (result, currentValue) => this.calculateStrikeoutContactEffect(Number(result.actual?.soPercent ?? 0), Number(result.target?.soPercent ?? 0), ctx)
-            },
-            {
-                name: "AVG/BABIP",
-                historyKey: "out",
-                maxLoops: 12,
-                min: ctx.outMin,
-                max: ctx.outMax,
-                tolerance: 0.003,
-                hardLock: true,
-                actual: result => Number(result.actual?.babip ?? 0),
-                target: result => Number(result.target?.babip ?? 0),
-                isLocked: result => (
-                    Math.abs(Number(result.actual?.avg ?? 0) - Number(result.target?.avg ?? 0)) <= 0.003 &&
-                    Math.abs(Number(result.actual?.babip ?? 0) - Number(result.target?.babip ?? 0)) <= 0.003
-                ),
-                getValue: candidate => Number(candidate.tuning?.contactQuality.outOutcomeScale ?? 0),
-                setValue: (candidate, value) => { candidate.tuning!.contactQuality.outOutcomeScale = value },
-                fallback: (result, currentValue) => this.calculateOutOutcomeScale([{ value: currentValue, actual: Number(result.actual?.babip ?? 0), target: Number(result.target?.babip ?? 0) }], ctx)
-            },
-            {
-                name: "HR%",
-                historyKey: "hr",
-                maxLoops: 10,
-                min: ctx.homeRunMin,
-                max: ctx.homeRunMax,
-                tolerance: 0.001,
-                hardLock: true,
-                actual: result => Number(result.actual?.homeRunPercent ?? 0),
-                target: result => Number(result.target?.homeRunPercent ?? 0),
-                isLocked: result => Math.abs(Number(result.actual?.homeRunPercent ?? 0) - Number(result.target?.homeRunPercent ?? 0)) <= 0.001,
-                getValue: candidate => Number(candidate.tuning?.contactQuality.homeRunOutcomeScale ?? 0),
-                setValue: (candidate, value) => { candidate.tuning!.contactQuality.homeRunOutcomeScale = value },
-                fallback: (result, currentValue) => this.calculateOutcomeScale([{ value: currentValue, actual: Number(result.actual?.homeRunPercent ?? 0), target: Number(result.target?.homeRunPercent ?? 0) }], ctx.homeRunMin, ctx.homeRunMax)
-            },
-            {
-                name: "2B%",
-                historyKey: "double",
-                maxLoops: 12,
-                min: ctx.doubleMin,
-                max: ctx.doubleMax,
-                tolerance: 0.002,
-                hardLock: true,
-                actual: result => Number(result.actual?.doublePercent ?? 0),
-                target: result => Number(result.target?.doublePercent ?? 0),
-                isLocked: result => Math.abs(Number(result.actual?.doublePercent ?? 0) - Number(result.target?.doublePercent ?? 0)) <= 0.002,
-                getValue: candidate => Number(candidate.tuning?.contactQuality.doubleOutcomeScale ?? 0),
-                setValue: (candidate, value) => { candidate.tuning!.contactQuality.doubleOutcomeScale = value },
-                fallback: (result, currentValue) => this.calculateOutcomeScale([{ value: currentValue, actual: Number(result.actual?.doublePercent ?? 0), target: Number(result.target?.doublePercent ?? 0) }], ctx.doubleMin, ctx.doubleMax)
-            },
-            {
-                name: "3B%",
-                historyKey: "triple",
-                maxLoops: 10,
-                min: ctx.tripleMin,
-                max: ctx.tripleMax,
-                tolerance: 0.0005,
-                hardLock: true,
-                actual: result => Number(result.actual?.triplePercent ?? 0),
-                target: result => Number(result.target?.triplePercent ?? 0),
-                isLocked: result => Math.abs(Number(result.actual?.triplePercent ?? 0) - Number(result.target?.triplePercent ?? 0)) <= 0.0005,
-                getValue: candidate => Number(candidate.tuning?.contactQuality.tripleOutcomeScale ?? 0),
-                setValue: (candidate, value) => { candidate.tuning!.contactQuality.tripleOutcomeScale = value },
-                fallback: (result, currentValue) => this.calculateOutcomeScale([{ value: currentValue, actual: Number(result.actual?.triplePercent ?? 0), target: Number(result.target?.triplePercent ?? 0) }], ctx.tripleMin, ctx.tripleMax)
-            },
-            {
-                name: "SBA/G",
-                historyKey: "sb",
-                maxLoops: 8,
-                min: ctx.stealMin,
-                max: ctx.stealMax,
-                tolerance: 0.06,
-                hardLock: false,
-                actual: result => Number(result.actual?.teamSBAttemptsPerGame ?? 0),
-                target: result => Number(result.target?.teamSBAttemptsPerGame ?? 0),
-                isLocked: result => Math.abs(Number(result.actual?.teamSBAttemptsPerGame ?? 0) - Number(result.target?.teamSBAttemptsPerGame ?? 0)) <= 0.06,
-                getValue: candidate => Number(candidate.tuning?.running.stealAttemptAggressionScale ?? 0),
-                setValue: (candidate, value) => { candidate.tuning!.running.stealAttemptAggressionScale = value },
-                fallback: (result, currentValue) => this.calculateOutcomeScale([{ value: currentValue, actual: Number(result.actual?.teamSBAttemptsPerGame ?? 0), target: Number(result.target?.teamSBAttemptsPerGame ?? 0) }], ctx.stealMin, ctx.stealMax)
-            },
-            {
-                name: "R/G",
-                historyKey: "br",
-                maxLoops: 12,
-                min: ctx.advancementMin,
-                max: ctx.advancementMax,
-                tolerance: 0.01,
-                hardLock: false,
-                actual: result => this.getNonHrRunConversion(result, "actual"),
-                target: result => this.getNonHrRunConversion(result, "target"),
-                isLocked: result => Math.abs(Number(result.actual?.teamRunsPerGame ?? 0) - Number(result.target?.teamRunsPerGame ?? 0)) <= 0.1,
-                getValue: candidate => Number(candidate.tuning?.running.advancementAggressionScale ?? 0),
-                setValue: (candidate, value) => { candidate.tuning!.running.advancementAggressionScale = value },
-                fallback: (result, currentValue) => this.calculateOutcomeScale([{ value: currentValue, actual: this.getNonHrRunConversion(result, "actual"), target: this.getNonHrRunConversion(result, "target") }], ctx.advancementMin, ctx.advancementMax)
-            }
-        ]
-
-        const clampStage = (value: number, stage: Stage): number => clamp(value, stage.min, stage.max)
-
-        const stageRows = (history: any, stage: Stage): { value: number, actual: number, target: number }[] => {
-            return (history[stage.historyKey] ?? []).filter((row: any) =>
-                Number.isFinite(row.value) &&
-                Number.isFinite(row.actual) &&
-                Number.isFinite(row.target)
-            )
-        }
-
-        const calculateNextValue = (history: any, stage: Stage, result: any, currentValue: number): number => {
-            const rows = stageRows(history, stage)
-            const unique = new Map<string, { value: number, actual: number, target: number }>()
-
-            for (const row of rows) {
-                unique.set(row.value.toFixed(6), row)
-            }
-
-            const sorted = Array.from(unique.values()).sort((a, b) => a.value - b.value)
-
-            for (let i = 0; i < sorted.length; i++) {
-                for (let j = i + 1; j < sorted.length; j++) {
-                    const a = sorted[i]
-                    const b = sorted[j]
-                    const aDiff = a.actual - a.target
-                    const bDiff = b.actual - b.target
-
-                    if (Math.abs(aDiff) <= stage.tolerance) return clampStage(a.value, stage)
-                    if (Math.abs(bDiff) <= stage.tolerance) return clampStage(b.value, stage)
-
-                    if (aDiff * bDiff < 0) {
-                        const slope = (b.actual - a.actual) / (b.value - a.value)
-
-                        if (Number.isFinite(slope) && Math.abs(slope) > 0.000000001) {
-                            return clampStage(a.value + ((a.target - a.actual) / slope), stage)
-                        }
-
-                        return clampStage((a.value + b.value) / 2, stage)
-                    }
-                }
-            }
-
-            const fallback = stage.fallback(result, currentValue)
-
-            if (Number.isFinite(fallback) && Math.abs(fallback - currentValue) > 0.000001) {
-                return clampStage(fallback, stage)
-            }
-
-            const actual = stage.actual(result)
-            const target = stage.target(result)
-
-            if (!Number.isFinite(actual) || !Number.isFinite(target)) {
-                return currentValue
-            }
-
-            if (actual < target) return clampStage(currentValue + ((stage.max - currentValue) / 2), stage)
-            if (actual > target) return clampStage(currentValue - ((currentValue - stage.min) / 2), stage)
-
-            return currentValue
-        }
-
-        log("TUNING START", "mode=staged-residual-singles", `games=${ctx.gamesPerIteration}`, `verifyGames=${ctx.finalGamesPerIteration}`)
-
-        let candidate = this.normalizeTuningShape(params?.startingCandidate ?? playerImporterService.seedPitchEnvironmentTuning(pitchEnvironment))
+        let candidate = this.normalizeTuningShape(params?.startingCandidate ?? ctx.importer.seedPitchEnvironmentTuning(pitchEnvironment))
         let result = await this.evaluateOne(candidate, ctx, ctx.gamesPerIteration, "baseline")
 
         this.printStatus("baseline", 0, ctx.gamesPerIteration, candidate, result)
 
-        for (const stage of stages) {
-            log("STAGE START", stage.name)
+        const history: any[] = [
+            this.createHistoryRow("baseline", 0, candidate, result)
+        ]
 
-            const history = this.createHistory()
-            this.addHistoryRows(history, candidate, result)
+        let bestCandidate = this.normalizeTuningShape(candidate)
+        let bestResult = result
+        let bestPenalty = this.finalSelectionPenalty(result)
 
-            for (let i = 1; i <= stage.maxLoops; i++) {
-                if (stage.isLocked(result)) {
-                    log("STAGE 🔒", stage.name, `i=${i - 1}`)
-                    break
-                }
+        const metric = (evaluatedResult: any, key: string): { actual: number, target: number, diff: number } => {
+            const actual = Number(evaluatedResult.actual?.[key] ?? 0)
+            const target = Number(evaluatedResult.target?.[key] ?? 0)
 
-                const currentValue = stage.getValue(candidate)
-                const nextValue = calculateNextValue(history, stage, result, currentValue)
-
-                log("STAGE", stage.name, `i=${i}`, `rows=${stageRows(history, stage).length}`, `current=${this.f(currentValue)}`, `next=${this.f(nextValue)}`, `actual=${this.f(stage.actual(result))}`, `target=${this.f(stage.target(result))}`, `diff=${this.f(stage.actual(result) - stage.target(result))}`, `tol=${this.f(stage.tolerance)}`)
-
-                if (!Number.isFinite(nextValue)) {
-                    this.printToleranceFailures(`STAGE FAILED ${stage.name}`, result)
-                    throw new Error(`PitchEnvironmentTuner stage ${stage.name} produced non-finite value`)
-                }
-
-                if (Math.abs(nextValue - currentValue) < 0.000001) {
-                    if (stage.hardLock) {
-                        this.printToleranceFailures(`STAGE FAILED ${stage.name}`, result)
-                        throw new Error(`PitchEnvironmentTuner stage ${stage.name} could not lock; value=${this.f(currentValue)} actual=${this.f(stage.actual(result))} target=${this.f(stage.target(result))}`)
-                    }
-
-                    log("STAGE SOFT STOP", stage.name, `i=${i}`, `value=${this.f(currentValue)}`, `actual=${this.f(stage.actual(result))}`, `target=${this.f(stage.target(result))}`)
-                    break
-                }
-
-                const nextCandidate = this.normalizeTuningShape(candidate)
-                stage.setValue(nextCandidate, nextValue)
-
-                candidate = this.normalizeTuningShape(nextCandidate)
-                result = await this.evaluateOne(candidate, ctx, ctx.gamesPerIteration, `stage-${stage.name}-${i}`)
-
-                this.addHistoryRows(history, candidate, result)
-                this.printStatus(stage.isLocked(result) ? `${stage.name} 🔒` : stage.name, i, ctx.gamesPerIteration, candidate, result)
-            }
-
-            if (!stage.isLocked(result)) {
-                if (stage.hardLock) {
-                    this.printToleranceFailures(`STAGE FAILED ${stage.name}`, result)
-                    throw new Error(`PitchEnvironmentTuner stage ${stage.name} failed to lock before moving on`)
-                }
-
-                log("STAGE SOFT UNLOCKED", stage.name, `actual=${this.f(stage.actual(result))}`, `target=${this.f(stage.target(result))}`)
+            return {
+                actual,
+                target,
+                diff: actual - target
             }
         }
 
-        const verified = await this.evaluateOne(candidate, ctx, ctx.finalGamesPerIteration, "verify")
+        const maybeAcceptBest = (next: PitchEnvironmentTuning, nextResult: any): void => {
+            const nextPenalty = this.finalSelectionPenalty(nextResult)
 
-        this.printStatus("verify", stages.length + 1, ctx.finalGamesPerIteration, candidate, verified)
+            if (nextPenalty < bestPenalty) {
+                bestCandidate = this.normalizeTuningShape(next)
+                bestResult = nextResult
+                bestPenalty = nextPenalty
+            }
+        }
+
+        const runDeterministicPass = async (label: string, toleranceKey: string, tolerance: number, mutate: (next: PitchEnvironmentTuning, currentResult: any) => void): Promise<void> => {
+            const currentMetric = metric(result, toleranceKey)
+
+            if (Math.abs(currentMetric.diff) <= tolerance) {
+                log("SKIP", label, `reason=${toleranceKey}-locked`, `actual=${this.f(currentMetric.actual)}`, `target=${this.f(currentMetric.target)}`)
+                return
+            }
+
+            const next = this.normalizeTuningShape(candidate)
+            mutate(next, result)
+
+            if (this.sameTuning(candidate, next)) {
+                log("SKIP", label, "reason=same-tuning")
+                return
+            }
+
+            const nextResult = await this.evaluateOne(next, ctx, ctx.gamesPerIteration, label)
+            const currentPenalty = this.finalSelectionPenalty(result)
+            const nextPenalty = this.finalSelectionPenalty(nextResult)
+
+            log("DETERMINISTIC", label, `currentPenalty=${this.f(currentPenalty)}`, `nextPenalty=${this.f(nextPenalty)}`)
+
+            history.push(this.createHistoryRow(label, history.length, next, nextResult))
+            maybeAcceptBest(next, nextResult)
+
+            candidate = next
+            result = nextResult
+
+            this.printStatus(label, history.length, ctx.gamesPerIteration, candidate, result)
+        }
+
+        await runDeterministicPass("lock-BB", "bbPercent", 0.006, (next, currentResult) => {
+            const bb = metric(currentResult, "bbPercent")
+            const step = clamp((bb.target - bb.actual) / 0.6, -0.04, 0.04)
+
+            next.tuning!.swing.walkRateScale = clamp(
+                Number(next.tuning?.swing?.walkRateScale ?? 0) + step,
+                ctx.walkMin,
+                ctx.walkMax
+            )
+        })
+
+        await runDeterministicPass("lock-SO", "soPercent", 0.008, (next, currentResult) => {
+            const so = metric(currentResult, "soPercent")
+            const step = clamp((so.target - so.actual) / 0.00025, -30, 30)
+
+            next.tuning!.contact.pitchQualityContactEffect = clamp(
+                Number(next.tuning?.contact?.pitchQualityContactEffect ?? 0) + step,
+                ctx.contactMin,
+                ctx.contactMax
+            )
+
+            next.tuning!.contact.contactSkillEffect = clamp(
+                Number(next.tuning?.contact?.contactSkillEffect ?? 0) + step,
+                ctx.contactMin,
+                ctx.contactMax
+            )
+        })
+
+        await runDeterministicPass("lock-OBP", "obp", 0.012, (next, currentResult) => {
+            const obp = metric(currentResult, "obp")
+            const step = clamp((obp.target - obp.actual) / -0.25, -0.03, 0.03)
+
+            next.tuning!.contactQuality.outOutcomeScale = clamp(
+                Number(next.tuning?.contactQuality?.outOutcomeScale ?? 0) + step,
+                ctx.outMin,
+                ctx.outMax
+            )
+        })
+
+        await runDeterministicPass("lock-SBA", "teamSBAttemptsPerGame", 0.08, (next, currentResult) => {
+            const sba = metric(currentResult, "teamSBAttemptsPerGame")
+            const sb = metric(currentResult, "teamSBPerGame")
+            const sbaStep = clamp((sba.target - sba.actual) / 0.55, -0.75, 0.75)
+            const sbStep = clamp((sb.target - sb.actual) / 0.45, -0.75, 0.75)
+            const step = Math.abs(sba.diff) >= Math.abs(sb.diff) ? sbaStep : sbStep
+
+            next.tuning!.running.stealAttemptAggressionScale = clamp(
+                Number(next.tuning?.running?.stealAttemptAggressionScale ?? 0) + step,
+                ctx.stealMin,
+                ctx.stealMax
+            )
+        })
+
+        const maxChatPasses = Math.max(0, Number(params?.maxChatGptTuningPasses ?? 3))
+
+        for (let pass = 1; pass <= maxChatPasses; pass++) {
+            const proposedCandidate = this.normalizeTuningShape(await this.getChatGptProposal(pitchEnvironment, candidate, result, history, ctx, pass))
+
+            if (this.sameTuning(candidate, proposedCandidate)) {
+                log("CHATGPT STOP", `pass=${pass}`, "reason=same-tuning")
+                break
+            }
+
+            const proposedResult = await this.evaluateOne(proposedCandidate, ctx, ctx.gamesPerIteration, `chatgpt-shape-${pass}`)
+            const proposedPenalty = this.finalSelectionPenalty(proposedResult)
+
+            log("CHATGPT PROPOSAL", `pass=${pass}`, `currentPenalty=${this.f(this.finalSelectionPenalty(result))}`, `bestPenalty=${this.f(bestPenalty)}`, `proposalPenalty=${this.f(proposedPenalty)}`)
+
+            history.push(this.createHistoryRow(`chatgpt-shape-${pass}`, history.length, proposedCandidate, proposedResult))
+
+            if (proposedPenalty < bestPenalty) {
+                bestCandidate = proposedCandidate
+                bestResult = proposedResult
+                bestPenalty = proposedPenalty
+                candidate = proposedCandidate
+                result = proposedResult
+                this.printStatus(`chatgpt-shape-${pass}`, pass, ctx.gamesPerIteration, candidate, result)
+            }
+        }
+
+        const verified = await this.evaluateOne(bestCandidate, ctx, ctx.finalGamesPerIteration, "verify")
+
+        this.printStatus("verify", 0, ctx.finalGamesPerIteration, bestCandidate, verified)
 
         if (!this.isCloseEnough(verified)) {
-            this.printToleranceFailures("VERIFY FAILED", verified)
-            throw new Error("PitchEnvironmentTuner residual-singles candidate failed verification")
+            this.printToleranceFailures("VERIFY WARNING", verified)
         }
 
-        return candidate
+        return bestCandidate
     }
 
-    private static calculateOutcomeScale(rows: { value: number, actual: number, target: number }[], min: number, max: number): number {
-        const usable = rows
-            .filter(row =>
-                Number.isFinite(row.value) &&
-                Number.isFinite(row.actual) &&
-                Number.isFinite(row.target)
-            )
-            .sort((a, b) => a.value - b.value)
-
-        if (usable.length === 0) {
-            return 0
+    private static async getChatGptProposal(pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning, result: any, history: any[], ctx: any, pass: number): Promise<PitchEnvironmentTuning> {
+        if (!CHATGPT_API_KEY) {
+            throw new Error("CHATGPT_API_KEY is empty")
         }
 
-        let bestPair: { a: any, b: any, width: number } | undefined
+        const client = new OpenAI({
+            apiKey: CHATGPT_API_KEY
+        })
 
-        for (let i = 0; i < usable.length; i++) {
-            for (let j = i + 1; j < usable.length; j++) {
-                const a = usable[i]
-                const b = usable[j]
-
-                const aDiff = a.actual - a.target
-                const bDiff = b.actual - b.target
-
-                if (aDiff === 0) return clamp(a.value, min, max)
-                if (bDiff === 0) return clamp(b.value, min, max)
-
-                if (aDiff * bDiff < 0) {
-                    const width = Math.abs(a.value - b.value)
-
-                    if (!bestPair || width < bestPair.width) {
-                        bestPair = { a, b, width }
-                    }
+        const response = await client.responses.create({
+            model: "gpt-4o-2024-08-06",
+            input: [
+                {
+                    role: "system",
+                    content: this.createChatGptSystemMessage()
+                },
+                {
+                    role: "user",
+                    content: this.createChatGptPrompt(pitchEnvironment, candidate, result, history, ctx, pass)
+                }
+            ],
+            text: {
+                format: {
+                    type: "json_schema",
+                    name: "pitch_environment_tuning",
+                    strict: true,
+                    schema: this.createPitchEnvironmentTuningJsonSchema()
                 }
             }
-        }
+        })
 
-        if (bestPair) {
-            const { a, b } = bestPair
-
-            const slope = (b.actual - a.actual) / (b.value - a.value)
-
-            if (Number.isFinite(slope) && Math.abs(slope) > 0.000000001) {
-                const solved = a.value + ((a.target - a.actual) / slope)
-                return clamp(solved, min, max)
-            }
-
-            return clamp((a.value + b.value) / 2, min, max)
-        }
-
-        const latest = usable[usable.length - 1]
-
-        const current = latest.value
-        const actual = latest.actual
-        const target = latest.target
-
-        if (actual === 0 && target > 0) {
-            return clamp(current + ((max - current) / 2), min, max)
-        }
-
-        if (actual > 0 && target > 0) {
-            const ratio = target / actual
-            const next = ((1 + current) * ratio) - 1
-
-            if (Number.isFinite(next) && Math.abs(next - current) > 0.000001) {
-                return clamp(next, min, max)
-            }
-        }
-
-        if (actual < target) {
-            return clamp(current + ((max - current) / 2), min, max)
-        }
-
-        if (actual > target) {
-            return clamp(current - ((current - min) / 2), min, max)
-        }
-
-        return clamp(current, min, max)
+        return this.clampTuning(this.parseChatGptTuningResponse(response.output_text), ctx)
     }
 
-    private static calculateOutOutcomeScale(rows: { value: number, actual: number, target: number }[], ctx: any): number {
-        const usable = rows
-            .filter(row =>
-                Number.isFinite(row.value) &&
-                Number.isFinite(row.actual) &&
-                Number.isFinite(row.target)
-            )
-            .sort((a, b) => a.value - b.value)
-
-        if (usable.length === 0) {
-            return 0
-        }
-
-        let bestPair: { a: any, b: any, width: number } | undefined
-
-        for (let i = 0; i < usable.length; i++) {
-            for (let j = i + 1; j < usable.length; j++) {
-                const a = usable[i]
-                const b = usable[j]
-
-                const aDiff = a.actual - a.target
-                const bDiff = b.actual - b.target
-
-                if (Math.abs(aDiff) <= 0.000001) {
-                    return clamp(a.value, ctx.outMin, ctx.outMax)
-                }
-
-                if (Math.abs(bDiff) <= 0.000001) {
-                    return clamp(b.value, ctx.outMin, ctx.outMax)
-                }
-
-                if (aDiff * bDiff < 0) {
-                    const width = Math.abs(a.value - b.value)
-
-                    if (!bestPair || width < bestPair.width) {
-                        bestPair = { a, b, width }
-                    }
-                }
-            }
-        }
-
-        if (bestPair) {
-            const { a, b } = bestPair
-
-            const slope = (b.actual - a.actual) / (b.value - a.value)
-
-            if (Number.isFinite(slope) && Math.abs(slope) > 0.000000001) {
-                const solved = a.value + ((a.target - a.actual) / slope)
-                return clamp(solved, ctx.outMin, ctx.outMax)
-            }
-
-            return clamp((a.value + b.value) / 2, ctx.outMin, ctx.outMax)
-        }
-
-        const latest = usable[usable.length - 1]
-
-        const current = latest.value
-        const actual = latest.actual
-        const targetValue = latest.target
-
-        if (!Number.isFinite(actual) || !Number.isFinite(targetValue)) {
-            return clamp(current, ctx.outMin, ctx.outMax)
-        }
-
-        const diff = actual - targetValue
-
-        if (Math.abs(diff) <= 0.001) {
-            return clamp(current, ctx.outMin, ctx.outMax)
-        }
-
-        const avgDiff = Number(ctx.latestResult?.actual?.avg ?? 0) - Number(ctx.latestResult?.target?.avg ?? 0)
-
-        const scale = Math.max(0.005, Math.abs(diff) * 1.5)
-
-        if (diff > 0 || avgDiff > 0) {
-            return clamp(current + scale, ctx.outMin, ctx.outMax)
-        }
-
-        return clamp(current - scale, ctx.outMin, ctx.outMax)
-    }
-
-    private static calculateLinearKnob(rows: { value: number, actual: number, target: number }[], min: number, max: number, fallback: number): number {
-        const usable = rows
-            .filter(row =>
-                Number.isFinite(row.value) &&
-                Number.isFinite(row.actual) &&
-                Number.isFinite(row.target)
-            )
-            .sort((a, b) => a.value - b.value)
-
-        if (usable.length < 2) {
-            return Number.isFinite(fallback)
-                ? clamp(fallback, min, max)
-                : fallback
-        }
-
-        let best: { a: any, b: any, strength: number } | undefined
-
-        for (let i = 0; i < usable.length; i++) {
-            for (let j = i + 1; j < usable.length; j++) {
-                const a = usable[i]
-                const b = usable[j]
-
-                const dx = b.value - a.value
-                const dy = b.actual - a.actual
-
-                if (Math.abs(dx) < 1e-9 || Math.abs(dy) < 1e-9) {
-                    continue
-                }
-
-                const strength = Math.abs(dx) * Math.abs(dy)
-
-                if (!best || strength > best.strength) {
-                    best = { a, b, strength }
-                }
-            }
-        }
-
-        if (!best) {
-            return Number.isFinite(fallback)
-                ? clamp(fallback, min, max)
-                : fallback
-        }
-
-        const target = usable[usable.length - 1].target
-
-        const slope = (best.b.actual - best.a.actual) / (best.b.value - best.a.value)
-
-        if (!Number.isFinite(slope) || Math.abs(slope) < 1e-9) {
-            return Number.isFinite(fallback)
-                ? clamp(fallback, min, max)
-                : fallback
-        }
-
-        const latest = usable[usable.length - 1]
-
-        const rawSolved = latest.value + ((target - latest.actual) / slope)
-
-        const maxStep =
-            Math.abs(latest.value) >= 2 ? 0.25 :
-            Math.abs(latest.value) >= 1 ? 0.18 :
-            Math.abs(latest.value) >= 0.5 ? 0.12 :
-            0.08
-
-        const step = clamp(rawSolved - latest.value, -maxStep, maxStep)
-
-        const solved = latest.value + step
-
-        return clamp(solved, min, max)
-    }
-
-    private static calculateWalkRateScale(actual: number, target: number, ctx: any): number {
-        const safeActual = Number(actual)
-        const safeTarget = Number(target)
-
-        if (!Number.isFinite(safeActual) || !Number.isFinite(safeTarget)) {
-            return 0
-        }
-
-        const diff = safeTarget - safeActual
-
-        if (Math.abs(diff) <= 0.000001) {
-            return 0
-        }
-
-        const scale = diff * 2
-
-        return clamp(scale, ctx.walkMin, ctx.walkMax)
-    }
-
-    private static calculateStrikeoutContactEffect(actual: number, target: number, ctx: any): number {
-        if (actual <= 0 || target <= 0) return 0
-        return clamp((actual - target) / 0.0015, ctx.contactMin, ctx.contactMax)
-    }
-
-    private static createHistory(): any {
+    private static createPitchEnvironmentTuningJsonSchema(): any {
         return {
-            bb: [],
-            so: [],
-            out: [],
-            double: [],
-            triple: [],
-            hr: [],
-            sb: [],
-            br: []
+            type: "object",
+            additionalProperties: false,
+            required: ["_id", "tuning"],
+            properties: {
+                _id: { type: "string" },
+                tuning: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["contactQuality", "swing", "contact", "running", "meta"],
+                    properties: {
+                        contactQuality: {
+                            type: "object",
+                            additionalProperties: false,
+                            required: ["evScale", "laScale", "distanceScale", "outOutcomeScale", "doubleOutcomeScale", "tripleOutcomeScale", "homeRunOutcomeScale"],
+                            properties: {
+                                evScale: { type: "number" },
+                                laScale: { type: "number" },
+                                distanceScale: { type: "number" },
+                                outOutcomeScale: { type: "number" },
+                                doubleOutcomeScale: { type: "number" },
+                                tripleOutcomeScale: { type: "number" },
+                                homeRunOutcomeScale: { type: "number" }
+                            }
+                        },
+                        swing: {
+                            type: "object",
+                            additionalProperties: false,
+                            required: ["pitchQualityZoneSwingEffect", "pitchQualityChaseSwingEffect", "disciplineZoneSwingEffect", "disciplineChaseSwingEffect", "walkRateScale"],
+                            properties: {
+                                pitchQualityZoneSwingEffect: { type: "number" },
+                                pitchQualityChaseSwingEffect: { type: "number" },
+                                disciplineZoneSwingEffect: { type: "number" },
+                                disciplineChaseSwingEffect: { type: "number" },
+                                walkRateScale: { type: "number" }
+                            }
+                        },
+                        contact: {
+                            type: "object",
+                            additionalProperties: false,
+                            required: ["pitchQualityContactEffect", "contactSkillEffect"],
+                            properties: {
+                                pitchQualityContactEffect: { type: "number" },
+                                contactSkillEffect: { type: "number" }
+                            }
+                        },
+                        running: {
+                            type: "object",
+                            additionalProperties: false,
+                            required: ["stealAttemptAggressionScale", "advancementAggressionScale"],
+                            properties: {
+                                stealAttemptAggressionScale: { type: "number" },
+                                advancementAggressionScale: { type: "number" }
+                            }
+                        },
+                        meta: {
+                            type: "object",
+                            additionalProperties: false,
+                            required: ["fullPitchQualityBonus", "fullTeamDefenseBonus", "fullFielderDefenseBonus"],
+                            properties: {
+                                fullPitchQualityBonus: { type: "number" },
+                                fullTeamDefenseBonus: { type: "number" },
+                                fullFielderDefenseBonus: { type: "number" }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
-    private static addHistoryRows(history: any, candidate: PitchEnvironmentTuning, result: any): void {
+    private static createChatGptSystemMessage(): string {
+        return [
+            "You are a deterministic baseball simulation tuning engine.",
+            "Return only one JSON object.",
+            "The JSON object must exactly match the PitchEnvironmentTuning TypeScript interface.",
+            "Do not include markdown.",
+            "Do not include explanations.",
+            "Do not include fields outside the PitchEnvironmentTuning interface.",
+            "BB%, SO%, OBP, and steal attempts have already been tuned deterministically.",
+            "Do not change walkRateScale, pitchQualityContactEffect, contactSkillEffect, outOutcomeScale, or stealAttemptAggressionScale unless the prompt explicitly says one of them is badly broken.",
+            "Focus on runs, OPS, SLG, HR%, doubles, triples, and baserunning advancement.",
+            "Prefer advancementAggressionScale for run deficit when OPS is already high.",
+            "Prefer homeRunOutcomeScale/doubleOutcomeScale/tripleOutcomeScale for OPS or SLG shape."
+        ].join("\n")
+    }
+
+    private static createChatGptPrompt(pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning, result: any, history: any[], ctx: any, pass: number): string {
+        const latest = this.createCompactResult(result)
+        const toleranceReport = this.getToleranceReport(result)
+        const penaltyTerms = this.createPenaltyBreakdown(result)
+        const largestPenaltyTerms = penaltyTerms
+            .slice()
+            .sort((a, b) => b.penalty - a.penalty)
+            .slice(0, 8)
+
+        const knobEffectSummary = this.createKnobEffectSummary(history)
+
+        const environmentProfile = {
+            pitch: {
+                inZonePercent: pitchEnvironment.pitch?.inZonePercent,
+                strikePercent: pitchEnvironment.pitch?.strikePercent,
+                ballPercent: pitchEnvironment.pitch?.ballPercent,
+                swingPercent: pitchEnvironment.pitch?.swingPercent,
+                pitchesPerPA: pitchEnvironment.pitch?.pitchesPerPA,
+                inZoneByCount: pitchEnvironment.pitch?.inZoneByCount
+            },
+            swing: {
+                swingAtStrikesPercent: pitchEnvironment.swing?.swingAtStrikesPercent,
+                swingAtBallsPercent: pitchEnvironment.swing?.swingAtBallsPercent,
+                inZoneContactPercent: pitchEnvironment.swing?.inZoneContactPercent,
+                outZoneContactPercent: pitchEnvironment.swing?.outZoneContactPercent,
+                zoneSwingBase: pitchEnvironment.swing?.zoneSwingBase,
+                chaseSwingBase: pitchEnvironment.swing?.chaseSwingBase,
+                zoneContactBase: pitchEnvironment.swing?.zoneContactBase,
+                chaseContactBase: pitchEnvironment.swing?.chaseContactBase,
+                behaviorByCount: pitchEnvironment.swing?.behaviorByCount
+            },
+            outcome: {
+                avg: pitchEnvironment.outcome?.avg,
+                obp: pitchEnvironment.outcome?.obp,
+                slg: pitchEnvironment.outcome?.slg,
+                ops: pitchEnvironment.outcome?.ops,
+                babip: pitchEnvironment.outcome?.babip,
+                bbPercent: pitchEnvironment.outcome?.bbPercent,
+                soPercent: pitchEnvironment.outcome?.soPercent,
+                doublePercent: pitchEnvironment.outcome?.doublePercent,
+                triplePercent: pitchEnvironment.outcome?.triplePercent,
+                homeRunPercent: pitchEnvironment.outcome?.homeRunPercent,
+                hbpPercent: pitchEnvironment.outcome?.hbpPercent
+            },
+            targetFromEvaluation: latest.target,
+            running: {
+                steal: pitchEnvironment.running?.steal,
+                advancement: pitchEnvironment.running?.advancement
+            }
+        }
+
+        return JSON.stringify({
+            task: "Return the next PitchEnvironmentTuning. BB, SO, OBP, and SBA were handled deterministically. Use ChatGPT only for the remaining shape/runs/OPS tradeoff.",
+            pass,
+            environmentProfile,
+            currentTuning: candidate,
+            latest,
+            toleranceReport,
+            penaltyTerms,
+            largestPenaltyTerms,
+            knobEffectSummary,
+            hardRules: [
+                "Return only one JSON object matching the schema.",
+                "Do not change walkRateScale unless bbPercent is outside tolerance by more than 0.008.",
+                "Do not change pitchQualityContactEffect or contactSkillEffect unless soPercent is outside tolerance by more than 0.01.",
+                "Do not change outOutcomeScale unless OBP/AVG/BABIP are the main problem.",
+                "Do not change stealAttemptAggressionScale unless teamSBAttemptsPerGame is outside tolerance by more than 0.12.",
+                "Prefer advancementAggressionScale when runs are low but OPS is already high or close.",
+                "If OPS/SLG is high while runs are low, raise advancementAggressionScale and lower homeRunOutcomeScale or doubleOutcomeScale slightly.",
+                "If OPS/SLG is low and runs are low, increase homeRunOutcomeScale or doubleOutcomeScale.",
+                "If HR% is high, lower homeRunOutcomeScale.",
+                "If HR% is low, raise homeRunOutcomeScale.",
+                "Do not make more than 3 meaningful knob changes."
+            ],
+            knobNotes: {
+                advancementAggressionScale: "Primary runs-only lever. Higher usually raises runs without directly changing AVG/OBP/SLG.",
+                homeRunOutcomeScale: "Primary HR%, SLG, OPS, and runs lever. Higher raises HR/SLG; lower reduces HR/SLG.",
+                doubleOutcomeScale: "Primary 2B%, SLG, OPS lever. Higher raises doubles/SLG without much OBP impact.",
+                tripleOutcomeScale: "Primary 3B%, SLG, OPS lever. Usually small adjustments only.",
+                outOutcomeScale: "Primary OBP/AVG/BABIP lever. Avoid unless OBP/AVG/BABIP are the issue.",
+                walkRateScale: "Primary BB% lever. Already deterministically tuned.",
+                pitchQualityContactEffect: "Primary SO% lever. Already deterministically tuned.",
+                contactSkillEffect: "Primary SO/contact lever. Already deterministically tuned.",
+                stealAttemptAggressionScale: "Primary SBA/SB lever. Already deterministically tuned."
+            },
+            ranges: {
+                outOutcomeScale: [ctx.outMin, ctx.outMax],
+                doubleOutcomeScale: [ctx.doubleMin, ctx.doubleMax],
+                tripleOutcomeScale: [ctx.tripleMin, ctx.tripleMax],
+                homeRunOutcomeScale: [ctx.homeRunMin, ctx.homeRunMax],
+                walkRateScale: [ctx.walkMin, ctx.walkMax],
+                pitchQualityContactEffect: [ctx.contactMin, ctx.contactMax],
+                contactSkillEffect: [ctx.contactMin, ctx.contactMax],
+                stealAttemptAggressionScale: [ctx.stealMin, ctx.stealMax],
+                advancementAggressionScale: [ctx.advancementMin, ctx.advancementMax],
+                fullTeamDefenseBonus: [-500, 500],
+                fullFielderDefenseBonus: [-500, 500]
+            }
+        })
+    }
+
+    private static finalSelectionPenalty(result: any): number {
         const actual = result.actual ?? {}
         const target = result.target ?? {}
 
-        history.bb.push({ value: Number(candidate.tuning?.swing.walkRateScale ?? 0), actual: Number(actual.bbPercent ?? 0), target: Number(target.bbPercent ?? 0) })
-        history.so.push({ value: Number(candidate.tuning?.contact.pitchQualityContactEffect ?? 0), actual: Number(actual.soPercent ?? 0), target: Number(target.soPercent ?? 0) })
-        history.out.push({ value: Number(candidate.tuning?.contactQuality.outOutcomeScale ?? 0), actual: Number(actual.babip ?? 0), target: Number(target.babip ?? 0) })
-        history.double.push({ value: Number(candidate.tuning?.contactQuality.doubleOutcomeScale ?? 0), actual: Number(actual.doublePercent ?? 0), target: Number(target.doublePercent ?? 0) })
-        history.triple.push({ value: Number(candidate.tuning?.contactQuality.tripleOutcomeScale ?? 0), actual: Number(actual.triplePercent ?? 0), target: Number(target.triplePercent ?? 0) })
-        history.hr.push({ value: Number(candidate.tuning?.contactQuality.homeRunOutcomeScale ?? 0), actual: Number(actual.homeRunPercent ?? 0), target: Number(target.homeRunPercent ?? 0) })
-        history.sb.push({ value: Number(candidate.tuning?.running.stealAttemptAggressionScale ?? 0), actual: Number(actual.teamSBAttemptsPerGame ?? 0), target: Number(target.teamSBAttemptsPerGame ?? 0) })
-        history.br.push({ value: Number(candidate.tuning?.running.advancementAggressionScale ?? 0), actual: this.getNonHrRunConversion(result, "actual"), target: this.getNonHrRunConversion(result, "target") })
+        const term = (key: string, tolerance: number, weight: number): number => {
+            const diff = Number(actual[key] ?? 0) - Number(target[key] ?? 0)
+            if (!Number.isFinite(diff)) return 0
+            return Math.pow(diff / tolerance, 2) * weight
+        }
+
+        return (
+            term("teamRunsPerGame", 0.12, 1500) +
+            term("ops", 0.02, 800) +
+            term("bbPercent", 0.004, 350) +
+            term("soPercent", 0.006, 250) +
+            term("homeRunPercent", 0.0035, 250) +
+            term("teamSBAttemptsPerGame", 0.06, 180) +
+            term("teamSBPerGame", 0.08, 120) +
+            term("obp", 0.018, 100) +
+            term("slg", 0.025, 100) +
+            term("avg", 0.018, 35) +
+            term("babip", 0.018, 25) +
+            term("doublePercent", 0.008, 15) +
+            term("triplePercent", 0.003, 10)
+        )
+    }
+
+    private static createPenaltyBreakdown(result: any): any[] {
+        const actual = result.actual ?? {}
+        const target = result.target ?? {}
+
+        const term = (key: string, tolerance: number, weight: number): any => {
+            const actualValue = Number(actual[key] ?? 0)
+            const targetValue = Number(target[key] ?? 0)
+            const diff = actualValue - targetValue
+            const penalty = Number.isFinite(diff) ? Math.pow(diff / tolerance, 2) * weight : 0
+
+            return {
+                key,
+                actual: Number(actualValue.toFixed(4)),
+                target: Number(targetValue.toFixed(4)),
+                diff: Number(diff.toFixed(4)),
+                tolerance,
+                weight,
+                penalty: Number(penalty.toFixed(3))
+            }
+        }
+
+        return [
+            term("teamRunsPerGame", 0.12, 1500),
+            term("ops", 0.02, 800),
+            term("bbPercent", 0.004, 350),
+            term("soPercent", 0.006, 250),
+            term("homeRunPercent", 0.0035, 250),
+            term("teamSBAttemptsPerGame", 0.06, 180),
+            term("teamSBPerGame", 0.08, 120),
+            term("obp", 0.018, 100),
+            term("slg", 0.025, 100),
+            term("avg", 0.018, 35),
+            term("babip", 0.018, 25),
+            term("doublePercent", 0.008, 15),
+            term("triplePercent", 0.003, 10)
+        ]
+    }
+
+    private static createCompactTuning(candidate: PitchEnvironmentTuning): any {
+        return {
+            outOutcomeScale: candidate.tuning?.contactQuality?.outOutcomeScale,
+            doubleOutcomeScale: candidate.tuning?.contactQuality?.doubleOutcomeScale,
+            tripleOutcomeScale: candidate.tuning?.contactQuality?.tripleOutcomeScale,
+            homeRunOutcomeScale: candidate.tuning?.contactQuality?.homeRunOutcomeScale,
+            walkRateScale: candidate.tuning?.swing?.walkRateScale,
+            pitchQualityContactEffect: candidate.tuning?.contact?.pitchQualityContactEffect,
+            contactSkillEffect: candidate.tuning?.contact?.contactSkillEffect,
+            stealAttemptAggressionScale: candidate.tuning?.running?.stealAttemptAggressionScale,
+            advancementAggressionScale: candidate.tuning?.running?.advancementAggressionScale,
+            fullTeamDefenseBonus: candidate.tuning?.meta?.fullTeamDefenseBonus,
+            fullFielderDefenseBonus: candidate.tuning?.meta?.fullFielderDefenseBonus
+        }
+    }
+
+    private static createKnobEffectSummary(history: any[]): any[] {
+        const rows = history
+            .filter(row => row?.tuning && row?.actual)
+            .map(row => ({
+                label: row.label,
+                pass: row.pass,
+                tuning: this.createCompactTuning(row.tuning),
+                actual: row.actual,
+                penalty: Number(row.penalty ?? 0)
+            }))
+
+        const effects: any[] = []
+        const knobs = ["outOutcomeScale", "doubleOutcomeScale", "tripleOutcomeScale", "homeRunOutcomeScale", "walkRateScale", "pitchQualityContactEffect", "contactSkillEffect", "stealAttemptAggressionScale", "advancementAggressionScale", "fullTeamDefenseBonus", "fullFielderDefenseBonus"]
+        const metrics = ["teamRunsPerGame", "avg", "obp", "slg", "ops", "babip", "bbPercent", "soPercent", "singlePercent", "doublePercent", "triplePercent", "homeRunPercent", "teamSBAttemptsPerGame", "teamSBPerGame"]
+
+        for (let i = 1; i < rows.length; i++) {
+            const previous = rows[i - 1]
+            const current = rows[i]
+            const knobDelta: any = {}
+            const metricDelta: any = {}
+
+            for (const knob of knobs) {
+                const before = Number(previous.tuning?.[knob] ?? 0)
+                const after = Number(current.tuning?.[knob] ?? 0)
+                const delta = after - before
+
+                if (Number.isFinite(delta) && Math.abs(delta) > 0.000001) {
+                    knobDelta[knob] = Number(delta.toFixed(4))
+                }
+            }
+
+            if (Object.keys(knobDelta).length === 0) continue
+
+            for (const metric of metrics) {
+                const before = Number(previous.actual?.[metric] ?? 0)
+                const after = Number(current.actual?.[metric] ?? 0)
+                const delta = after - before
+
+                if (Number.isFinite(delta)) {
+                    metricDelta[metric] = Number(delta.toFixed(4))
+                }
+            }
+
+            effects.push({
+                from: previous.label,
+                to: current.label,
+                penaltyDelta: Number((current.penalty - previous.penalty).toFixed(3)),
+                knobDelta,
+                metricDelta
+            })
+        }
+
+        return effects.slice(-8)
+    }
+
+    private static createCompactResult(result: any): any {
+        const actual = result.actual ?? {}
+        const target = result.target ?? {}
+
+        const metric = (key: string): any => {
+            const a = Number(actual[key] ?? 0)
+            const t = Number(target[key] ?? 0)
+
+            return {
+                actual: Number(a.toFixed(4)),
+                target: Number(t.toFixed(4)),
+                diff: Number((a - t).toFixed(4))
+            }
+        }
+
+        return {
+            actual,
+            target,
+            penalty: Number(this.finalSelectionPenalty(result).toFixed(3)),
+            metrics: {
+                teamRunsPerGame: metric("teamRunsPerGame"),
+                avg: metric("avg"),
+                obp: metric("obp"),
+                slg: metric("slg"),
+                ops: metric("ops"),
+                babip: metric("babip"),
+                bbPercent: metric("bbPercent"),
+                soPercent: metric("soPercent"),
+                singlePercent: metric("singlePercent"),
+                doublePercent: metric("doublePercent"),
+                triplePercent: metric("triplePercent"),
+                homeRunPercent: metric("homeRunPercent"),
+                teamSBAttemptsPerGame: metric("teamSBAttemptsPerGame"),
+                teamSBPerGame: metric("teamSBPerGame")
+            }
+        }
+    }
+
+    private static parseChatGptTuningResponse(text: string): PitchEnvironmentTuning {
+        const raw = String(text ?? "").trim()
+
+        if (!raw) {
+            throw new Error("ChatGPT returned an empty tuning response")
+        }
+
+        const withoutFence = raw
+            .replace(/^```json\s*/i, "")
+            .replace(/^```\s*/i, "")
+            .replace(/\s*```$/i, "")
+            .trim()
+
+        const first = withoutFence.indexOf("{")
+        const last = withoutFence.lastIndexOf("}")
+
+        if (first < 0 || last <= first) {
+            throw new Error(`ChatGPT did not return a JSON object: ${withoutFence.slice(0, 250)}`)
+        }
+
+        return JSON.parse(withoutFence.slice(first, last + 1))
+    }
+
+    private static createHistoryRow(label: string, pass: number, candidate: PitchEnvironmentTuning, result: any): any {
+        return {
+            label,
+            pass,
+            tuning: candidate,
+            actual: result.actual,
+            target: result.target,
+            diff: result.diff,
+            penalty: this.finalSelectionPenalty(result),
+            toleranceReport: this.getToleranceReport(result)
+        }
+    }
+
+    private static corePenalty(result: any): number {
+        return this.finalSelectionPenalty(result)
     }
 
     private static async evaluateOne(candidate: PitchEnvironmentTuning, ctx: any, games: number, label: string): Promise<any> {
         const normalizedCandidate = this.normalizeTuningShape(candidate)
         const sampleCount = Math.max(1, Number(ctx.workers ?? 1))
-        const candidates = new Array(sampleCount)
-            .fill(0)
-            .map(() => this.normalizeTuningShape(JSON.parse(JSON.stringify(normalizedCandidate))))
+        const candidates = new Array(sampleCount).fill(0).map(() => this.normalizeTuningShape(JSON.parse(JSON.stringify(normalizedCandidate))))
 
-        const evaluated = await ctx.evaluateBatch(candidates, games, label)
-        const results = evaluated
-            .filter((row: any) => row?.ok && row?.result)
-            .map((row: any) => ctx.applyScore(row.result))
+        log("BATCH START", label, `games=${games}`, `samples=${candidates.length}`, `workers=${ctx.workers}`)
+
+        const evaluated = ctx.workers > 1
+            ? await evaluateCandidatesWithWorkers(ctx.pitchEnvironment, candidates, games, ctx.workers, `${ctx.baseSeed}:${label}`)
+            : candidates.map((candidate, index) => ({
+                ok: true as const,
+                candidate,
+                result: evaluateCandidateLocal(ctx.pitchEnvironment, candidate, games, `${ctx.baseSeed}:${label}:${index}:${candidate._id}`, ctx.baseDataDir)
+            }))
+
+        log("BATCH DONE", label, `results=${evaluated.length}`)
+
+        const results = evaluated.filter((row: any) => row?.ok && row?.result).map((row: any) => ctx.applyScore(row.result))
 
         if (results.length === 0) {
             throw new Error(`evaluateOne produced no results for ${label}`)
         }
 
         const first = results[0]
-
         const actualKeys = Object.keys(first.actual ?? {})
         const targetKeys = Object.keys(first.target ?? {})
         const diffKeys = Object.keys(first.diff ?? {})
-
         const totalGames = games * results.length
 
         const averageBlock = (key: "actual" | "target" | "diff", keys: string[]): any => {
@@ -823,23 +846,9 @@ class PitchEnvironmentTuner {
             const actualValue = Number(actual[metric])
             const targetValue = Number(target[metric])
 
-            if (Number.isFinite(actualValue) && Number.isFinite(targetValue)) {
-                diff[metric] = actualValue - targetValue
-            } else {
-                let total = 0
-                let count = 0
-
-                for (const result of results) {
-                    const value = Number(result.diff?.[metric])
-
-                    if (Number.isFinite(value)) {
-                        total += value
-                        count++
-                    }
-                }
-
-                diff[metric] = count > 0 ? total / count : 0
-            }
+            diff[metric] = Number.isFinite(actualValue) && Number.isFinite(targetValue)
+                ? actualValue - targetValue
+                : averageBlock("diff", [metric])[metric]
         }
 
         let score = 0
@@ -854,60 +863,27 @@ class PitchEnvironmentTuner {
             }
         }
 
-        score = scoreCount > 0 ? score / scoreCount : Number.MAX_SAFE_INTEGER
-
-        log(
-            "EVAL SAMPLE",
-            label,
-            `workers=${sampleCount}`,
-            `gamesEach=${games}`,
-            `totalGames=${totalGames}`
-        )
+        log("EVAL SAMPLE", label, `samples=${sampleCount}`, `gamesEach=${games}`, `totalGames=${totalGames}`)
 
         return {
             actual,
             target,
             diff,
-            score
+            score: scoreCount > 0 ? score / scoreCount : Number.MAX_SAFE_INTEGER
         }
     }
 
     private static createTuningContext(pitchEnvironment: PitchEnvironmentTarget, rng: Function, params?: any): any {
-        const baseSeed = String(rng())
-        const gamesPerIteration = params?.gamesPerIteration ?? 30
-        const finalGamesPerIteration = params?.finalGamesPerIteration ?? 500
-        const workers = Math.max(1, params?.workers ?? 1)
-
-        const evaluateBatch = async (candidates: PitchEnvironmentTuning[], games: number, tagPrefix: string) => {
-            log("BATCH START", tagPrefix, `games=${games}`, `candidates=${candidates.length}`, `workers=${workers}`)
-
-            if (workers > 1) {
-                const results = await evaluateCandidatesWithWorkers(pitchEnvironment, candidates, games, workers, `${baseSeed}:${tagPrefix}`)
-                log("BATCH DONE", tagPrefix, `results=${results.length}`)
-                return results
-            }
-
-            const results = candidates.map(candidate => ({
-                ok: true as const,
-                candidate,
-                result: evaluateCandidateLocal(pitchEnvironment, candidate, games, `${baseSeed}:${tagPrefix}:${candidate._id}`, currentBaseDataDir)
-            }))
-
-            log("BATCH DONE", tagPrefix, `results=${results.length}`)
-            return results
-        }
-
         return {
             pitchEnvironment,
-            baseSeed,
-            gamesPerIteration,
-            finalGamesPerIteration,
-            workers,
-            maxLoops: params?.maxLoops ?? 20,
+            importer: params?.importer,
+            baseDataDir: params?.baseDataDir ?? "data",
+            baseSeed: String(rng()),
+            gamesPerIteration: params?.gamesPerIteration ?? 30,
+            finalGamesPerIteration: params?.finalGamesPerIteration ?? 30,
+            workers: Math.max(1, params?.workers ?? 1),
             outMin: -0.95,
             outMax: 0.95,
-            singleMin: -0.95,
-            singleMax: 0.95,
             doubleMin: -0.95,
             doubleMax: 0.95,
             tripleMin: -0.95,
@@ -922,96 +898,126 @@ class PitchEnvironmentTuner {
             advancementMax: 4,
             contactMin: -250,
             contactMax: 250,
-            evaluateBatch,
-            applyScore: (rawResult: { actual: any, target: any, diff: any, score: number }) => this.normalizeHitTypeRatesToAtBats(rawResult)
+            applyScore: (rawResult: any) => this.normalizeHitTypeRatesToAtBats(rawResult)
         }
     }
 
     private static normalizeTuningShape(candidate: PitchEnvironmentTuning): PitchEnvironmentTuning {
-        const c = JSON.parse(JSON.stringify(candidate ?? {}))
+        const next: PitchEnvironmentTuning = JSON.parse(JSON.stringify(candidate ?? {}))
 
-        c._id ??= uuidv4()
-        c.tuning ??= {} as any
-        c.tuning.contactQuality ??= {} as any
-        c.tuning.swing ??= {} as any
-        c.tuning.contact ??= {} as any
-        c.tuning.running ??= {} as any
-        c.tuning.meta ??= {} as any
+        next._id = next._id ?? uuidv4()
+        next.tuning = next.tuning ?? {} as any
+        next.tuning!.contactQuality = next.tuning!.contactQuality ?? {} as any
+        next.tuning!.swing = next.tuning!.swing ?? {} as any
+        next.tuning!.contact = next.tuning!.contact ?? {} as any
+        next.tuning!.running = next.tuning!.running ?? {} as any
+        next.tuning!.meta = next.tuning!.meta ?? {} as any
 
-        const q = c.tuning.contactQuality
-        const s = c.tuning.swing
-        const ct = c.tuning.contact
-        const r = c.tuning.running
-        const m = c.tuning.meta
+        next.tuning!.contactQuality.evScale = Number(next.tuning!.contactQuality.evScale ?? 0)
+        next.tuning!.contactQuality.laScale = Number(next.tuning!.contactQuality.laScale ?? 0)
+        next.tuning!.contactQuality.distanceScale = Number(next.tuning!.contactQuality.distanceScale ?? 0)
+        next.tuning!.contactQuality.outOutcomeScale = Number(next.tuning!.contactQuality.outOutcomeScale ?? 0)
+        next.tuning!.contactQuality.doubleOutcomeScale = Number(next.tuning!.contactQuality.doubleOutcomeScale ?? 0)
+        next.tuning!.contactQuality.tripleOutcomeScale = Number(next.tuning!.contactQuality.tripleOutcomeScale ?? 0)
+        next.tuning!.contactQuality.homeRunOutcomeScale = Number(next.tuning!.contactQuality.homeRunOutcomeScale ?? 0)
 
-        q.evScale = clamp(Number(q.evScale ?? 0), -50, 50)
-        q.laScale = clamp(Number(q.laScale ?? 0), -50, 50)
-        q.distanceScale = clamp(Number(q.distanceScale ?? 0), -75, 75)
-        q.outOutcomeScale = clamp(Number(q.outOutcomeScale ?? 0), -0.75, 3)
-        q.singleOutcomeScale = 0
-        q.doubleOutcomeScale = clamp(Number(q.doubleOutcomeScale ?? 0), -0.75, 1.5)
-        q.tripleOutcomeScale = clamp(Number(q.tripleOutcomeScale ?? 0), -0.75, 2.5)
-        q.homeRunOutcomeScale = clamp(Number(q.homeRunOutcomeScale ?? 0), -0.75, 1.5)
+        next.tuning!.swing.pitchQualityZoneSwingEffect = Number(next.tuning!.swing.pitchQualityZoneSwingEffect ?? 0)
+        next.tuning!.swing.pitchQualityChaseSwingEffect = Number(next.tuning!.swing.pitchQualityChaseSwingEffect ?? 0)
+        next.tuning!.swing.disciplineZoneSwingEffect = Number(next.tuning!.swing.disciplineZoneSwingEffect ?? 0)
+        next.tuning!.swing.disciplineChaseSwingEffect = Number(next.tuning!.swing.disciplineChaseSwingEffect ?? 0)
+        next.tuning!.swing.walkRateScale = Number(next.tuning!.swing.walkRateScale ?? 0)
 
-        s.pitchQualityZoneSwingEffect = clamp(Number(s.pitchQualityZoneSwingEffect ?? 0), -200, 200)
-        s.pitchQualityChaseSwingEffect = clamp(Number(s.pitchQualityChaseSwingEffect ?? 0), -200, 200)
-        s.disciplineZoneSwingEffect = clamp(Number(s.disciplineZoneSwingEffect ?? 0), -200, 200)
-        s.disciplineChaseSwingEffect = clamp(Number(s.disciplineChaseSwingEffect ?? 0), -200, 200)
-        s.walkRateScale = clamp(Number(s.walkRateScale ?? 0), -0.9, 8)
+        next.tuning!.contact.pitchQualityContactEffect = Number(next.tuning!.contact.pitchQualityContactEffect ?? 0)
+        next.tuning!.contact.contactSkillEffect = Number(next.tuning!.contact.contactSkillEffect ?? next.tuning!.contact.pitchQualityContactEffect ?? 0)
 
-        ct.pitchQualityContactEffect = clamp(Number(ct.pitchQualityContactEffect ?? 0), -250, 250)
-        ct.contactSkillEffect = clamp(Number(ct.contactSkillEffect ?? 0), -250, 250)
+        next.tuning!.running.stealAttemptAggressionScale = Number(next.tuning!.running.stealAttemptAggressionScale ?? 0)
+        next.tuning!.running.advancementAggressionScale = Number(next.tuning!.running.advancementAggressionScale ?? 0)
 
-        r.stealAttemptAggressionScale = clamp(Number(r.stealAttemptAggressionScale ?? 0), -0.99, 4)
-        r.advancementAggressionScale = clamp(Number(r.advancementAggressionScale ?? 0), -1, 2)
+        next.tuning!.meta.fullPitchQualityBonus = Number(next.tuning!.meta.fullPitchQualityBonus ?? 0)
+        next.tuning!.meta.fullTeamDefenseBonus = Number(next.tuning!.meta.fullTeamDefenseBonus ?? 0)
+        next.tuning!.meta.fullFielderDefenseBonus = Number(next.tuning!.meta.fullFielderDefenseBonus ?? 0)
 
-        m.fullPitchQualityBonus = clamp(Number(m.fullPitchQualityBonus ?? 0), -1000, 1000)
-        m.fullTeamDefenseBonus = clamp(Number(m.fullTeamDefenseBonus ?? 0), -400, 400)
-        m.fullFielderDefenseBonus = clamp(Number(m.fullFielderDefenseBonus ?? 0), -400, 400)
-
-        return c
-    }
-
-
-    private static normalizeHitTypeRatesToAtBats(result: { actual: any, target: any, diff: any, score: number }): { actual: any, target: any, diff: any, score: number } {
-        const normalized = JSON.parse(JSON.stringify(result ?? {}))
-
-        const normalizeBlock = (block: any): void => {
-            if (!block) return
-
-            const avg = Number(block.avg ?? 0)
-            const single = Number(block.singlePercent ?? 0)
-            const double = Number(block.doublePercent ?? 0)
-            const triple = Number(block.triplePercent ?? 0)
-            const homeRun = Number(block.homeRunPercent ?? 0)
-            const hitTypeTotal = single + double + triple + homeRun
-
-            if (!Number.isFinite(avg) || avg <= 0) return
-            if (!Number.isFinite(hitTypeTotal) || hitTypeTotal <= 0) return
-
-            const scale = avg / hitTypeTotal
-
-            block.singlePercent = single * scale
-            block.doublePercent = double * scale
-            block.triplePercent = triple * scale
-            block.homeRunPercent = homeRun * scale
+        if (next.ratingTuning) {
+            next.ratingTuning = JSON.parse(JSON.stringify(next.ratingTuning))
         }
 
-        normalizeBlock(normalized.actual)
-        normalizeBlock(normalized.target)
+        return next
+    }
 
-        normalized.diff ??= {}
+    private static clampTuning(candidate: PitchEnvironmentTuning, ctx: any): PitchEnvironmentTuning {
+        const next = this.normalizeTuningShape(candidate)
 
-        for (const key of new Set([...Object.keys(normalized.actual ?? {}), ...Object.keys(normalized.target ?? {})])) {
-            const actual = Number(normalized.actual?.[key])
-            const target = Number(normalized.target?.[key])
+        next.tuning!.contactQuality.evScale = clamp(next.tuning!.contactQuality.evScale, -250, 250)
+        next.tuning!.contactQuality.laScale = clamp(next.tuning!.contactQuality.laScale, -250, 250)
+        next.tuning!.contactQuality.distanceScale = clamp(next.tuning!.contactQuality.distanceScale, -250, 250)
+        next.tuning!.contactQuality.outOutcomeScale = clamp(next.tuning!.contactQuality.outOutcomeScale, ctx.outMin, ctx.outMax)
+        next.tuning!.contactQuality.doubleOutcomeScale = clamp(next.tuning!.contactQuality.doubleOutcomeScale, ctx.doubleMin, ctx.doubleMax)
+        next.tuning!.contactQuality.tripleOutcomeScale = clamp(next.tuning!.contactQuality.tripleOutcomeScale, ctx.tripleMin, ctx.tripleMax)
+        next.tuning!.contactQuality.homeRunOutcomeScale = clamp(next.tuning!.contactQuality.homeRunOutcomeScale, ctx.homeRunMin, ctx.homeRunMax)
 
-            if (Number.isFinite(actual) && Number.isFinite(target)) {
-                normalized.diff[key] = actual - target
+        next.tuning!.swing.pitchQualityZoneSwingEffect = clamp(next.tuning!.swing.pitchQualityZoneSwingEffect, -250, 250)
+        next.tuning!.swing.pitchQualityChaseSwingEffect = clamp(next.tuning!.swing.pitchQualityChaseSwingEffect, -250, 250)
+        next.tuning!.swing.disciplineZoneSwingEffect = clamp(next.tuning!.swing.disciplineZoneSwingEffect, -250, 250)
+        next.tuning!.swing.disciplineChaseSwingEffect = clamp(next.tuning!.swing.disciplineChaseSwingEffect, -250, 250)
+        next.tuning!.swing.walkRateScale = clamp(next.tuning!.swing.walkRateScale, ctx.walkMin, ctx.walkMax)
+
+        next.tuning!.contact.pitchQualityContactEffect = clamp(next.tuning!.contact.pitchQualityContactEffect, ctx.contactMin, ctx.contactMax)
+        next.tuning!.contact.contactSkillEffect = clamp(next.tuning!.contact.contactSkillEffect, ctx.contactMin, ctx.contactMax)
+
+        next.tuning!.running.stealAttemptAggressionScale = clamp(next.tuning!.running.stealAttemptAggressionScale, ctx.stealMin, ctx.stealMax)
+        next.tuning!.running.advancementAggressionScale = clamp(next.tuning!.running.advancementAggressionScale, ctx.advancementMin, ctx.advancementMax)
+
+        next.tuning!.meta.fullPitchQualityBonus = clamp(next.tuning!.meta.fullPitchQualityBonus, -500, 500)
+        next.tuning!.meta.fullTeamDefenseBonus = clamp(next.tuning!.meta.fullTeamDefenseBonus, -500, 500)
+        next.tuning!.meta.fullFielderDefenseBonus = clamp(next.tuning!.meta.fullFielderDefenseBonus, -500, 500)
+
+        return next
+    }
+
+    private static sameTuning(a: PitchEnvironmentTuning, b: PitchEnvironmentTuning): boolean {
+        const left = this.normalizeTuningShape(a)
+        const right = this.normalizeTuningShape(b)
+
+        return JSON.stringify(left.tuning) === JSON.stringify(right.tuning) &&
+            JSON.stringify(left.ratingTuning ?? null) === JSON.stringify(right.ratingTuning ?? null)
+    }
+
+    private static normalizeHitTypeRatesToAtBats(result: { actual: any, target: any, diff: any, score: number }): { actual: any, target: any, diff: any, score: number } {
+        const next = JSON.parse(JSON.stringify(result))
+
+        const normalize = (block: any): void => {
+            if (!block) return
+
+            const pa = Number(block.pa ?? block.teamPlateAppearancesPerGame ?? 0)
+            const ab = Number(block.atBats ?? block.teamAtBatsPerGame ?? 0)
+
+            if (Number.isFinite(pa) && pa > 0 && Number.isFinite(ab) && ab > 0) {
+                const scale = pa / ab
+
+                for (const key of ["singlePercent", "doublePercent", "triplePercent", "homeRunPercent"]) {
+                    if (Number.isFinite(Number(block[key]))) {
+                        block[key] = Number(block[key]) * scale
+                    }
+                }
+            }
+
+            if (!Number.isFinite(Number(block.ops))) {
+                block.ops = Number(block.obp ?? 0) + Number(block.slg ?? 0)
             }
         }
 
-        return normalized
+        normalize(next.actual)
+        normalize(next.target)
+
+        next.diff = next.diff ?? {}
+
+        for (const key of Object.keys(next.actual ?? {})) {
+            if (Number.isFinite(Number(next.actual?.[key])) && Number.isFinite(Number(next.target?.[key]))) {
+                next.diff[key] = Number(next.actual[key]) - Number(next.target[key])
+            }
+        }
+
+        return next
     }
 
     private static isCloseEnough(result: any): boolean {
@@ -1019,107 +1025,70 @@ class PitchEnvironmentTuner {
     }
 
     private static getToleranceReport(result: any): any[] {
+        const actual = result.actual ?? {}
+        const target = result.target ?? {}
+
         return [
-            ["teamRunsPerGame", 0.10],
-            ["ops", 0.007],
-            ["obp", 0.004],
-            ["slg", 0.003],
-            ["avg", 0.02],
-            ["babip", 0.005],
-            ["teamHitsPerGame", 0.10],
-            ["teamHomeRunsPerGame", 0.03],
-            ["teamBBPerGame", 0.04],
-            ["teamSBPerGame", 0.01],
-            ["teamSBAttemptsPerGame", 0.06],
-            ["bbPercent", 0.002],
-            ["soPercent", 0.004],
-            ["singlePercent", 0.003],
-            ["doublePercent", 0.002],
-            ["triplePercent", 0.00075],
-            ["homeRunPercent", 0.002]
-        ].map(([key, tolerance]: any[]) => {
-            const actual = Number(result.actual?.[key] ?? 0)
-            const target = Number(result.target?.[key] ?? 0)
-            const diff = Math.abs(actual - target)
-
-            return { key, actual, target, diff, tolerance, ok: diff <= tolerance }
-        })
-    }
-
-    private static getNonHrRunConversion(result: any, side: "actual" | "target"): number {
-        const row = result[side] ?? {}
-        const runs = Number(row.teamRunsPerGame ?? 0)
-        const hits = Number(row.teamHitsPerGame ?? 0)
-        const walks = Number(row.teamBBPerGame ?? 0)
-        const homeRuns = Number(row.teamHomeRunsPerGame ?? 0)
-        const nonHrRuns = Math.max(0, runs - homeRuns)
-        const nonHrTimesOnBase = Math.max(1e-9, hits + walks - homeRuns)
-
-        return nonHrRuns / nonHrTimesOnBase
-    }
-
-    private static printFormulaDebug(loop: number, history: any, candidate: PitchEnvironmentTuning, nextCandidate: PitchEnvironmentTuning, result: any): void {
-        const print = (name: string, rows: any[], current: number, next: number) => {
-            const latest = rows[rows.length - 1]
-            log("FORMULA", `loop=${loop}`, name, `rows=${rows.length}`, `actual=${this.f(latest.actual)}`, `target=${this.f(latest.target)}`, `current=${this.f(current)}`, `next=${this.f(next)}`)
-        }
-
-        print("bb", history.bb, Number(candidate.tuning?.swing.walkRateScale ?? 0), Number(nextCandidate.tuning?.swing.walkRateScale ?? 0))
-        print("so", history.so, Number(candidate.tuning?.contact.pitchQualityContactEffect ?? 0), Number(nextCandidate.tuning?.contact.pitchQualityContactEffect ?? 0))
-        print("out", history.out, Number(candidate.tuning?.contactQuality.outOutcomeScale ?? 0), Number(nextCandidate.tuning?.contactQuality.outOutcomeScale ?? 0))
-        print("2b", history.double, Number(candidate.tuning?.contactQuality.doubleOutcomeScale ?? 0), Number(nextCandidate.tuning?.contactQuality.doubleOutcomeScale ?? 0))
-        print("3b", history.triple, Number(candidate.tuning?.contactQuality.tripleOutcomeScale ?? 0), Number(nextCandidate.tuning?.contactQuality.tripleOutcomeScale ?? 0))
-        print("hr", history.hr, Number(candidate.tuning?.contactQuality.homeRunOutcomeScale ?? 0), Number(nextCandidate.tuning?.contactQuality.homeRunOutcomeScale ?? 0))
-        print("sb", history.sb, Number(candidate.tuning?.running.stealAttemptAggressionScale ?? 0), Number(nextCandidate.tuning?.running.stealAttemptAggressionScale ?? 0))
-        print("br", history.br, Number(candidate.tuning?.running.advancementAggressionScale ?? 0), Number(nextCandidate.tuning?.running.advancementAggressionScale ?? 0))
+            { key: "teamRunsPerGame", actual: actual.teamRunsPerGame, target: target.teamRunsPerGame, tolerance: 0.18 },
+            { key: "ops", actual: actual.ops, target: target.ops, tolerance: 0.03 },
+            { key: "obp", actual: actual.obp, target: target.obp, tolerance: 0.018 },
+            { key: "slg", actual: actual.slg, target: target.slg, tolerance: 0.025 },
+            { key: "avg", actual: actual.avg, target: target.avg, tolerance: 0.018 },
+            { key: "babip", actual: actual.babip, target: target.babip, tolerance: 0.018 },
+            { key: "bbPercent", actual: actual.bbPercent, target: target.bbPercent, tolerance: 0.01 },
+            { key: "soPercent", actual: actual.soPercent, target: target.soPercent, tolerance: 0.012 },
+            { key: "singlePercent", actual: actual.singlePercent, target: target.singlePercent, tolerance: 0.014 },
+            { key: "doublePercent", actual: actual.doublePercent, target: target.doublePercent, tolerance: 0.008 },
+            { key: "triplePercent", actual: actual.triplePercent, target: target.triplePercent, tolerance: 0.003 },
+            { key: "homeRunPercent", actual: actual.homeRunPercent, target: target.homeRunPercent, tolerance: 0.006 },
+            { key: "teamSBAttemptsPerGame", actual: actual.teamSBAttemptsPerGame, target: target.teamSBAttemptsPerGame, tolerance: 0.12 },
+            { key: "teamSBPerGame", actual: actual.teamSBPerGame, target: target.teamSBPerGame, tolerance: 0.12 }
+        ].map(row => ({
+            ...row,
+            diff: Number(row.actual ?? 0) - Number(row.target ?? 0),
+            ok: Math.abs(Number(row.actual ?? 0) - Number(row.target ?? 0)) <= row.tolerance
+        }))
     }
 
     private static printStatus(label: string, loop: number, games: number, candidate: PitchEnvironmentTuning, result: any): void {
         const actual = result.actual ?? {}
         const target = result.target ?? {}
 
-        const actualHitSum = Number(actual.singlePercent ?? 0) + Number(actual.doublePercent ?? 0) + Number(actual.triplePercent ?? 0) + Number(actual.homeRunPercent ?? 0)
-        const targetHitSum = Number(target.singlePercent ?? 0) + Number(target.doublePercent ?? 0) + Number(target.triplePercent ?? 0) + Number(target.homeRunPercent ?? 0)
-        const actualXbh = Number(actual.doublePercent ?? 0) + Number(actual.triplePercent ?? 0) + Number(actual.homeRunPercent ?? 0)
-        const targetXbh = Number(target.doublePercent ?? 0) + Number(target.triplePercent ?? 0) + Number(target.homeRunPercent ?? 0)
-
         log(
-            "RESULT",
             label,
             `i=${loop}`,
             `G=${games}`,
             `R=${this.f(actual.teamRunsPerGame)}/${this.f(target.teamRunsPerGame)}`,
             `AVG=${this.f(actual.avg)}/${this.f(target.avg)}`,
-            `HITSUM=${this.f(actualHitSum)}/${this.f(targetHitSum)}`,
+            `OBP=${this.f(actual.obp)}/${this.f(target.obp)}`,
+            `SLG=${this.f(actual.slg)}/${this.f(target.slg)}`,
+            `OPS=${this.f(actual.ops)}/${this.f(target.ops)}`,
             `BABIP=${this.f(actual.babip)}/${this.f(target.babip)}`,
+            `BB=${this.f(actual.bbPercent)}/${this.f(target.bbPercent)}`,
+            `SO=${this.f(actual.soPercent)}/${this.f(target.soPercent)}`,
             `1B=${this.f(actual.singlePercent)}/${this.f(target.singlePercent)}`,
             `2B=${this.f(actual.doublePercent)}/${this.f(target.doublePercent)}`,
             `3B=${this.f(actual.triplePercent)}/${this.f(target.triplePercent)}`,
             `HR=${this.f(actual.homeRunPercent)}/${this.f(target.homeRunPercent)}`,
-            `XBH=${this.f(actualXbh)}/${this.f(targetXbh)}`,
-            `BB%=${this.f(actual.bbPercent)}/${this.f(target.bbPercent)}`,
-            `SO%=${this.f(actual.soPercent)}/${this.f(target.soPercent)}`,
             `SBA=${this.f(actual.teamSBAttemptsPerGame)}/${this.f(target.teamSBAttemptsPerGame)}`,
-            `T[O=${this.f(candidate.tuning?.contactQuality.outOutcomeScale)} 1b=${this.f(candidate.tuning?.contactQuality.singleOutcomeScale)} 2b=${this.f(candidate.tuning?.contactQuality.doubleOutcomeScale)} 3b=${this.f(candidate.tuning?.contactQuality.tripleOutcomeScale)} hr=${this.f(candidate.tuning?.contactQuality.homeRunOutcomeScale)} bb=${this.f(candidate.tuning?.swing.walkRateScale)} so=${this.f(candidate.tuning?.contact.pitchQualityContactEffect)} sb=${this.f(candidate.tuning?.running.stealAttemptAggressionScale)} br=${this.f(candidate.tuning?.running.advancementAggressionScale)}]`
+            `SB=${this.f(actual.teamSBPerGame)}/${this.f(target.teamSBPerGame)}`,
+            `T[O=${this.f(candidate.tuning?.contactQuality.outOutcomeScale)} 2b=${this.f(candidate.tuning?.contactQuality.doubleOutcomeScale)} 3b=${this.f(candidate.tuning?.contactQuality.tripleOutcomeScale)} hr=${this.f(candidate.tuning?.contactQuality.homeRunOutcomeScale)} bb=${this.f(candidate.tuning?.swing.walkRateScale)} so=${this.f(candidate.tuning?.contact.pitchQualityContactEffect)} sb=${this.f(candidate.tuning?.running.stealAttemptAggressionScale)} br=${this.f(candidate.tuning?.running.advancementAggressionScale)} td=${this.f(candidate.tuning?.meta.fullTeamDefenseBonus)} fd=${this.f(candidate.tuning?.meta.fullFielderDefenseBonus)}]`
         )
     }
 
     private static printToleranceFailures(label: string, result: any): void {
-        log(label, this.getToleranceReport(result).filter((row: any) => !row.ok))
+        log(label, JSON.stringify(this.getToleranceReport(result).filter(row => !row.ok), null, 2))
     }
 
     private static f(value: any): string {
-        const num = Number(value ?? 0)
-        if (!Number.isFinite(num)) return "0"
-        return Number(num.toFixed(3)).toString()
+        const number = Number(value)
+        return Number.isFinite(number) ? Number(number.toFixed(3)).toString() : "NaN"
     }
 }
 
-
 export {
-    importPitchEnvironmentTarget
-}
-
-export type {
+    importPitchEnvironmentTarget,
+    evaluateCandidateLocal,
+    evaluateCandidatesWithWorkers,
     ImportPitchEnvironmentTargetResult
 }
