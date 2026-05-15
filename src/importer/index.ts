@@ -5,9 +5,10 @@ import { RollChartService } from "../sim/service/roll-chart-service.js"
 import { GameInfo, GamePlayers, RunnerActions, SimRolls, SimService } from "../sim/service/sim-service.js"
 import { StatService } from "../sim/service/stat-service.js"
 import { DownloaderService } from "./service/downloader-service.js"
-import { PlayerImporterService } from "./service/player-importer-service.js"
+import { PitchEnvironmentService } from "./service/pitch-environment-service.js"
 import { v4 as uuidv4 } from "uuid"
 import path from "path"
+import { fileURLToPath } from "url"
 import fs from "fs"
 import { clamp } from "../util.js"
 import { OpenAI } from "openai"
@@ -48,7 +49,7 @@ interface ImportPitchEnvironmentTargetResult {
     players: Map<string, PlayerImportRaw>
 }
 
-const createPlayerImporterService = (baseDataDir: string): { importer: PlayerImporterService, downloader: DownloaderService } => {
+const createPitchEnvironmentService = (baseDataDir: string): { pitchEnvironmentService: PitchEnvironmentService, downloader: DownloaderService } => {
     const rollChartService = new RollChartService()
     const statService = new StatService()
     const simRolls = new SimRolls(rollChartService)
@@ -57,9 +58,9 @@ const createPlayerImporterService = (baseDataDir: string): { importer: PlayerImp
     const gameInfo = new GameInfo(gamePlayers)
     const simService = new SimService(rollChartService, simRolls, runnerActions, gameInfo, {} as PitchEnvironmentTarget)
     const downloader = new DownloaderService(baseDataDir, 1000)
-    const importer = new PlayerImporterService(simService, statService, downloader)
+    const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, downloader)
 
-    return { importer, downloader }
+    return { pitchEnvironmentService, downloader }
 }
 
 const buildCandidatePitchEnvironment = (pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning): PitchEnvironmentTarget => {
@@ -70,11 +71,11 @@ const buildCandidatePitchEnvironment = (pitchEnvironment: PitchEnvironmentTarget
 }
 
 const evaluateCandidateLocal = (pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning, gamesPerIteration: number, rngSeed: string, baseDataDir: string): { actual: any, target: any, diff: any, score: number } => {
-    const { importer } = createPlayerImporterService(baseDataDir)
+    const { pitchEnvironmentService } = createPitchEnvironmentService(baseDataDir)
     const candidatePitchEnvironment = buildCandidatePitchEnvironment(pitchEnvironment, candidate)
     const rng = seedrandom(rngSeed)
 
-    return importer.evaluatePitchEnvironment(candidatePitchEnvironment, rng, gamesPerIteration)
+    return pitchEnvironmentService.evaluatePitchEnvironment(candidatePitchEnvironment, rng, gamesPerIteration)
 }
 
 const runWorker = (input: TuningWorkerInput): Promise<TuningWorkerSuccess> => {
@@ -161,9 +162,9 @@ async function importPitchEnvironmentTarget(season: number, baseDataDir: string,
         ? await readJson(existingPitchEnvironmentTargetPath)
         : undefined
 
-    const { importer, downloader } = createPlayerImporterService(baseDataDir)
+    const { pitchEnvironmentService, downloader } = createPitchEnvironmentService(baseDataDir)
     const players = await downloader.buildSeasonPlayerImports(season, new Set([]))
-    const pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
+    const pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
     const rng = seedrandom(String(season))
 
     const pitchEnvironmentTuning = await PitchEnvironmentTuner.getTunings(
@@ -172,7 +173,7 @@ async function importPitchEnvironmentTarget(season: number, baseDataDir: string,
         {
             ...options,
             baseDataDir,
-            importer,
+            pitchEnvironmentService,
             startingCandidate: existingPitchEnvironmentTarget?.pitchEnvironmentTuning
         }
     )
@@ -539,17 +540,19 @@ class PitchEnvironmentTuner {
                 "Do not change pitchQualityContactEffect or contactSkillEffect unless soPercent is outside tolerance by more than 0.01.",
                 "Do not change outOutcomeScale unless OBP/AVG/BABIP are the main problem.",
                 "Do not change stealAttemptAggressionScale unless teamSBAttemptsPerGame is outside tolerance by more than 0.12.",
-                "Prefer advancementAggressionScale when runs are low but OPS is already high or close.",
-                "If OPS/SLG is high while runs are low, raise advancementAggressionScale and lower homeRunOutcomeScale or doubleOutcomeScale slightly.",
+                "Runs are the primary remaining target. OPS is second.",
+                "If teamRunsPerGame is low by more than 0.25 and OPS is within 0.03 of target, only increase advancementAggressionScale.",
+                "If teamRunsPerGame is low and OPS is high by more than 0.03, increase advancementAggressionScale first. Only lower power knobs if OPS remains high after runs are close.",
+                "If teamRunsPerGame is close and OPS/SLG is high, then lower homeRunOutcomeScale or doubleOutcomeScale slightly.",
                 "If OPS/SLG is low and runs are low, increase homeRunOutcomeScale or doubleOutcomeScale.",
-                "If HR% is high, lower homeRunOutcomeScale.",
+                "If HR% is high but runs are low, prefer not to lower homeRunOutcomeScale unless OPS is also high by more than 0.03.",
                 "If HR% is low, raise homeRunOutcomeScale.",
-                "Do not make more than 3 meaningful knob changes."
+                "Do not make more than 2 meaningful knob changes."
             ],
             knobNotes: {
-                advancementAggressionScale: "Primary runs-only lever. Higher usually raises runs without directly changing AVG/OBP/SLG.",
-                homeRunOutcomeScale: "Primary HR%, SLG, OPS, and runs lever. Higher raises HR/SLG; lower reduces HR/SLG.",
-                doubleOutcomeScale: "Primary 2B%, SLG, OPS lever. Higher raises doubles/SLG without much OBP impact.",
+                advancementAggressionScale: "Primary runs-only lever. Higher usually raises runs without directly changing AVG/OBP/SLG. Use this first when runs are low and OPS is close.",
+                homeRunOutcomeScale: "Primary HR%, SLG, OPS, and runs lever. Do not lower this for high HR alone when runs are still low and OPS is close.",
+                doubleOutcomeScale: "Primary 2B%, SLG, OPS lever. Do not lower this while runs are low unless OPS is clearly high.",
                 tripleOutcomeScale: "Primary 3B%, SLG, OPS lever. Usually small adjustments only.",
                 outOutcomeScale: "Primary OBP/AVG/BABIP lever. Avoid unless OBP/AVG/BABIP are the issue.",
                 walkRateScale: "Primary BB% lever. Already deterministically tuned.",
@@ -1091,4 +1094,27 @@ export {
     evaluateCandidateLocal,
     evaluateCandidatesWithWorkers,
     ImportPitchEnvironmentTargetResult
+}
+
+
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+
+    const options = {
+        workers: Number(process.argv[5] ?? 1),
+        gamesPerIteration: Number(process.argv[6] ?? 30)
+    }
+
+    const season = Number(process.argv[3] ?? 0)
+    const baseDataDir = process.argv[4] ?? "data"
+
+    if (!Number.isFinite(season) || season <= 0) {
+        throw new Error("Usage: npm run import:season -- <season> [baseDataDir]")
+    }
+
+    const result = await importPitchEnvironmentTarget(season, baseDataDir, options)
+
+    console.log("=== IMPORT COMPLETE ===")
+    console.log(JSON.stringify(result, null, 2))
+
 }

@@ -8,6 +8,8 @@ declare class StatAccumulatorService {
     private readonly INFIELD_POSITIONS;
     private readonly SIMPLE_LOCATION_POSITIONS;
     accumulateGameIntoSeasonPlayerImports(season: number, gamePk: number, gameData: any, players: Map<string, PlayerImportRaw>, filterPlayerIds?: Set<string>): void;
+    private getFlyBallDepth;
+    private updateRunningAdvancementForPlay;
     private emptyExitVelocityStat;
     private emptyLaunchAngleStat;
     private emptyDistanceStat;

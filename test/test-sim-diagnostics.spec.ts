@@ -21,7 +21,7 @@ import type {
     RunnerResult
 } from "../src/sim/index.js"
 
-import { PlayerImporterService } from "../src/importer/service/player-importer-service.js"
+import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
 import { importPitchEnvironmentTarget } from "../src/importer/index.js"
 import { DownloaderService } from "../src/importer/service/downloader-service.js"
 
@@ -32,7 +32,7 @@ let tunedPitchEnvironment: PitchEnvironmentTarget
 const season = 2025
 const baseDataDir = "data"
 
-const playerImporterService = new PlayerImporterService(simService, statService, {} as any)
+const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, {} as any)
 const downloaderservice = new DownloaderService("data", 1000)
 
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
@@ -172,7 +172,7 @@ describe("Baseball Sim Engine", async () => {
 
 
     it("should calculate pitch environment target for season", async () => {
-        pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
+        pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
         // console.log("PITCH ENVIRONMENT TARGET", JSON.stringify(pitchEnvironment))
         assert.ok(pitchEnvironment)
     })
@@ -180,7 +180,7 @@ describe("Baseball Sim Engine", async () => {
 
     it("evaluated hit type rates should equal hits per PA", () => {
         const evaluationRng = new seedrandom(evaluationSeed)
-        const evaluation = playerImporterService.evaluatePitchEnvironment(pitchEnvironment, evaluationRng, 20)
+        const evaluation = pitchEnvironmentService.evaluatePitchEnvironment(pitchEnvironment, evaluationRng, 20)
 
         const actualHitTypePerPA =
             Number(evaluation.actual.singlePercent ?? 0) +
@@ -397,7 +397,7 @@ describe("Baseball Sim Engine", async () => {
 
         const evaluate = (label: string, apply?: (tuning: PitchEnvironmentTuning["tuning"]) => void) => {
             const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
-            const seeded = playerImporterService.seedPitchEnvironmentTuning(testPitchEnvironment)
+            const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
 
             testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
 
@@ -460,7 +460,7 @@ describe("Baseball Sim Engine", async () => {
             const rng = seedrandom(`knob-sensitivity-${label}`)
 
             for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-                const game = playerImporterService.buildStartedBaselineGame(
+                const game = pitchEnvironmentService.buildStartedBaselineGame(
                     clone(testPitchEnvironment),
                     `knob-sensitivity-${label}-${gameIndex}`
                 )
@@ -479,7 +479,7 @@ describe("Baseball Sim Engine", async () => {
                     for (const play of halfInning.plays) {
                         if (!play.count?.end) continue
 
-                        const start = play.runner?.result?.start ?? {}
+                        const start:RunnerResult = play.runner?.result?.start 
                         const events: RunnerEvent[] = play.runner?.events ?? []
                         const startedWithRunners = !!start.first || !!start.second || !!start.third
                         const baseStateKey = `${play.count?.start?.outs ?? 0}:${getBaseStateKey(start.first, start.second, start.third)}`
@@ -905,7 +905,7 @@ const evaluateManualTuning = (name: string, tuning: PitchEnvironmentTuning["tuni
         tuning
     }
 
-    const evaluation = playerImporterService.evaluatePitchEnvironment(
+    const evaluation = pitchEnvironmentService.evaluatePitchEnvironment(
         testPitchEnvironment,
         seedrandom(`manual-${name}-${evaluationGames}`),
         evaluationGames
@@ -983,7 +983,7 @@ const evaluateManualTuning = (name: string, tuning: PitchEnvironmentTuning["tuni
     }
 
     for (let gameIndex = 0; gameIndex < evaluationGames; gameIndex++) {
-        const game = playerImporterService.buildStartedBaselineGame(
+        const game = pitchEnvironmentService.buildStartedBaselineGame(
             clone(testPitchEnvironment),
             `manual-${name}-run-conversion-${gameIndex}`
         )

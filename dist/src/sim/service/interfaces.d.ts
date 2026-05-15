@@ -832,6 +832,17 @@ interface BattedBallSprayByTrajectoryEvLaBucket {
     sprayBin: number;
     count: number;
 }
+interface RunningAdvancementTarget {
+    runnerOnFirstToThirdOnSingle: number;
+    runnerOnFirstToHomeOnDouble: number;
+    runnerOnSecondToHomeOnSingle: number;
+    runnerOnSecondToHomeOnDouble: number;
+    runnerOnThirdToHomeOnFlyBallShallow: number;
+    runnerOnThirdToHomeOnFlyBallNormal: number;
+    runnerOnThirdToHomeOnFlyBallDeep: number;
+    runnerOnSecondToThirdOnGroundBall: number;
+    runnerOnThirdToHomeOnGroundBall: number;
+}
 interface PitchEnvironmentTarget {
     season: number;
     avgRating: number;
@@ -840,7 +851,6 @@ interface PitchEnvironmentTarget {
         strikePercent: number;
         ballPercent: number;
         swingPercent: number;
-        foulContactPercent: number;
         pitchesPerPA: number;
         inZoneByCount: InZoneByCount[];
     };
@@ -869,7 +879,11 @@ interface PitchEnvironmentTarget {
             byTrajectoryEvLa: BattedBallSprayByTrajectoryEvLaBucket[];
         };
     };
-    steal: StolenBaseByCount[];
+    running: {
+        steal: StolenBaseByCount[];
+        extraBaseTakenRate: number;
+        advancement: RunningAdvancementTarget;
+    };
     fielderChance: {
         vsR: FielderChance;
         vsL: FielderChance;
@@ -894,6 +908,8 @@ interface PitchEnvironmentTarget {
         homeRunsPerGame: number;
         bbPerGame: number;
         soPerGame: number;
+        sbPerGame: number;
+        sbAttemptsPerGame: number;
     };
     importReference: {
         hitter: {
@@ -992,28 +1008,35 @@ interface PitchEnvironmentTarget {
 interface PitchEnvironmentTuning {
     _id: string;
     tuning?: {
-        contactQualityEvScale: number;
-        contactQualityLaScale: number;
-        contactQualityDistanceScale: number;
-        pitchQualityZoneSwingEffect: number;
-        pitchQualityChaseSwingEffect: number;
-        disciplineZoneSwingEffect: number;
-        disciplineChaseSwingEffect: number;
-        pitchQualityContactEffect: number;
-        contactSkillEffect: number;
-        fullPitchQualityBonus: number;
-        fullTeamDefenseBonus: number;
-        fullFielderDefenseBonus: number;
-        groundballDoublePenalty: number;
-        groundballTriplePenalty: number;
-        groundballHRPenalty: number;
-        groundballOutcomeBoost: number;
-        flyballOutcomeBoost: number;
-        lineDriveOutcomeBoost: number;
-        flyballHRPenalty: number;
-        lineDriveOutToSingleWindow: number;
-        lineDriveOutToSingleBoost: number;
-        lineDriveSingleToDoubleFactor: number;
+        contactQuality: {
+            evScale: number;
+            laScale: number;
+            distanceScale: number;
+            outOutcomeScale: number;
+            doubleOutcomeScale: number;
+            tripleOutcomeScale: number;
+            homeRunOutcomeScale: number;
+        };
+        swing: {
+            pitchQualityZoneSwingEffect: number;
+            pitchQualityChaseSwingEffect: number;
+            disciplineZoneSwingEffect: number;
+            disciplineChaseSwingEffect: number;
+            walkRateScale: number;
+        };
+        contact: {
+            pitchQualityContactEffect: number;
+            contactSkillEffect: number;
+        };
+        running: {
+            stealAttemptAggressionScale: number;
+            advancementAggressionScale: number;
+        };
+        meta: {
+            fullPitchQualityBonus: number;
+            fullTeamDefenseBonus: number;
+            fullFielderDefenseBonus: number;
+        };
     };
     ratingTuning?: {
         hitting: {
@@ -1055,8 +1078,10 @@ interface InZoneByCount {
 interface StolenBaseByCount {
     balls: number;
     strikes: number;
-    attempt: number;
-    success: number;
+    attempt2BChance: number;
+    attempt2BSuccess: number;
+    attempt3BChance: number;
+    attempt3BSuccess: number;
 }
 interface PlayerFromStatsCommand {
     season: number;
@@ -1274,12 +1299,33 @@ interface PlayerRunningStatsRaw {
     sb: number;
     cs: number;
     sbAttempts: number;
+    sb2B: number;
+    cs2B: number;
+    sb2BAttempts: number;
+    sb3B: number;
+    cs3B: number;
+    sb3BAttempts: number;
     timesOnFirst: number;
     timesOnSecond: number;
     timesOnThird: number;
     firstToThird: number;
+    firstToThirdOpportunities: number;
     firstToHome: number;
-    secondToHome: number;
+    firstToHomeOpportunities: number;
+    secondToHomeOnSingle: number;
+    secondToHomeOnSingleOpportunities: number;
+    secondToHomeOnDouble: number;
+    secondToHomeOnDoubleOpportunities: number;
+    thirdToHomeOnFlyBallShallow: number;
+    thirdToHomeOnFlyBallShallowOpportunities: number;
+    thirdToHomeOnFlyBallNormal: number;
+    thirdToHomeOnFlyBallNormalOpportunities: number;
+    thirdToHomeOnFlyBallDeep: number;
+    thirdToHomeOnFlyBallDeepOpportunities: number;
+    secondToThirdOnGroundBall: number;
+    secondToThirdOnGroundBallOpportunities: number;
+    thirdToHomeOnGroundBall: number;
+    thirdToHomeOnGroundBallOpportunities: number;
     extraBaseTaken: number;
     extraBaseOpportunities: number;
     pickedOff: number;

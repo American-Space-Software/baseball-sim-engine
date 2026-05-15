@@ -5,7 +5,7 @@ import { RollChartService } from "../sim/service/roll-chart-service.js"
 import { GameInfo, GamePlayers, RunnerActions, SimRolls, SimService } from "../sim/service/sim-service.js"
 import { StatService } from "../sim/service/stat-service.js"
 import { DownloaderService } from "./service/downloader-service.js"
-import { PlayerImporterService } from "./service/player-importer-service.js"
+import { PitchEnvironmentService } from "./service/pitch-environment-service.js"
 
 type TuningWorkerInput = {
     pitchEnvironment: PitchEnvironmentTarget
@@ -39,7 +39,7 @@ const defaultPitchEnvironmentTarget = {} as PitchEnvironmentTarget
 
 const simService = new SimService(rollChartService, simRolls, runnerActions, gameInfo, defaultPitchEnvironmentTarget)
 
-const playerImporterService = new PlayerImporterService(simService, statService, downloaderService)
+const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, downloaderService)
 
 const buildCandidatePitchEnvironment = (pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning): PitchEnvironmentTarget => {
     return JSON.parse(JSON.stringify({
@@ -54,7 +54,7 @@ const run = (): void => {
     try {
         const candidatePitchEnvironment = buildCandidatePitchEnvironment(input.pitchEnvironment, input.candidate)
         const rng = seedrandom(input.rngSeed)
-        const result = playerImporterService.evaluatePitchEnvironment(candidatePitchEnvironment, rng, input.gamesPerIteration)
+        const result = pitchEnvironmentService.evaluatePitchEnvironment(candidatePitchEnvironment, rng, input.gamesPerIteration)
 
         const message: TuningWorkerSuccess = {
             ok: true,

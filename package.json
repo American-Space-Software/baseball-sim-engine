@@ -19,11 +19,17 @@
   ],
   "sideEffects": false,
   "scripts": {
+    
     "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
+    "test1":"node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/test-player-rating.spec.ts",
+
     "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
     "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
     "build": "npm run build:js && npm run build:types",
     "build:watch": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts --watch",
+
+    "import:season": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts --",
+
     "prepublishOnly": "npm run build"
   },
   "repository": {

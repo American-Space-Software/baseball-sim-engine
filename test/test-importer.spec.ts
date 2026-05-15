@@ -20,7 +20,7 @@ import type {
     RunnerResult
 } from "../src/sim/index.js"
 
-import { PlayerImporterService } from "../src/importer/service/player-importer-service.js"
+import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
 import { importPitchEnvironmentTarget } from "../src/importer/index.js"
 import { DownloaderService } from "../src/importer/service/downloader-service.js"
 
@@ -31,7 +31,7 @@ let tunedPitchEnvironment: PitchEnvironmentTarget
 const season = 2025
 const baseDataDir = "data"
 
-const playerImporterService = new PlayerImporterService(simService, statService, {} as any)
+const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, {} as any)
 const downloaderservice = new DownloaderService("data", 1000)
 
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
@@ -83,7 +83,7 @@ const makeTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): Pitc
 describe("Tuner", async () => {
 
     it("should calculate pitch environment target for season", async () => {
-        pitchEnvironment = PlayerImporterService.getPitchEnvironmentTargetForSeason(season, players)
+        pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
 
         assert.ok(pitchEnvironment)
     })
@@ -107,7 +107,7 @@ describe("Tuner", async () => {
 
     it("should sim a game", async () => {
         const gameRng = new seedrandom(evaluationSeed)
-        const startedGame: Game = playerImporterService.buildStartedBaselineGame(clone(tunedPitchEnvironment), "game-1")
+        const startedGame: Game = pitchEnvironmentService.buildStartedBaselineGame(clone(tunedPitchEnvironment), "game-1")
 
         while (!startedGame.isComplete) {
             simService.simPitch(startedGame, gameRng)
@@ -118,7 +118,7 @@ describe("Tuner", async () => {
 
 
     it("inning can end during runner events; stop further processing but keep events", async () => {
-        const game = playerImporterService.buildStartedBaselineGame(tunedPitchEnvironment, "game-runner-events")
+        const game = pitchEnvironmentService.buildStartedBaselineGame(tunedPitchEnvironment, "game-runner-events")
         const laRatings = game.pitchEnvironmentTarget
 
         const awayTeam = game.away
@@ -193,7 +193,7 @@ describe("Tuner", async () => {
     })
 
     it("Ground ball to infielder with runner on 3B and 2 outs must record the batter out at 1B (throw if needed), no run", async () => {
-        const game = playerImporterService.buildStartedBaselineGame(tunedPitchEnvironment, "game-runner-events")
+        const game = pitchEnvironmentService.buildStartedBaselineGame(tunedPitchEnvironment, "game-runner-events")
         const laRatings = game.pitchEnvironmentTarget
 
         const awayTeam = game.away
@@ -277,7 +277,7 @@ describe("Tuner", async () => {
     })
 
     it("Ground ball to infielder with runner on 3B and 2 outs must record the batter out at 1B (throw if needed), no run", async () => {
-        const game = playerImporterService.buildStartedBaselineGame(tunedPitchEnvironment, "game-runner-events")
+        const game = pitchEnvironmentService.buildStartedBaselineGame(tunedPitchEnvironment, "game-runner-events")
         const laRatings = game.pitchEnvironmentTarget
 
         const awayTeam = game.away
