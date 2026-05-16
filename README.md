@@ -2,7 +2,16 @@
 
 A deterministic baseball simulation engine written in TypeScript.
 
-This library simulates complete baseball games pitch-by-pitch using a ratings-driven model grounded in league-average distributions. It is designed for both interactive applications and analytical workflows.
+This library simulates complete baseball games pitch-by-pitch using a ratings-driven model calibrated against real statistical environments. The engine is designed for reproducible simulations, online games, replay systems, and analytical workflows.
+
+Features include:
+
+- Pitch-by-pitch game simulation
+- Deterministic outcomes with seeded RNG support
+- Tunable league environments and statistical targets
+- Ratings-driven player behavior
+- Full runner movement and fielding logic
+- Node.js and browser support
 
 The engine runs in both Node.js and browser environments.
 
@@ -37,11 +46,137 @@ At its core, this project treats baseball simulation as infrastructure — somet
 
 ---
 
+
+## Pitch Environment
+
+The engine is driven by a `PitchEnvironmentTarget`.
+
+A pitch environment defines the statistical shape of the baseball universe the game operates inside. It acts as the league-average baseline that player ratings interact with during simulation.
+
+This environment controls things like:
+
+- Overall offensive levels
+- Strikeout and walk tendencies
+- Contact rates
+- Power distribution
+- Batted ball behavior
+- Runner aggression
+- Fielding outcomes
+- Pitch-by-pitch tendencies
+
+The environment can represent:
+
+- A real-life season
+- A dead-ball era league
+- A high-offense league
+- A custom stadium profile
+- A fictional baseball world
+
+Player ratings do not bypass the environment. Instead, ratings shift outcomes relative to the baseline established by the active pitch environment.
+
+This allows the same player set to behave differently across leagues, seasons, stadiums, or custom simulation universes without rewriting player data.
+
+---
+
+
+## Importing Real Baseball Data
+
+The default pitch environment is built from real season data. The included 2025 environment is the default baseline used by the engine.
+
+The import pipeline downloads game data, accumulates player-level hitting, pitching, fielding, running, pitch, and batted-ball information, then combines those player records into a league-wide `PitchEnvironmentTarget`.
+
+That process captures data such as:
+
+- Pitch velocity
+- Horizontal and vertical pitch movement
+- Pitch type usage
+- Zone and chase behavior by count
+- Swing and contact rates
+- Exit velocity
+- Launch angle
+- Batted-ball distance
+- Batted-ball coordinates
+- Spray angle
+- Outcome rates by exit velocity and launch angle
+- Runner advancement and stolen base behavior
+- Fielding opportunities and defensive events
+
+The player importer uses this accumulated season data to create ratings and player objects. The pitch environment builder uses the same source data to define the league-average world those players exist inside.
+
+This means the simulation is not only tuned from final box score stats. It can also use pitch-level and batted-ball-level detail when shaping the default environment.
+
+The 2025 `PitchEnvironmentTarget` represents the current default baseball universe for the package, but the same pipeline can be used to build a different environment from another season or custom data source.
+
+---
+
+
+## Defining Players and Starting a Game
+
+To run a game, you provide the engine with two teams, their players, their lineups, and a starting pitcher for each side.
+
+Players are plain data objects. They define identity, handedness, position, hitting ratings, pitching ratings, fielding ability, speed, and other baseball traits used by the simulation.
+
+```ts
+const player = {
+  _id: "player-1",
+  firstName: "Example",
+  lastName: "Hitter",
+  age: 27,
+
+  hits: Handedness.R,
+  throws: Handedness.R,
+  primaryPosition: Position.SHORTSTOP,
+
+  hittingRatings: {
+    // contact, power, discipline, speed, defense, arm, etc.
+  },
+
+  pitchRatings: {
+    // pitcher ratings and pitch mix
+  }
+}
+```
+
+A lineup defines the batting order and defensive positions. The engine expects a complete nine-player lineup and a valid starting pitcher.
+
+```ts
+const game = simService.startGame({
+  game,
+  away,
+  home,
+
+  awayPlayers,
+  homePlayers,
+
+  awayLineup,
+  homeLineup,
+
+  awayStartingPitcher,
+  homeStartingPitcher,
+
+  pitchEnvironmentTarget,
+  date
+})
+```
+
+Once the game has started, you control the simulation loop by repeatedly calling `simPitch`.
+
+```ts
+while (!game.isComplete) {
+  simService.simPitch(game, rng)
+}
+
+simService.finishGame(game)
+```
+
+The engine does not create teams, generate players, manage rosters, or schedule games for you. It expects those inputs to be supplied by your application.
+
+
 ## Simulation Loop
 
-The engine simulates games one pitch at a time.
+The engine resolves baseball games one pitch at a time.
 
-Each call to `simPitch` advances the game by exactly one pitch.
+Every plate appearance, runner event, and inning transition flows through pitch resolution rather than direct at-bat simulation.
 
 ```ts
 while (!game.isComplete) {
@@ -49,175 +184,144 @@ while (!game.isComplete) {
 }
 ```
 
-A single pitch may:
+A pitch may:
 
-- Update the count (ball / strike / foul)
-- Trigger a ball in play
-- Generate runner events (steals, wild pitch, passed ball)
-- End the at-bat
+- Update the count
+- Produce contact
+- Trigger runner movement
+- Generate steals, wild pitches, or passed balls
+- End the plate appearance
 - End the inning
 
-The engine does **not** simulate at-bats directly.
+Because game state advances pitch-by-pitch, runner behavior and defensive events can occur naturally during live play instead of being attached afterward as post-processing.
 
-Everything flows through pitch resolution.
+This design keeps the simulation state consistent and makes individual pitches fully reproducible during debugging and replay.
 
 ---
-
 ## Core Systems
 
-The simulation is composed of several independent systems that execute in order.
+The simulation is composed of several interconnected systems that resolve game state in sequence.
 
 ---
 
-### Pitch System
 
-Each pitch generates:
+## Pitch-Level Detail
 
-- Pitch type
-- Pitch quality (power, location, movement)
-- Zone result (in-zone / out-of-zone)
-- Pitch outcome (ball, strike, in-play, anomaly)
+Each simulated pitch carries more information than a simple result.
 
-Pitch behavior is driven by:
+A pitch records its type, intended zone, actual zone, pitch quality, swing result, and whether contact was made. Pitch quality includes velocity, horizontal break, and vertical break, while the engine also tracks separate power, movement, location, and overall quality scores.
 
-- Count state
-- League environment targets
-- Pitcher ratings (optional via tuning)
+When a ball is put in play, the pitch can also store contact quality data, including:
+
+- Exit velocity
+- Launch angle
+- Estimated distance
+- Field coordinates
+- Overall contact quality
+
+These details allow the engine to model outcomes from the physical shape of the pitch and contact, not only from a final result table.
+
+This makes individual pitches useful for:
+
+- Live game presentation
+- Pitch-by-pitch replay
+- Debugging simulation outcomes
+- Measuring player performance
+- Validating batted-ball distributions
+- Building richer statistical reports
+
+The result is still deterministic, but each pitch contains enough detail to explain how the play developed.
+
 
 ---
 
 ### Swing System
 
-Given a pitch, the batter decides whether to swing.
+After a pitch is generated, the batter decides whether to swing.
 
-This is based on:
+Swing decisions are influenced by:
 
-- Zone vs chase logic
-- Count adjustments (2-strike, 3-ball)
+- Zone vs chase behavior
+- Count adjustments
 - Pitch quality
-- Plate discipline tuning
+- Batter discipline ratings
+- Pitch velocity and movement
+- Handedness matchups
 
-Outcomes:
+The swing system evaluates both whether the batter offers at the pitch and how well the batter is able to make contact if a swing occurs.
 
-- No swing
+Possible outcomes include:
+
+- Take
 - Swing and miss
 - Foul ball
+- Weak contact
+- Hard contact
 - Ball in play
+
+Two-strike counts, chase situations, and pitch quality can all affect swing aggression and contact quality differently.
+
+Because the engine operates pitch-by-pitch, swing behavior can be analyzed at the individual pitch level rather than only through aggregate batting outcomes.
 
 ---
 
 ### Contact & Outcome System
 
-If contact is made:
+When contact occurs, the engine determines:
 
-1. Contact type is determined (ground ball, fly ball, line drive)
-2. A 1–1000 roll determines base outcome
-3. The result is modified by:
-   - Pitch quality
-   - Team defense
-   - Fielder defense
-   - Contact type adjustments
+- Contact type
+- Contact quality
+- Batted-ball trajectory
+- Final play outcome
 
-Final outcomes:
+Results are influenced by:
 
-- Out
-- Single
-- Double
-- Triple
-- Home run
+- Batter ratings
+- Pitch quality
+- Defensive quality
+- Environment targets
+- Outcome distributions
+
+Possible outcomes include:
+
+- Outs
+- Singles
+- Doubles
+- Triples
+- Home runs
 
 ---
 
 ### Runner System
 
-Runner movement is handled separately from hit resolution.
+Runner movement is simulated independently alongside pitch and contact resolution.
 
-This includes:
+This system handles:
 
 - Base advancement
-- Tag plays and throws
-- Force plays and double plays
-- Stolen base attempts during pitches
+- Double plays and force plays
+- Throws and tag attempts
+- Stolen bases
 - Wild pitches and passed balls
-- Error-driven advancement
+- Secondary runner movement after contact
 
-Runner events can:
-
-- End innings early
-- Override expected outcomes
-- Create additional plays after contact
-
-This system operates continuously alongside pitch resolution.
+Runner events are part of the active simulation state and can directly affect inning flow, scoring, and defensive outcomes.
 
 ---
 
-## Tuning System
+## Outcome Modeling
 
-The engine is not hardcoded to a specific baseball environment.
+The engine uses layered probability models rather than fixed outcome tables.
 
-Instead, behavior is controlled through a `PitchEnvironmentTarget`.
+Pitch quality, swing decisions, contact quality, launch characteristics, defensive context, and league environment targets all contribute to the final result of a play.
 
-This includes:
+At a high level, the simulation combines:
 
-- Pitch behavior (zone %, strike %, pitches per PA)
-- Swing behavior (zone swing %, chase %, contact rates)
-- Batted ball distribution
-- Outcome distribution (AVG, OBP, SLG, etc.)
-- Stolen base rates
-- Defensive distributions
-- Fine-grained tuning parameters
-
-### Why This Matters
-
-The simulation is built to match real-world data.
-
-You can:
-
-- Recreate real MLB-style environments
-- Create custom offensive or defensive eras
-- Tune individual systems without rewriting engine logic
-- Validate output against target distributions
-
-The engine is **data-driven, not hardcoded**.
-
----
-
-## Roll Charts
-
-The engine uses **1–1000 roll charts** as the core probability model.
-
-At league average, the base outcome distribution can be tuned to represent a desired offensive environment.
-
-Example baseline shape:
-
-- Out
-- Single
-- Double
-- Triple
-- Home run
-
-Player and environment effects push results up or down inside that roll space rather than bypassing the system.
-
-This keeps the simulation transparent and easier to reason about during testing.
-
----
-
-## League Environment Targets
-
-A `PitchEnvironmentTarget` defines the statistical environment the engine is trying to produce.
-
-This includes:
-
-- Pitch-level targets
-- Swing-level targets
-- Batted-ball targets
-- Team offensive targets
-- Outcome targets
-- Steal tendencies
-- Fielder distribution
-- Tuning constants
-
-In practice, this means the engine can target a specific season model and then be validated against that target through aggregate simulation.
+- Pitch-level probability models
+- Swing and contact distributions
+- Batted-ball outcome distributions
+- Runner and defensive resolution systems
+- League environment calibration
 
 ---
 
@@ -264,52 +368,45 @@ This is useful for:
 
 ---
 
-## Testing & Calibration
+## Testing & Validation
 
-The engine is designed to be validated statistically, not only functionally.
+The engine is designed to be tested both functionally and statistically.
+
+Unit tests verify individual systems such as:
+
+- Pitch resolution
+- Swing behavior
+- Contact generation
+- Runner advancement
+- Throw outcomes
+- Double plays
+- Steal logic
+- Deterministic replay behavior
+
+In addition to functional tests, the engine is validated through large-scale statistical simulation.
 
 A common workflow is:
 
 1. Simulate a large sample of games
-2. Aggregate the output
-3. Compare actual results to the target environment
+2. Aggregate league-wide output
+3. Compare results to a target environment
 4. Adjust tuning values
-5. Re-run until the output is acceptably close
+5. Re-run validation
 
-This allows you to verify things like:
+This makes it possible to verify metrics such as:
 
 - In-zone percentage
-- Swing rate
+- Swing and chase rates
 - Contact rates
 - Pitches per plate appearance
+- Strikeout and walk rates
 - AVG / OBP / SLG / OPS
+- BABIP
 - Team runs per game
-- Steal frequency and success
+- Stolen base frequency and success
+- Batted-ball outcome distributions
 
-This calibration loop is a core part of working on the engine.
-
----
-
-## Runner Events and Game State
-
-Runner movement is not treated as a cosmetic layer on top of batting results.
-
-It is part of the actual simulation state.
-
-That means runner logic can affect:
-
-- Outs
-- Inning transitions
-- Double plays
-- Scoring
-- Left on base
-- Fielding credits
-- Stolen base stats
-- Caught stealing stats
-
-In some cases, runner events can end the inning before further movement is processed.
-
-This is intentional and part of keeping game state internally consistent.
+Because the engine is deterministic, simulations can be reproduced exactly using the same RNG seed. This makes debugging, regression testing, and tuning validation significantly easier.
 
 ---
 
@@ -356,35 +453,6 @@ The project is built around a few core ideas:
 - Tunable statistical environments
 - Reproducible debugging
 - Separation from any single game client
-
----
-
-## Quick Start
-
-```ts
-import { simService } from "baseball-sim-engine"
-import seedrandom from "seedrandom"
-
-const rng = seedrandom("game-123")
-
-simService.startGame(command)
-
-while (!game.isComplete) {
-  simService.simPitch(game, rng)
-}
-
-simService.finishGame(game)
-```
-
----
-
-## Notes
-
-- Simulation is pitch-by-pitch
-- You control the simulation loop
-- The engine expects you to provide the RNG
-- League behavior comes from environment targets and tuning values
-- Unit tests and calibration are an important part of development
 
 ---
 
