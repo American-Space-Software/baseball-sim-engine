@@ -14,11 +14,8 @@ import seedrandom from "seedrandom"
 import type {
     PitchEnvironmentTarget,
     PitchEnvironmentTuning,
-    Game,
-    GamePlayer,
-    RunnerEvent,
-    RunnerResult
-} from "../src/sim/index.js"
+    Game
+} from "../src/sim/service/interfaces.js"
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
 import { importPitchEnvironmentTarget } from "../src/importer/index.js"

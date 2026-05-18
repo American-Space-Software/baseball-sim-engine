@@ -10,7 +10,18 @@ const packageConfig = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, "package.json"), "utf8")
 )
 
+
+const pitchEnvironmentTargetPath = path.resolve(__dirname, "data/2025/_pitch_environment_target.json")
+
+if (!fs.existsSync(pitchEnvironmentTargetPath) || fs.statSync(pitchEnvironmentTargetPath).size === 0) {
+  fs.mkdirSync(path.dirname(pitchEnvironmentTargetPath), { recursive: true })
+  fs.writeFileSync(pitchEnvironmentTargetPath, "{}\n", { encoding: "utf8" })
+}
+
 const VERSION = JSON.stringify(packageConfig.version)
+
+
+
 
 const baseConfig = {
   mode: "production",

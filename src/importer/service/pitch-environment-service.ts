@@ -188,9 +188,6 @@ class PitchEnvironmentService {
 
         const outcomeByEvLaMap = new Map<string, { evBin: number, laBin: number, count: number, out: number, single: number, double: number, triple: number, hr: number }>()
         const xyByTrajectoryMap = new Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", xBin: number, yBin: number, count: number }>()
-        const xyByTrajectoryEvLaMap = new Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", evBin: number, laBin: number, xBin: number, yBin: number, count: number }>()
-        const sprayByTrajectoryMap = new Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", sprayBin: number, count: number }>()
-        const sprayByTrajectoryEvLaMap = new Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", evBin: number, laBin: number, sprayBin: number, count: number }>()
 
         const positionSeeds: Record<Position, number> = {
             [Position.PITCHER]: 0,
@@ -241,40 +238,15 @@ class PitchEnvironmentService {
         for (const player of allPlayers) {
             this.accumulatePitchEnvironmentTotalsForPlayer(player, hitterTotals, pitcherTotals, runningTotals, fieldingTotals, splitHittingTotals, splitPitchingTotals)
             this.accumulatePitchEnvironmentCountBuckets(player, inZoneByCountMap, behaviorByCountMap)
-            this.accumulatePitchEnvironmentBattedBallBuckets(player, outcomeByEvLaMap, xyByTrajectoryMap, xyByTrajectoryEvLaMap, sprayByTrajectoryMap, sprayByTrajectoryEvLaMap)
+            this.accumulatePitchEnvironmentBattedBallBuckets(player, outcomeByEvLaMap, xyByTrajectoryMap)
             this.accumulatePitchEnvironmentPhysics(player, hittingPhysicsTotals, pitchingPhysicsTotals)
             this.accumulatePitchEnvironmentPositionSeeds(player, positionSeeds)
         }
 
         this.finalizePitchEnvironmentPhysicsTotals(hittingPhysicsTotals, pitchingPhysicsTotals)
 
-        const finalizedOutcomeByEvLa = this.finalizeOutcomeByEvLa(outcomeByEvLaMap)
-
-        const finalizedXyByTrajectory = Array.from(xyByTrajectoryMap.values()).sort((a, b) => {
-            if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
-            if (a.xBin !== b.xBin) return a.xBin - b.xBin
-            return a.yBin - b.yBin
-        })
-
-        const finalizedXyByTrajectoryEvLa = Array.from(xyByTrajectoryEvLaMap.values()).sort((a, b) => {
-            if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
-            if (a.evBin !== b.evBin) return a.evBin - b.evBin
-            if (a.laBin !== b.laBin) return a.laBin - b.laBin
-            if (a.xBin !== b.xBin) return a.xBin - b.xBin
-            return a.yBin - b.yBin
-        })
-
-        const finalizedSprayByTrajectory = Array.from(sprayByTrajectoryMap.values()).sort((a, b) => {
-            if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
-            return a.sprayBin - b.sprayBin
-        })
-
-        const finalizedSprayByTrajectoryEvLa = Array.from(sprayByTrajectoryEvLaMap.values()).sort((a, b) => {
-            if (a.trajectory !== b.trajectory) return a.trajectory.localeCompare(b.trajectory)
-            if (a.evBin !== b.evBin) return a.evBin - b.evBin
-            if (a.laBin !== b.laBin) return a.laBin - b.laBin
-            return a.sprayBin - b.sprayBin
-        })
+        const finalizedBattedBallModels = this.finalizeBattedBallModels(outcomeByEvLaMap, xyByTrajectoryMap, hittingPhysicsTotals.byTrajectory)
+        
 
         const totalTeamGames = safeDiv(pitcherTotals.outs, 27)
         const singles = hitterTotals.hits - hitterTotals.doubles - hitterTotals.triples - hitterTotals.homeRuns
@@ -463,17 +435,12 @@ class PitchEnvironmentService {
                     triples: powerRollInputRaw.triples,
                     hr: powerRollInputRaw.hr
                 },
-                outcomeByEvLa: finalizedOutcomeByEvLa,
-                xy: {
-                    byTrajectory: finalizedXyByTrajectory,
-                    byTrajectoryEvLa: finalizedXyByTrajectoryEvLa
-                },
-                spray: {
-                    byTrajectory: finalizedSprayByTrajectory,
-                    byTrajectoryEvLa: finalizedSprayByTrajectoryEvLa
-                }
+                evLaModel: finalizedBattedBallModels.evLaModel,
+                outcomeModel: finalizedBattedBallModels.outcomeModel,
+                sprayModel: finalizedBattedBallModels.sprayModel,
+                depthModel: finalizedBattedBallModels.depthModel
             },
-
+            
             running: {
                 steal: finalizedStealByCount,
                 extraBaseTakenRate,
@@ -730,6 +697,223 @@ class PitchEnvironmentService {
         return target
     }
 
+    private static finalizeBattedBallModels(outcomeByEvLaMap: Map<string, { evBin: number, laBin: number, count: number, out: number, single: number, double: number, triple: number, hr: number }>, xyByTrajectoryMap: Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", xBin: number, yBin: number, count: number }>, trajectoryPhysics: any): { evLaModel: any, outcomeModel: any, sprayModel: any, depthModel: any } {
+        const outcomeBuckets = Array.from(outcomeByEvLaMap.values())
+        const xyBuckets = Array.from(xyByTrajectoryMap.values())
+
+        const trajectories = ["groundBall", "lineDrive", "flyBall", "popup"] as const
+
+        const getTrajectoryForBucket = (bucket: { laBin: number }): "groundBall" | "lineDrive" | "flyBall" | "popup" => {
+            if (bucket.laBin < 6) return "groundBall"
+            if (bucket.laBin < 26) return "lineDrive"
+            if (bucket.laBin < 38) return "flyBall"
+            return "popup"
+        }
+
+        const evLaModel: any = {}
+        const outcomeModel: any = {}
+        const sprayModel: any = {}
+        const depthModel: any = {}
+
+        for (const trajectory of trajectories) {
+            const trajectoryOutcomeBuckets = outcomeBuckets.filter(bucket => getTrajectoryForBucket(bucket) === trajectory)
+            const trajectoryXyBuckets = xyBuckets.filter(bucket => bucket.trajectory === trajectory)
+
+            evLaModel[trajectory] = this.finalizeBattedBallEvLaModel(trajectoryOutcomeBuckets)
+            outcomeModel[trajectory] = this.finalizeBattedBallOutcomeModel(trajectoryOutcomeBuckets)
+            sprayModel[trajectory] = this.finalizeBattedBallSprayModel(trajectoryXyBuckets)
+            depthModel[trajectory] = this.finalizeBattedBallDepthModel(trajectoryPhysics?.[trajectory])
+        }
+
+        return {
+            evLaModel,
+            outcomeModel,
+            sprayModel,
+            depthModel
+        }
+    }
+
+    private static finalizeBattedBallEvLaModel(buckets: { evBin: number, laBin: number, count: number }[]): { count: number, evMean: number, evStdDev: number, laMean: number, laStdDev: number, evLaCorrelation: number } {
+        const round = (value: number): number => Number(value.toFixed(4))
+        const total = buckets.reduce((sum, bucket) => sum + Math.max(0, bucket.count), 0)
+
+        if (total <= 0) {
+            return {
+                count: 0,
+                evMean: 0,
+                evStdDev: 1,
+                laMean: 0,
+                laStdDev: 1,
+                evLaCorrelation: 0
+            }
+        }
+
+        const evMean = buckets.reduce((sum, bucket) => sum + (bucket.evBin * bucket.count), 0) / total
+        const laMean = buckets.reduce((sum, bucket) => sum + (bucket.laBin * bucket.count), 0) / total
+
+        const evVariance = buckets.reduce((sum, bucket) => sum + (Math.pow(bucket.evBin - evMean, 2) * bucket.count), 0) / total
+        const laVariance = buckets.reduce((sum, bucket) => sum + (Math.pow(bucket.laBin - laMean, 2) * bucket.count), 0) / total
+
+        const evStdDev = Math.sqrt(Math.max(0.0001, evVariance))
+        const laStdDev = Math.sqrt(Math.max(0.0001, laVariance))
+
+        const covariance = buckets.reduce((sum, bucket) => {
+            return sum + ((bucket.evBin - evMean) * (bucket.laBin - laMean) * bucket.count)
+        }, 0) / total
+
+        const evLaCorrelation = evStdDev > 0 && laStdDev > 0 ? covariance / (evStdDev * laStdDev) : 0
+
+        return {
+            count: total,
+            evMean: round(evMean),
+            evStdDev: round(evStdDev),
+            laMean: round(laMean),
+            laStdDev: round(laStdDev),
+            evLaCorrelation: round(Math.max(-0.95, Math.min(0.95, evLaCorrelation)))
+        }
+    }
+
+    private static finalizeBattedBallOutcomeModel(buckets: { evBin: number, laBin: number, count: number, out: number, single: number, double: number, triple: number, hr: number }[]): any {
+        const round = (value: number): number => Number(value.toFixed(6))
+
+        const buildOutcomeKernel = (key: "out" | "single" | "double" | "triple" | "hr") => {
+            const total = buckets.reduce((sum, bucket) => sum + Math.max(0, bucket[key]), 0)
+            const globalTotal = buckets.reduce((sum, bucket) => sum + Math.max(0, bucket.count), 0)
+
+            if (total <= 0 || globalTotal <= 0) {
+                return {
+                    prior: 0,
+                    evMean: 0,
+                    evStdDev: 1,
+                    laMean: 0,
+                    laStdDev: 1,
+                    evLaCorrelation: 0
+                }
+            }
+
+            const evMean = buckets.reduce((sum, bucket) => sum + (bucket.evBin * Math.max(0, bucket[key])), 0) / total
+            const laMean = buckets.reduce((sum, bucket) => sum + (bucket.laBin * Math.max(0, bucket[key])), 0) / total
+
+            const evVariance = buckets.reduce((sum, bucket) => sum + (Math.pow(bucket.evBin - evMean, 2) * Math.max(0, bucket[key])), 0) / total
+            const laVariance = buckets.reduce((sum, bucket) => sum + (Math.pow(bucket.laBin - laMean, 2) * Math.max(0, bucket[key])), 0) / total
+
+            const evStdDev = Math.sqrt(Math.max(1, evVariance))
+            const laStdDev = Math.sqrt(Math.max(1, laVariance))
+
+            const covariance = buckets.reduce((sum, bucket) => {
+                return sum + ((bucket.evBin - evMean) * (bucket.laBin - laMean) * Math.max(0, bucket[key]))
+            }, 0) / total
+
+            const evLaCorrelation = evStdDev > 0 && laStdDev > 0 ? covariance / (evStdDev * laStdDev) : 0
+
+            return {
+                prior: round(total / globalTotal),
+                evMean: round(evMean),
+                evStdDev: round(evStdDev),
+                laMean: round(laMean),
+                laStdDev: round(laStdDev),
+                evLaCorrelation: round(Math.max(-0.95, Math.min(0.95, evLaCorrelation)))
+            }
+        }
+
+        return {
+            out: buildOutcomeKernel("out"),
+            single: buildOutcomeKernel("single"),
+            double: buildOutcomeKernel("double"),
+            triple: buildOutcomeKernel("triple"),
+            hr: buildOutcomeKernel("hr")
+        }
+    }
+
+    private static finalizeBattedBallSprayModel(buckets: { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", xBin: number, yBin: number, count: number }[]): { count: number, mean: number, stdDev: number, pullShare: number, centerShare: number, oppoShare: number, pullMean: number, centerMean: number, oppoMean: number } {
+        const round = (value: number): number => Number(value.toFixed(4))
+        const total = buckets.reduce((sum, bucket) => sum + Math.max(0, bucket.count), 0)
+
+        if (total <= 0) {
+            return {
+                count: 0,
+                mean: 0,
+                stdDev: 35,
+                pullShare: 0.33,
+                centerShare: 0.34,
+                oppoShare: 0.33,
+                pullMean: -45,
+                centerMean: 0,
+                oppoMean: 45
+            }
+        }
+
+        const rawMean = buckets.reduce((sum, bucket) => sum + (bucket.xBin * bucket.count), 0) / total
+        const rawVariance = buckets.reduce((sum, bucket) => sum + (Math.pow(bucket.xBin - rawMean, 2) * bucket.count), 0) / total
+        const rawStdDev = Math.sqrt(Math.max(1, rawVariance))
+
+        const centerX = rawMean
+        const normalizedBuckets = buckets.map(bucket => ({
+            ...bucket,
+            xBin: bucket.xBin - centerX
+        }))
+
+        const mean = normalizedBuckets.reduce((sum, bucket) => sum + (bucket.xBin * bucket.count), 0) / total
+        const variance = normalizedBuckets.reduce((sum, bucket) => sum + (Math.pow(bucket.xBin - mean, 2) * bucket.count), 0) / total
+        const stdDev = Math.sqrt(Math.max(1, variance))
+
+        const pullBuckets = normalizedBuckets.filter(bucket => bucket.xBin < -20)
+        const centerBuckets = normalizedBuckets.filter(bucket => bucket.xBin >= -20 && bucket.xBin <= 20)
+        const oppoBuckets = normalizedBuckets.filter(bucket => bucket.xBin > 20)
+
+        const bucketTotal = (rows: typeof normalizedBuckets): number => rows.reduce((sum, bucket) => sum + Math.max(0, bucket.count), 0)
+
+        const bucketMean = (rows: typeof normalizedBuckets, fallback: number): number => {
+            const rowTotal = bucketTotal(rows)
+            if (rowTotal <= 0) return fallback
+            return rows.reduce((sum, bucket) => sum + (bucket.xBin * bucket.count), 0) / rowTotal
+        }
+
+        const pullTotal = bucketTotal(pullBuckets)
+        const centerTotal = bucketTotal(centerBuckets)
+        const oppoTotal = bucketTotal(oppoBuckets)
+
+        return {
+            count: total,
+            mean: round(mean),
+            stdDev: round(rawStdDev || stdDev),
+            pullShare: round(pullTotal / total),
+            centerShare: round(centerTotal / total),
+            oppoShare: round(oppoTotal / total),
+            pullMean: round(bucketMean(pullBuckets, -45)),
+            centerMean: round(bucketMean(centerBuckets, 0)),
+            oppoMean: round(bucketMean(oppoBuckets, 45))
+        }
+    }
+
+    private static finalizeBattedBallDepthModel(stats: { count: number, totalDistance: number, totalDistanceSquared: number }): { count: number, mean: number, stdDev: number } {
+        const round = (value: number): number => Number(value.toFixed(4))
+
+        const count = Number(stats?.count ?? 0)
+        const totalDistance = Number(stats?.totalDistance ?? 0)
+        const totalDistanceSquared = Number(stats?.totalDistanceSquared ?? 0)
+
+        if (count <= 0 || !Number.isFinite(totalDistance) || !Number.isFinite(totalDistanceSquared)) {
+            return {
+                count: 0,
+                mean: 180,
+                stdDev: 45
+            }
+        }
+
+        const mean = totalDistance / count
+
+        const meanSquare = totalDistanceSquared / count
+        const variance = Math.max(1, meanSquare - (mean * mean))
+        const stdDev = Math.sqrt(variance)
+
+        return {
+            count,
+            mean: round(mean),
+            stdDev: round(stdDev)
+        }
+    }
+
     private static createInZoneByCountSeed(): { balls: number, strikes: number, inZone: number, total: number }[] {
         return [
             { balls: 0, strikes: 0, inZone: 0, total: 0 },
@@ -954,7 +1138,7 @@ class PitchEnvironmentService {
         this.accumulateBehaviorByCountBuckets(player, behaviorByCountMap)
     }
 
-    private static accumulatePitchEnvironmentBattedBallBuckets(player: PlayerImportRaw, outcomeByEvLaMap: Map<string, any>, xyByTrajectoryMap: Map<string, any>, xyByTrajectoryEvLaMap: Map<string, any>, sprayByTrajectoryMap: Map<string, any>, sprayByTrajectoryEvLaMap: Map<string, any>): void {
+    private static accumulatePitchEnvironmentBattedBallBuckets(player: PlayerImportRaw, outcomeByEvLaMap: Map<string, any>, xyByTrajectoryMap: Map<string, any>): void {
 
         for (const bucket of player.hitting.outcomeByEvLa ?? []) {
             const key = `${bucket.evBin}:${bucket.laBin}`
@@ -983,38 +1167,6 @@ class PitchEnvironmentService {
             }
         }
 
-        for (const bucket of player.hitting.xyByTrajectoryEvLa ?? []) {
-            const key = `${bucket.trajectory}:${bucket.evBin}:${bucket.laBin}:${bucket.xBin}:${bucket.yBin}`
-            let existing = xyByTrajectoryEvLaMap.get(key)
-            if (!existing) {
-                existing = { ...bucket }
-                xyByTrajectoryEvLaMap.set(key, existing)
-            } else {
-                existing.count += bucket.count
-            }
-        }
-
-        for (const bucket of player.hitting.sprayByTrajectory ?? []) {
-            const key = `${bucket.trajectory}:${bucket.sprayBin}`
-            let existing = sprayByTrajectoryMap.get(key)
-            if (!existing) {
-                existing = { ...bucket }
-                sprayByTrajectoryMap.set(key, existing)
-            } else {
-                existing.count += bucket.count
-            }
-        }
-
-        for (const bucket of player.hitting.sprayByTrajectoryEvLa ?? []) {
-            const key = `${bucket.trajectory}:${bucket.evBin}:${bucket.laBin}:${bucket.sprayBin}`
-            let existing = sprayByTrajectoryEvLaMap.get(key)
-            if (!existing) {
-                existing = { ...bucket }
-                sprayByTrajectoryEvLaMap.set(key, existing)
-            } else {
-                existing.count += bucket.count
-            }
-        }
     }
 
     private static accumulatePitchEnvironmentPhysics(player: PlayerImportRaw, hittingPhysicsTotals: any, pitchingPhysicsTotals: any): void {
@@ -1187,27 +1339,15 @@ class PitchEnvironmentService {
             return target
         }
 
-        const finalizeTrajectoryPhysics = (target: { count: number, totalExitVelocity: number, totalExitVelocitySquared: number, avgExitVelocity: number, totalLaunchAngle: number, totalLaunchAngleSquared: number, avgLaunchAngle: number, totalDistance: number, totalDistanceSquared: number, avgDistance: number }) => {
-            target.avgExitVelocity = target.count > 0 ? Number((target.totalExitVelocity / target.count).toFixed(3)) : 0
-            target.avgLaunchAngle = target.count > 0 ? Number((target.totalLaunchAngle / target.count).toFixed(3)) : 0
-            target.avgDistance = target.count > 0 ? Number((target.totalDistance / target.count).toFixed(3)) : 0
-            target.totalExitVelocity = Number(target.totalExitVelocity.toFixed(3))
-            target.totalExitVelocitySquared = Number(target.totalExitVelocitySquared.toFixed(3))
-            target.totalLaunchAngle = Number(target.totalLaunchAngle.toFixed(3))
-            target.totalLaunchAngleSquared = Number(target.totalLaunchAngleSquared.toFixed(3))
-            target.totalDistance = Number(target.totalDistance.toFixed(3))
-            target.totalDistanceSquared = Number(target.totalDistanceSquared.toFixed(3))
-            return target
-        }
 
         finalizeMomentStat(hittingPhysicsTotals.exitVelocity)
         finalizeMomentStat(hittingPhysicsTotals.launchAngle)
         finalizeMomentStat(hittingPhysicsTotals.distance)
 
-        finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.groundBall)
-        finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.flyBall)
-        finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.lineDrive)
-        finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.popup)
+        this.finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.groundBall)
+        this.finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.flyBall)
+        this.finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.lineDrive)
+        this.finalizeTrajectoryPhysics(hittingPhysicsTotals.byTrajectory.popup)
 
         finalizeMomentStat(pitchingPhysicsTotals.velocity)
         finalizeMomentStat(pitchingPhysicsTotals.horizontalBreak)
@@ -1228,8 +1368,28 @@ class PitchEnvironmentService {
     }
 
 
+    private static finalizeTrajectoryPhysics(target: { count: number, totalExitVelocity: number, totalExitVelocitySquared: number, avgExitVelocity: number, totalLaunchAngle: number, totalLaunchAngleSquared: number, avgLaunchAngle: number, totalDistance: number, totalDistanceSquared: number, avgDistance: number }) {
+        target.avgExitVelocity = target.count > 0 ? Number((target.totalExitVelocity / target.count).toFixed(3)) : 0
+        target.avgLaunchAngle = target.count > 0 ? Number((target.totalLaunchAngle / target.count).toFixed(3)) : 0
+        target.avgDistance = target.count > 0 ? Number((target.totalDistance / target.count).toFixed(3)) : 0
 
+        target.totalExitVelocity = Number(target.totalExitVelocity.toFixed(3))
+        target.totalExitVelocitySquared = Number(target.totalExitVelocitySquared.toFixed(3))
 
+        target.totalLaunchAngle = Number(target.totalLaunchAngle.toFixed(3))
+        target.totalLaunchAngleSquared = Number(target.totalLaunchAngleSquared.toFixed(3))
+
+        target.totalDistance = Number(target.totalDistance.toFixed(3))
+
+        const distanceMeanSquare = target.count > 0 ? target.totalDistanceSquared / target.count : 0
+        const distanceVariance = Math.max(0, distanceMeanSquare - Math.pow(target.avgDistance, 2))
+
+        target.totalDistanceSquared = Number(
+            (target.count * (distanceVariance + Math.pow(target.avgDistance, 2))).toFixed(3)
+        )
+
+        return target
+    }
 
 
     public buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId: string = "baseline-game"): Game {
@@ -1552,212 +1712,6 @@ class PitchEnvironmentService {
             Math.abs(diff.outZoneContactPercent) <= 0.010 &&
             Math.abs(diff.foulContactPercent) <= 0.008
         )
-    }
-
-    private static finalizeOutcomeByEvLa(outcomeByEvLaMap: Map<string, { evBin: number, laBin: number, count: number, out: number, single: number, double: number, triple: number, hr: number }>): { evBin: number, laBin: number, count: number, out: number, single: number, double: number, triple: number, hr: number }[] {
-
-        const buckets = Array.from(outcomeByEvLaMap.values()).sort((a, b) => {
-            if (a.evBin !== b.evBin) return a.evBin - b.evBin
-            return a.laBin - b.laBin
-        })
-
-        const safeRate = (num: number, den: number): number => den > 0 ? num / den : 0
-
-        const global = buckets.reduce((acc, bucket) => {
-            acc.count += bucket.count
-            acc.out += bucket.out
-            acc.single += bucket.single
-            acc.double += bucket.double
-            acc.triple += bucket.triple
-            acc.hr += bucket.hr
-            return acc
-        }, {
-            count: 0,
-            out: 0,
-            single: 0,
-            double: 0,
-            triple: 0,
-            hr: 0
-        })
-
-        const byEv = new Map<number, { count: number, bucketCount: number, out: number, single: number, double: number, triple: number, hr: number }>()
-        const byLa = new Map<number, { count: number, bucketCount: number, out: number, single: number, double: number, triple: number, hr: number }>()
-
-        for (const bucket of buckets) {
-            const evEntry = byEv.get(bucket.evBin) ?? {
-                count: 0,
-                bucketCount: 0,
-                out: 0,
-                single: 0,
-                double: 0,
-                triple: 0,
-                hr: 0
-            }
-
-            evEntry.count += bucket.count
-            evEntry.bucketCount++
-            evEntry.out += bucket.out
-            evEntry.single += bucket.single
-            evEntry.double += bucket.double
-            evEntry.triple += bucket.triple
-            evEntry.hr += bucket.hr
-            byEv.set(bucket.evBin, evEntry)
-
-            const laEntry = byLa.get(bucket.laBin) ?? {
-                count: 0,
-                bucketCount: 0,
-                out: 0,
-                single: 0,
-                double: 0,
-                triple: 0,
-                hr: 0
-            }
-
-            laEntry.count += bucket.count
-            laEntry.bucketCount++
-            laEntry.out += bucket.out
-            laEntry.single += bucket.single
-            laEntry.double += bucket.double
-            laEntry.triple += bucket.triple
-            laEntry.hr += bucket.hr
-            byLa.set(bucket.laBin, laEntry)
-        }
-
-        const globalRates = {
-            out: safeRate(global.out, global.count),
-            single: safeRate(global.single, global.count),
-            double: safeRate(global.double, global.count),
-            triple: safeRate(global.triple, global.count),
-            hr: safeRate(global.hr, global.count)
-        }
-
-        const averageBucketCount = buckets.length > 0 ? global.count / buckets.length : 1
-        const globalWeight = Math.sqrt(Math.max(1, averageBucketCount))
-
-        return buckets.map(bucket => {
-            const evTotals = byEv.get(bucket.evBin) ?? {
-                count: 0,
-                bucketCount: 0,
-                out: 0,
-                single: 0,
-                double: 0,
-                triple: 0,
-                hr: 0
-            }
-
-            const laTotals = byLa.get(bucket.laBin) ?? {
-                count: 0,
-                bucketCount: 0,
-                out: 0,
-                single: 0,
-                double: 0,
-                triple: 0,
-                hr: 0
-            }
-
-            const evContextCount = Math.max(0, evTotals.count - bucket.count)
-            const laContextCount = Math.max(0, laTotals.count - bucket.count)
-
-            const evRates = evContextCount > 0
-                ? {
-                    out: safeRate(evTotals.out - bucket.out, evContextCount),
-                    single: safeRate(evTotals.single - bucket.single, evContextCount),
-                    double: safeRate(evTotals.double - bucket.double, evContextCount),
-                    triple: safeRate(evTotals.triple - bucket.triple, evContextCount),
-                    hr: safeRate(evTotals.hr - bucket.hr, evContextCount)
-                }
-                : globalRates
-
-            const laRates = laContextCount > 0
-                ? {
-                    out: safeRate(laTotals.out - bucket.out, laContextCount),
-                    single: safeRate(laTotals.single - bucket.single, laContextCount),
-                    double: safeRate(laTotals.double - bucket.double, laContextCount),
-                    triple: safeRate(laTotals.triple - bucket.triple, laContextCount),
-                    hr: safeRate(laTotals.hr - bucket.hr, laContextCount)
-                }
-                : globalRates
-
-            const exactRates = {
-                out: safeRate(bucket.out, bucket.count),
-                single: safeRate(bucket.single, bucket.count),
-                double: safeRate(bucket.double, bucket.count),
-                triple: safeRate(bucket.triple, bucket.count),
-                hr: safeRate(bucket.hr, bucket.count)
-            }
-
-            const exactWeight = Math.sqrt(Math.max(1, bucket.count))
-            const evWeight = Math.sqrt(Math.max(1, evContextCount / Math.max(1, evTotals.bucketCount - 1)))
-            const laWeight = Math.sqrt(Math.max(1, laContextCount / Math.max(1, laTotals.bucketCount - 1)))
-
-            let outRate =
-                (exactRates.out * exactWeight) +
-                (evRates.out * evWeight) +
-                (laRates.out * laWeight) +
-                (globalRates.out * globalWeight)
-
-            let singleRate =
-                (exactRates.single * exactWeight) +
-                (evRates.single * evWeight) +
-                (laRates.single * laWeight) +
-                (globalRates.single * globalWeight)
-
-            let doubleRate =
-                (exactRates.double * exactWeight) +
-                (evRates.double * evWeight) +
-                (laRates.double * laWeight) +
-                (globalRates.double * globalWeight)
-
-            let tripleRate =
-                (exactRates.triple * exactWeight) +
-                (evRates.triple * evWeight) +
-                (laRates.triple * laWeight) +
-                (globalRates.triple * globalWeight)
-
-            let hrRate =
-                (exactRates.hr * exactWeight) +
-                (evRates.hr * evWeight) +
-                (laRates.hr * laWeight) +
-                (globalRates.hr * globalWeight)
-
-            const totalRate = outRate + singleRate + doubleRate + tripleRate + hrRate
-
-            if (totalRate <= 0) {
-                return {
-                    evBin: bucket.evBin,
-                    laBin: bucket.laBin,
-                    count: bucket.count,
-                    out: bucket.count,
-                    single: 0,
-                    double: 0,
-                    triple: 0,
-                    hr: 0
-                }
-            }
-
-            outRate /= totalRate
-            singleRate /= totalRate
-            doubleRate /= totalRate
-            tripleRate /= totalRate
-            hrRate /= totalRate
-
-            const out = Math.round(outRate * bucket.count)
-            const single = Math.round(singleRate * bucket.count)
-            const double = Math.round(doubleRate * bucket.count)
-            const triple = Math.round(tripleRate * bucket.count)
-            const hr = Math.max(0, bucket.count - out - single - double - triple)
-
-            return {
-                evBin: bucket.evBin,
-                laBin: bucket.laBin,
-                count: bucket.count,
-                out,
-                single,
-                double,
-                triple,
-                hr
-            }
-        })
     }
 
     public printPitchEnvironmentIterationDiagnostics(stage: string, iteration: number, maxIterations: number, gamesPerIteration: number, candidate: PitchEnvironmentTuning, result: { actual: any, target: any, diff: any, score: number }): void {

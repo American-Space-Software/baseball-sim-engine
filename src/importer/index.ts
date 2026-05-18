@@ -229,12 +229,12 @@ class PitchEnvironmentTuner {
             }
         }
 
-        const runDeterministicPass = async (label: string, toleranceKey: string, tolerance: number, mutate: (next: PitchEnvironmentTuning, currentResult: any) => void): Promise<void> => {
+        const runDeterministicPass = async (label: string, toleranceKey: string, tolerance: number, mutate: (next: PitchEnvironmentTuning, currentResult: any) => void, acceptOnlyIfBetter: boolean = false): Promise<boolean> => {
             const currentMetric = metric(result, toleranceKey)
 
             if (Math.abs(currentMetric.diff) <= tolerance) {
                 log("SKIP", label, `reason=${toleranceKey}-locked`, `actual=${this.f(currentMetric.actual)}`, `target=${this.f(currentMetric.target)}`)
-                return
+                return true
             }
 
             const next = this.normalizeTuningShape(candidate)
@@ -242,7 +242,7 @@ class PitchEnvironmentTuner {
 
             if (this.sameTuning(candidate, next)) {
                 log("SKIP", label, "reason=same-tuning")
-                return
+                return false
             }
 
             const nextResult = await this.evaluateOne(next, ctx, ctx.gamesPerIteration, label)
@@ -254,10 +254,13 @@ class PitchEnvironmentTuner {
             history.push(this.createHistoryRow(label, history.length, next, nextResult))
             maybeAcceptBest(next, nextResult)
 
-            candidate = next
-            result = nextResult
+            if (!acceptOnlyIfBetter || nextPenalty <= currentPenalty) {
+                candidate = next
+                result = nextResult
+                this.printStatus(label, history.length, ctx.gamesPerIteration, candidate, result)
+            }
 
-            this.printStatus(label, history.length, ctx.gamesPerIteration, candidate, result)
+            return Math.abs(metric(result, toleranceKey).diff) <= tolerance
         }
 
         await runDeterministicPass("lock-BB", "bbPercent", 0.006, (next, currentResult) => {
@@ -290,7 +293,7 @@ class PitchEnvironmentTuner {
 
         await runDeterministicPass("lock-OBP", "obp", 0.012, (next, currentResult) => {
             const obp = metric(currentResult, "obp")
-            const step = clamp((obp.target - obp.actual) / -0.25, -0.03, 0.03)
+            const step = clamp((obp.target - obp.actual) / -0.35, -0.025, 0.025)
 
             next.tuning!.contactQuality.outOutcomeScale = clamp(
                 Number(next.tuning?.contactQuality?.outOutcomeScale ?? 0) + step,
@@ -299,19 +302,40 @@ class PitchEnvironmentTuner {
             )
         })
 
-        await runDeterministicPass("lock-SBA", "teamSBAttemptsPerGame", 0.08, (next, currentResult) => {
-            const sba = metric(currentResult, "teamSBAttemptsPerGame")
-            const sb = metric(currentResult, "teamSBPerGame")
-            const sbaStep = clamp((sba.target - sba.actual) / 0.55, -0.75, 0.75)
-            const sbStep = clamp((sb.target - sb.actual) / 0.45, -0.75, 0.75)
-            const step = Math.abs(sba.diff) >= Math.abs(sb.diff) ? sbaStep : sbStep
+        await runDeterministicPass("lock-BABIP", "babip", 0.012, (next, currentResult) => {
+            const babip = metric(currentResult, "babip")
+            const avg = metric(currentResult, "avg")
+            const single = metric(currentResult, "singlePercent")
 
-            next.tuning!.running.stealAttemptAggressionScale = clamp(
-                Number(next.tuning?.running?.stealAttemptAggressionScale ?? 0) + step,
-                ctx.stealMin,
-                ctx.stealMax
+            const babipStep = (babip.target - babip.actual) / -0.75
+            const avgStep = (avg.target - avg.actual) / -0.6
+            const singleStep = (single.target - single.actual) / -0.55
+            const step = clamp((babipStep + avgStep + singleStep) / 3, -0.018, 0.018)
+
+            next.tuning!.contactQuality.outOutcomeScale = clamp(
+                Number(next.tuning?.contactQuality?.outOutcomeScale ?? 0) + step,
+                ctx.outMin,
+                ctx.outMax
             )
         })
+
+        for (let sbaPass = 1; sbaPass <= 3; sbaPass++) {
+            const locked = await runDeterministicPass(`lock-SBA-${sbaPass}`, "teamSBAttemptsPerGame", 0.12, (next, currentResult) => {
+                const sba = metric(currentResult, "teamSBAttemptsPerGame")
+                const sb = metric(currentResult, "teamSBPerGame")
+                const sbaStep = clamp((sba.target - sba.actual) / 0.45, -0.35, 0.35)
+                const sbStep = clamp((sb.target - sb.actual) / 0.45, -0.35, 0.35)
+                const step = Math.abs(sba.diff) >= Math.abs(sb.diff) ? sbaStep : sbStep
+
+                next.tuning!.running.stealAttemptAggressionScale = clamp(
+                    Number(next.tuning?.running?.stealAttemptAggressionScale ?? 0) + step,
+                    ctx.stealMin,
+                    ctx.stealMax
+                )
+            })
+
+            if (locked) break
+        }
 
         const maxChatPasses = Math.max(0, Number(params?.maxChatGptTuningPasses ?? 3))
 
@@ -465,11 +489,15 @@ class PitchEnvironmentTuner {
             "Do not include markdown.",
             "Do not include explanations.",
             "Do not include fields outside the PitchEnvironmentTuning interface.",
-            "BB%, SO%, OBP, and steal attempts have already been tuned deterministically.",
+            "BB%, SO%, BABIP/AVG, and steal attempts have already been tuned deterministically.",
             "Do not change walkRateScale, pitchQualityContactEffect, contactSkillEffect, outOutcomeScale, or stealAttemptAggressionScale unless the prompt explicitly says one of them is badly broken.",
-            "Focus on runs, OPS, SLG, HR%, doubles, triples, and baserunning advancement.",
-            "Prefer advancementAggressionScale for run deficit when OPS is already high.",
-            "Prefer homeRunOutcomeScale/doubleOutcomeScale/tripleOutcomeScale for OPS or SLG shape."
+            "The sim now chooses offensive outcome before batted-ball physics, so homeRunOutcomeScale is not a generic run-scoring lever.",
+            "If BABIP, AVG, or singlePercent is low, do not raise homeRunOutcomeScale to compensate.",
+            "If homeRunPercent is already close to target, do not raise homeRunOutcomeScale.",
+            "Focus on remaining runs, OPS, SLG, doubles, triples, and baserunning advancement.",
+            "Prefer advancementAggressionScale for run deficit when OPS is close and HR% is not low.",
+            "Prefer doubleOutcomeScale/tripleOutcomeScale only when 2B%/3B% are directly low.",
+            "Prefer homeRunOutcomeScale only when HR% is directly low."
         ].join("\n")
     }
 
@@ -525,7 +553,7 @@ class PitchEnvironmentTuner {
         }
 
         return JSON.stringify({
-            task: "Return the next PitchEnvironmentTuning. BB, SO, OBP, and SBA were handled deterministically. Use ChatGPT only for the remaining shape/runs/OPS tradeoff.",
+            task: "Return the next PitchEnvironmentTuning. BB, SO, BABIP/AVG, and SBA were handled deterministically. Use ChatGPT only for remaining shape/runs/OPS tradeoff.",
             pass,
             environmentProfile,
             currentTuning: candidate,
@@ -538,23 +566,26 @@ class PitchEnvironmentTuner {
                 "Return only one JSON object matching the schema.",
                 "Do not change walkRateScale unless bbPercent is outside tolerance by more than 0.008.",
                 "Do not change pitchQualityContactEffect or contactSkillEffect unless soPercent is outside tolerance by more than 0.01.",
-                "Do not change outOutcomeScale unless OBP/AVG/BABIP are the main problem.",
+                "Do not change outOutcomeScale unless AVG/BABIP/singlePercent are outside tolerance and are the main problem.",
                 "Do not change stealAttemptAggressionScale unless teamSBAttemptsPerGame is outside tolerance by more than 0.12.",
+                "Do not increase homeRunOutcomeScale unless homeRunPercent is below target by more than 0.004.",
+                "If homeRunPercent is at target or high, homeRunOutcomeScale must stay the same or decrease.",
+                "If BABIP or singlePercent is low, do not use homeRunOutcomeScale to fix runs.",
                 "Runs are the primary remaining target. OPS is second.",
                 "If teamRunsPerGame is low by more than 0.25 and OPS is within 0.03 of target, only increase advancementAggressionScale.",
                 "If teamRunsPerGame is low and OPS is high by more than 0.03, increase advancementAggressionScale first. Only lower power knobs if OPS remains high after runs are close.",
-                "If teamRunsPerGame is close and OPS/SLG is high, then lower homeRunOutcomeScale or doubleOutcomeScale slightly.",
-                "If OPS/SLG is low and runs are low, increase homeRunOutcomeScale or doubleOutcomeScale.",
-                "If HR% is high but runs are low, prefer not to lower homeRunOutcomeScale unless OPS is also high by more than 0.03.",
-                "If HR% is low, raise homeRunOutcomeScale.",
+                "If teamRunsPerGame is close and OPS/SLG is high, lower homeRunOutcomeScale or doubleOutcomeScale slightly.",
+                "If OPS/SLG is low and HR% is not low, prefer doubleOutcomeScale or advancementAggressionScale over homeRunOutcomeScale.",
+                "If 2B% is low, raise doubleOutcomeScale slightly.",
+                "If 3B% is low, raise tripleOutcomeScale slightly.",
                 "Do not make more than 2 meaningful knob changes."
             ],
             knobNotes: {
                 advancementAggressionScale: "Primary runs-only lever. Higher usually raises runs without directly changing AVG/OBP/SLG. Use this first when runs are low and OPS is close.",
-                homeRunOutcomeScale: "Primary HR%, SLG, OPS, and runs lever. Do not lower this for high HR alone when runs are still low and OPS is close.",
-                doubleOutcomeScale: "Primary 2B%, SLG, OPS lever. Do not lower this while runs are low unless OPS is clearly high.",
-                tripleOutcomeScale: "Primary 3B%, SLG, OPS lever. Usually small adjustments only.",
-                outOutcomeScale: "Primary OBP/AVG/BABIP lever. Avoid unless OBP/AVG/BABIP are the issue.",
+                outOutcomeScale: "Primary OBP/AVG/BABIP/singlePercent lever. Negative raises balls-in-play hits. This is the right lever when BABIP or singles are low.",
+                homeRunOutcomeScale: "Direct HR%, SLG, OPS, and runs lever. In the outcome-first sim, do not use this as a generic run lever if HR% is already close/high.",
+                doubleOutcomeScale: "Direct 2B%, SLG, OPS lever. Use only if doubles or SLG are low and HR% is not the issue.",
+                tripleOutcomeScale: "Direct 3B%, SLG, OPS lever. Usually small adjustments only.",
                 walkRateScale: "Primary BB% lever. Already deterministically tuned.",
                 pitchQualityContactEffect: "Primary SO% lever. Already deterministically tuned.",
                 contactSkillEffect: "Primary SO/contact lever. Already deterministically tuned.",
@@ -588,18 +619,19 @@ class PitchEnvironmentTuner {
 
         return (
             term("teamRunsPerGame", 0.12, 1500) +
-            term("ops", 0.02, 800) +
+            term("ops", 0.02, 650) +
+            term("obp", 0.014, 300) +
+            term("avg", 0.012, 300) +
+            term("babip", 0.012, 450) +
+            term("singlePercent", 0.008, 300) +
             term("bbPercent", 0.004, 350) +
             term("soPercent", 0.006, 250) +
-            term("homeRunPercent", 0.0035, 250) +
-            term("teamSBAttemptsPerGame", 0.06, 180) +
-            term("teamSBPerGame", 0.08, 120) +
-            term("obp", 0.018, 100) +
+            term("homeRunPercent", 0.0035, 450) +
+            term("teamSBAttemptsPerGame", 0.08, 180) +
+            term("teamSBPerGame", 0.1, 120) +
             term("slg", 0.025, 100) +
-            term("avg", 0.018, 35) +
-            term("babip", 0.018, 25) +
-            term("doublePercent", 0.008, 15) +
-            term("triplePercent", 0.003, 10)
+            term("doublePercent", 0.008, 75) +
+            term("triplePercent", 0.003, 35)
         )
     }
 
@@ -626,18 +658,19 @@ class PitchEnvironmentTuner {
 
         return [
             term("teamRunsPerGame", 0.12, 1500),
-            term("ops", 0.02, 800),
+            term("ops", 0.02, 650),
+            term("obp", 0.014, 300),
+            term("avg", 0.012, 300),
+            term("babip", 0.012, 450),
+            term("singlePercent", 0.008, 300),
             term("bbPercent", 0.004, 350),
             term("soPercent", 0.006, 250),
-            term("homeRunPercent", 0.0035, 250),
-            term("teamSBAttemptsPerGame", 0.06, 180),
-            term("teamSBPerGame", 0.08, 120),
-            term("obp", 0.018, 100),
+            term("homeRunPercent", 0.0035, 450),
+            term("teamSBAttemptsPerGame", 0.08, 180),
+            term("teamSBPerGame", 0.1, 120),
             term("slg", 0.025, 100),
-            term("avg", 0.018, 35),
-            term("babip", 0.018, 25),
-            term("doublePercent", 0.008, 15),
-            term("triplePercent", 0.003, 10)
+            term("doublePercent", 0.008, 75),
+            term("triplePercent", 0.003, 35)
         ]
     }
 
@@ -879,7 +912,7 @@ class PitchEnvironmentTuner {
     private static createTuningContext(pitchEnvironment: PitchEnvironmentTarget, rng: Function, params?: any): any {
         return {
             pitchEnvironment,
-            importer: params?.importer,
+            importer: params?.importer ?? params?.pitchEnvironmentService,
             baseDataDir: params?.baseDataDir ?? "data",
             baseSeed: String(rng()),
             gamesPerIteration: params?.gamesPerIteration ?? 30,

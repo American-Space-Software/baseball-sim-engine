@@ -17,10 +17,11 @@ declare class SimService {
     private simPitchRolls;
     private getPitchAnomalyResult;
     private finishPlay;
+    private getTunedMatchupPowerResult;
+    private getMatchupContactForPlayResult;
+    private getExpectedBasesForPlayResult;
     private validateNextHitterIsNotOnBase;
-    private getOutcomeModelForContactQuality;
-    private applyDefenseToOutcomeModel;
-    private getPlayResultFromOutcomeModel;
+    private applyDefenseToPlayResult;
     private getFielderWeights;
     private weightedPickPosition;
     private getShallowDeepFromY;
@@ -64,7 +65,7 @@ declare class SimRolls {
     private rollChartService;
     constructor(rollChartService: RollChartService);
     getIntentZone(rng: () => number): PitchZone;
-    getHitQuality(gameRNG: () => number, pitchEnvironmentTarget: PitchEnvironmentTarget, pitchQualityChange: number, guessPitch: boolean, contact: Contact): ContactQuality;
+    getHitQuality(gameRNG: () => number, pitchEnvironmentTarget: PitchEnvironmentTarget, pitchQualityChange: number, guessPitch: boolean, contact: Contact, playResult?: PlayResult): ContactQuality;
     getSwingResult(gameRNG: () => number, hitterChange: HitterChange, pitchEnvironmentTarget: PitchEnvironmentTarget, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult;
     isInZone(gameRNG: () => number, locationQuality: number, inZoneRate: number): boolean;
     getFielder(gameRNG: () => number, pitchEnvironmentTarget: PitchEnvironmentTarget, hitterHandedness: Handedness): Position;

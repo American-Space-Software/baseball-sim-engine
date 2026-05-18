@@ -8,6 +8,11 @@ declare class PitchEnvironmentService {
     private downloaderService;
     constructor(simService: SimService, statService: StatService, downloaderService: DownloaderService);
     static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>): PitchEnvironmentTarget;
+    private static finalizeBattedBallModels;
+    private static finalizeBattedBallEvLaModel;
+    private static finalizeBattedBallOutcomeModel;
+    private static finalizeBattedBallSprayModel;
+    private static finalizeBattedBallDepthModel;
     private static createInZoneByCountSeed;
     private static createBehaviorByCountSeed;
     private static accumulatePitchEnvironmentTotalsForPlayer;
@@ -18,6 +23,7 @@ declare class PitchEnvironmentService {
     private static accumulateInZoneByCountBuckets;
     private static accumulateBehaviorByCountBuckets;
     private static finalizePitchEnvironmentPhysicsTotals;
+    private static finalizeTrajectoryPhysics;
     buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId?: string): Game;
     evaluatePitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, rng: Function, games?: number): {
         actual: any;
@@ -27,7 +33,6 @@ declare class PitchEnvironmentService {
     };
     seedPitchEnvironmentTuning(pitchEnvironment: PitchEnvironmentTarget): PitchEnvironmentTuning;
     isPitchEnvironmentCloseEnough(diff: any): boolean;
-    private static finalizeOutcomeByEvLa;
     printPitchEnvironmentIterationDiagnostics(stage: string, iteration: number, maxIterations: number, gamesPerIteration: number, candidate: PitchEnvironmentTuning, result: {
         actual: any;
         target: any;

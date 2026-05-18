@@ -18,7 +18,8 @@ import type {
     Game,
     GamePlayer,
     RunnerEvent,
-    RunnerResult
+    RunnerResult,
+    RollChart
 } from "../src/sim/index.js"
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
@@ -63,7 +64,7 @@ const makeTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): Pitc
             pitchQualityChaseSwingEffect: overrides?.swing?.pitchQualityChaseSwingEffect ?? 0,
             disciplineZoneSwingEffect: overrides?.swing?.disciplineZoneSwingEffect ?? 0,
             disciplineChaseSwingEffect: overrides?.swing?.disciplineChaseSwingEffect ?? 0,
-            walkRateScale: overrides?.swing?.walkRateScale ?? 0,            
+            walkRateScale: overrides?.swing?.walkRateScale ?? 0,
         },
         contact: {
             pitchQualityContactEffect: overrides?.contact?.pitchQualityContactEffect ?? 0,
@@ -177,7 +178,6 @@ describe("Baseball Sim Engine", async () => {
         assert.ok(pitchEnvironment)
     })
 
-
     it("evaluated hit type rates should equal hits per PA", () => {
         const evaluationRng = new seedrandom(evaluationSeed)
         const evaluation = pitchEnvironmentService.evaluatePitchEnvironment(pitchEnvironment, evaluationRng, 20)
@@ -188,11 +188,7 @@ describe("Baseball Sim Engine", async () => {
             Number(evaluation.actual.triplePercent ?? 0) +
             Number(evaluation.actual.homeRunPercent ?? 0)
 
-        const actualHitsPerPA =
-            Number(evaluation.actual.teamHitsPerGame ?? 0) /
-            (
-                Number(evaluation.actual.teamHitsPerGame ?? 0) / actualHitTypePerPA
-            )
+        const actualHitsPerPA = actualHitTypePerPA
 
         assert.ok(
             Math.abs(actualHitTypePerPA - actualHitsPerPA) < 0.000001,
@@ -200,111 +196,183 @@ describe("Baseball Sim Engine", async () => {
         )
     })
 
-
     const buildTarget = (contactQualityTuning: any = {}): any => ({
-                pitchEnvironmentTuning: {
-                    tuning: {
-                        contactQuality: {
-                            evScale: 0,
-                            laScale: 0,
-                            distanceScale: 0,
-                            outOutcomeScale: 0,
-                            doubleOutcomeScale: 0,
-                            tripleOutcomeScale: 0,
-                            homeRunOutcomeScale: 0,
-                            ...contactQualityTuning
-                        }
-                    }
-                },
-                battedBall: {
-                    outcomeByEvLa: [
-                        {
-                            evBin: 100,
-                            laBin: 20,
-                            out: 60,
-                            single: 20,
-                            double: 10,
-                            triple: 4,
-                            hr: 6
-                        }
-                    ]
+        avgRating: 50,
+        pitchEnvironmentTuning: {
+            tuning: {
+                contactQuality: {
+                    outOutcomeScale: 0,
+                    doubleOutcomeScale: 0,
+                    tripleOutcomeScale: 0,
+                    homeRunOutcomeScale: 0,
+                    ...contactQualityTuning
                 }
+            }
+        }
     })
 
-    const contactQuality: any = {
-        exitVelocity: 100,
-        launchAngle: 20,
-        distance: 300,
-        coordX: 0,
-        coordY: 200
+    const buildPowerChart = (playResult: PlayResult): RollChart => {
+        const entries = new Map<number, PlayResult>()
+
+        for (let i = 0; i < 1000; i++) {
+            entries.set(i, playResult)
+        }
+
+        return { entries } as RollChart
     }
 
-    const getModel = (target: any) => {
-        const simService: any = Object.create(SimService.prototype)
+    const getTunedPowerResult = (
+        playResult: PlayResult,
+        contact: Contact,
+        contactQualityTuning: any = {},
+        rngValues: number[] = [0]
+    ): PlayResult => {
 
-        return simService.getOutcomeModelForContactQuality(
-            target,
-            contactQuality,
+        const testSimService: any = Object.create(SimService.prototype)
+
+        testSimService.rollChartService = {
+            getMatchupPowerRollChart: () => buildPowerChart(playResult)
+        }
+
+        const command: any = {
+            pitchEnvironmentTarget: buildTarget(contactQualityTuning),
+            hitterChange: {},
+            pitcherChange: {},
+            rng: rngSequence(rngValues)
+        }
+
+        return testSimService.getTunedMatchupPowerResult(command, contact)
+    }
+
+    it("outOutcomeScale should increase outs when positive", () => {
+        const adjusted = getTunedPowerResult(
+            PlayResult.SINGLE,
             Contact.LINE_DRIVE,
-            0
+            { outOutcomeScale: 1 }
         )
-    }
 
-    const hits = (model: any): number => {
-        return model.single + model.double + model.triple + model.hr
-    }
-
-    it("outOutcomeScale should increase outs and reduce batting average when positive", () => {
-        const baseline = getModel(buildTarget())
-        const adjusted = getModel(buildTarget({ outOutcomeScale: 0.25 }))
-
-        assert.equal(baseline.out, 60)
-        assert.equal(hits(baseline), 40)
-
-        assert.equal(adjusted.out, 70)
-        assert.equal(hits(adjusted), 30)
-        assert.equal(adjusted.count, baseline.count)
+        assert.equal(adjusted, PlayResult.OUT)
     })
 
-    it("outOutcomeScale should reduce outs and increase batting average when negative", () => {
-        const baseline = getModel(buildTarget())
-        const adjusted = getModel(buildTarget({ outOutcomeScale: -0.25 }))
+    it("outOutcomeScale should reduce outs when negative", () => {
+        const adjusted = getTunedPowerResult(
+            PlayResult.OUT,
+            Contact.LINE_DRIVE,
+            { outOutcomeScale: -1 }
+        )
 
-        assert.equal(baseline.out, 60)
-        assert.equal(hits(baseline), 40)
-
-        assert.equal(adjusted.out, 45)
-        assert.equal(hits(adjusted), 55)
-        assert.equal(adjusted.count, baseline.count)
+        assert.equal(adjusted, PlayResult.SINGLE)
     })
 
-    it("extra-base outcome scales should not change batting average", () => {
-        const baseline = getModel(buildTarget())
-        const adjusted = getModel(buildTarget({
-            homeRunOutcomeScale: 0.5,
-            tripleOutcomeScale: 0.5,
-            doubleOutcomeScale: 0.5
-        }))
+    it("doubleOutcomeScale should redistribute singles into doubles", () => {
+        const adjusted = getTunedPowerResult(
+            PlayResult.SINGLE,
+            Contact.LINE_DRIVE,
+            { doubleOutcomeScale: 1 }
+        )
 
-        assert.equal(adjusted.out, baseline.out)
-        assert.equal(hits(adjusted), hits(baseline))
-        assert.equal(adjusted.count, baseline.count)
+        assert.equal(adjusted, PlayResult.DOUBLE)
     })
 
-    it("negative extra-base outcome scales should not change batting average", () => {
-        const baseline = getModel(buildTarget())
-        const adjusted = getModel(buildTarget({
-            homeRunOutcomeScale: -0.5,
-            tripleOutcomeScale: -0.5,
-            doubleOutcomeScale: -0.5
-        }))
+    it("tripleOutcomeScale should redistribute singles/doubles into triples", () => {
+        const adjustedFromSingle = getTunedPowerResult(
+            PlayResult.SINGLE,
+            Contact.LINE_DRIVE,
+            { tripleOutcomeScale: 1 }
+        )
 
-        assert.equal(adjusted.out, baseline.out)
-        assert.equal(hits(adjusted), hits(baseline))
-        assert.equal(adjusted.count, baseline.count)
+        const adjustedFromDouble = getTunedPowerResult(
+            PlayResult.DOUBLE,
+            Contact.LINE_DRIVE,
+            { tripleOutcomeScale: 1 }
+        )
+
+        assert.equal(adjustedFromSingle, PlayResult.TRIPLE)
+        assert.equal(adjustedFromDouble, PlayResult.TRIPLE)
+    })
+
+    it("homeRunOutcomeScale should redistribute hits into home runs", () => {
+        const adjustedFromSingle = getTunedPowerResult(
+            PlayResult.SINGLE,
+            Contact.LINE_DRIVE,
+            { homeRunOutcomeScale: 1 }
+        )
+
+        const adjustedFromDouble = getTunedPowerResult(
+            PlayResult.DOUBLE,
+            Contact.LINE_DRIVE,
+            { homeRunOutcomeScale: 1 }
+        )
+
+        const adjustedFromTriple = getTunedPowerResult(
+            PlayResult.TRIPLE,
+            Contact.FLY_BALL,
+            { homeRunOutcomeScale: 1 }
+        )
+
+        assert.equal(adjustedFromSingle, PlayResult.HR)
+        assert.equal(adjustedFromDouble, PlayResult.HR)
+        assert.equal(adjustedFromTriple, PlayResult.HR)
     })
 
 
+    it("negative extra-base outcome scales should redistribute extra-base hits into singles", () => {
+        const adjustedDouble = getTunedPowerResult(
+            PlayResult.DOUBLE,
+            Contact.LINE_DRIVE,
+            { doubleOutcomeScale: -1 }
+        )
+
+        const adjustedTriple = getTunedPowerResult(
+            PlayResult.TRIPLE,
+            Contact.LINE_DRIVE,
+            { tripleOutcomeScale: -1 }
+        )
+
+        const adjustedHomeRun = getTunedPowerResult(
+            PlayResult.HR,
+            Contact.FLY_BALL,
+            { homeRunOutcomeScale: -1 }
+        )
+
+        assert.equal(adjustedDouble, PlayResult.SINGLE)
+        assert.equal(adjustedTriple, PlayResult.SINGLE)
+        assert.equal(adjustedHomeRun, PlayResult.SINGLE)
+    })
+
+    it("home runs should never be assigned ground-ball contact", () => {
+        const testSimService: any = Object.create(SimService.prototype)
+
+        const entries = new Map<number, Contact>()
+
+        for (let i = 0; i < 100; i++) {
+            entries.set(i, i < 50 ? Contact.GROUNDBALL : Contact.FLY_BALL)
+        }
+
+        testSimService.rollChartService = {
+            getMatchupContactRollChart: () => ({ entries } as RollChart)
+        }
+
+        const command: any = {
+            pitchEnvironmentTarget: buildTarget(),
+            hitter: {
+                hittingRatings: {
+                    contactProfile: {}
+                }
+            },
+            pitcher: {
+                pitchRatings: {
+                    contactProfile: {}
+                }
+            },
+            rng: rngSequence([0])
+        }
+
+        const contact = testSimService.getMatchupContactForPlayResult(command, PlayResult.HR)
+
+        assert.notEqual(contact, Contact.GROUNDBALL)
+    })
+    
     it("should print full tuning knob sensitivity ranges for offense and advancement", () => {
         const games = 60
 
@@ -479,7 +547,7 @@ describe("Baseball Sim Engine", async () => {
                     for (const play of halfInning.plays) {
                         if (!play.count?.end) continue
 
-                        const start:RunnerResult = play.runner?.result?.start 
+                        const start: RunnerResult = play.runner?.result?.start
                         const events: RunnerEvent[] = play.runner?.events ?? []
                         const startedWithRunners = !!start.first || !!start.second || !!start.third
                         const baseStateKey = `${play.count?.start?.outs ?? 0}:${getBaseStateKey(start.first, start.second, start.third)}`

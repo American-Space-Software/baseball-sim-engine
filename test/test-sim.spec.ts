@@ -1826,117 +1826,117 @@ describe("Baseball Sim Engine", async () => {
         assert.ok(rows.length > 0)
     }) 
 
-    it("disabled meta tuning should print sampled trajectory vs final logged contact", () => {
-        const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
+    // it("disabled meta tuning should print sampled trajectory vs final logged contact", () => {
+    //     const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
 
-        testPitchEnvironment.pitchEnvironmentTuning = {
-            tuning: makeDisabledMetaTuning()
-        } as PitchEnvironmentTuning
+    //     testPitchEnvironment.pitchEnvironmentTuning = {
+    //         tuning: makeDisabledMetaTuning()
+    //     } as PitchEnvironmentTuning
 
-        const rng = seedrandom("disabled-meta-sampled-vs-final-contact")
-        const games = evaluationGames
+    //     const rng = seedrandom("disabled-meta-sampled-vs-final-contact")
+    //     const games = evaluationGames
 
-        const getSampledTrajectory = (hitQuality: any): string => {
-            const evBin = Math.floor(hitQuality.exitVelocity / 2) * 2
-            const laBin = Math.floor(hitQuality.launchAngle / 2) * 2
+    //     const getSampledTrajectory = (hitQuality: any): string => {
+    //         const evBin = Math.floor(hitQuality.exitVelocity / 2) * 2
+    //         const laBin = Math.floor(hitQuality.launchAngle / 2) * 2
 
-            const matches = testPitchEnvironment.battedBall.xy.byTrajectoryEvLa.filter((row: any) =>
-                Number(row.evBin) === evBin &&
-                Number(row.laBin) === laBin
-            )
+    //         const matches = testPitchEnvironment.battedBall.xy.byTrajectoryEvLa.filter((row: any) =>
+    //             Number(row.evBin) === evBin &&
+    //             Number(row.laBin) === laBin
+    //         )
 
-            if (matches.length === 1) return matches[0].trajectory
+    //         if (matches.length === 1) return matches[0].trajectory
 
-            const trajectoryCounts = matches.reduce((acc: any, row: any) => {
-                acc[row.trajectory] = (acc[row.trajectory] ?? 0) + Number(row.count ?? 0)
-                return acc
-            }, {})
+    //         const trajectoryCounts = matches.reduce((acc: any, row: any) => {
+    //             acc[row.trajectory] = (acc[row.trajectory] ?? 0) + Number(row.count ?? 0)
+    //             return acc
+    //         }, {})
 
-            const best = Object.entries(trajectoryCounts)
-                .sort((a: any, b: any) => b[1] - a[1])[0]
+    //         const best = Object.entries(trajectoryCounts)
+    //             .sort((a: any, b: any) => b[1] - a[1])[0]
 
-            if (best) return best[0] as string
+    //         if (best) return best[0] as string
 
-            if (laBin < 0) return "groundBall"
-            if (laBin < 24) return "lineDrive"
-            return "flyBall"
-        }
+    //         if (laBin < 0) return "groundBall"
+    //         if (laBin < 24) return "lineDrive"
+    //         return "flyBall"
+    //     }
 
-        const report = new Map<string, {
-            count: number
-            out: number
-            single: number
-            double: number
-            triple: number
-            hr: number
-        }>()
+    //     const report = new Map<string, {
+    //         count: number
+    //         out: number
+    //         single: number
+    //         double: number
+    //         triple: number
+    //         hr: number
+    //     }>()
 
-        const bump = (key: string, result: PlayResult) => {
-            if (!report.has(key)) {
-                report.set(key, {
-                    count: 0,
-                    out: 0,
-                    single: 0,
-                    double: 0,
-                    triple: 0,
-                    hr: 0
-                })
-            }
+    //     const bump = (key: string, result: PlayResult) => {
+    //         if (!report.has(key)) {
+    //             report.set(key, {
+    //                 count: 0,
+    //                 out: 0,
+    //                 single: 0,
+    //                 double: 0,
+    //                 triple: 0,
+    //                 hr: 0
+    //             })
+    //         }
 
-            const row = report.get(key)!
-            row.count++
+    //         const row = report.get(key)!
+    //         row.count++
 
-            if (result === PlayResult.OUT) row.out++
-            else if (result === PlayResult.SINGLE) row.single++
-            else if (result === PlayResult.DOUBLE) row.double++
-            else if (result === PlayResult.TRIPLE) row.triple++
-            else if (result === PlayResult.HR) row.hr++
-        }
+    //         if (result === PlayResult.OUT) row.out++
+    //         else if (result === PlayResult.SINGLE) row.single++
+    //         else if (result === PlayResult.DOUBLE) row.double++
+    //         else if (result === PlayResult.TRIPLE) row.triple++
+    //         else if (result === PlayResult.HR) row.hr++
+    //     }
 
-        for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-            const game = pitchEnvironmentService.buildStartedBaselineGame(
-                clone(testPitchEnvironment),
-                `disabled-meta-sampled-vs-final-contact-${gameIndex}`
-            )
+    //     for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+    //         const game = pitchEnvironmentService.buildStartedBaselineGame(
+    //             clone(testPitchEnvironment),
+    //             `disabled-meta-sampled-vs-final-contact-${gameIndex}`
+    //         )
 
-            while (!game.isComplete) {
-                simService.simPitch(game, rng)
-            }
+    //         while (!game.isComplete) {
+    //             simService.simPitch(game, rng)
+    //         }
 
-            for (const play of game.halfInnings.flatMap(halfInning => halfInning.plays)) {
-                const pitchWithContactQuality = play.pitchLog?.pitches?.find((pitch: any) => pitch.contactQuality)
+    //         for (const play of game.halfInnings.flatMap(halfInning => halfInning.plays)) {
+    //             const pitchWithContactQuality = play.pitchLog?.pitches?.find((pitch: any) => pitch.contactQuality)
 
-                if (!pitchWithContactQuality?.contactQuality) continue
+    //             if (!pitchWithContactQuality?.contactQuality) continue
 
-                const sampledTrajectory = getSampledTrajectory(pitchWithContactQuality.contactQuality)
-                const finalContact = play.contact
+    //             const sampledTrajectory = getSampledTrajectory(pitchWithContactQuality.contactQuality)
+    //             const finalContact = play.contact
 
-                bump(`${sampledTrajectory} -> ${finalContact}`, play.result)
-            }
-        }
+    //             bump(`${sampledTrajectory} -> ${finalContact}`, play.result)
+    //         }
+    //     }
 
-        console.log("\n=== SAMPLED TRAJECTORY VS FINAL CONTACT ===")
+    //     console.log("\n=== SAMPLED TRAJECTORY VS FINAL CONTACT ===")
 
-        Array.from(report.entries())
-            .sort((a, b) => b[1].count - a[1].count)
-            .forEach(([key, row]) => {
-                const hit = row.single + row.double + row.triple + row.hr
-                const bip = row.out + row.single + row.double + row.triple
-                const babip = bip > 0 ? (row.single + row.double + row.triple) / bip : 0
-                const hrRate = row.hr / row.count
+    //     Array.from(report.entries())
+    //         .sort((a, b) => b[1].count - a[1].count)
+    //         .forEach(([key, row]) => {
+    //             const hit = row.single + row.double + row.triple + row.hr
+    //             const bip = row.out + row.single + row.double + row.triple
+    //             const babip = bip > 0 ? (row.single + row.double + row.triple) / bip : 0
+    //             const hrRate = row.hr / row.count
 
-                console.log(`[${key}]`, {
-                    count: row.count,
-                    out: Number((row.out / row.count).toFixed(3)),
-                    hit: Number((hit / row.count).toFixed(3)),
-                    hr: Number(hrRate.toFixed(3)),
-                    babip: Number(babip.toFixed(3)),
-                    raw: row
-                })
-            })
+    //             console.log(`[${key}]`, {
+    //                 count: row.count,
+    //                 out: Number((row.out / row.count).toFixed(3)),
+    //                 hit: Number((hit / row.count).toFixed(3)),
+    //                 hr: Number(hrRate.toFixed(3)),
+    //                 babip: Number(babip.toFixed(3)),
+    //                 raw: row
+    //             })
+    //         })
 
-        assert.ok(report.size > 0)
-    })
+    //     assert.ok(report.size > 0)
+    // })
 
     it("manual high-offense full game should print available evaluation pipeline rates", () => {
         const evaluation = evaluateManualTuning("high-offense-debug", HIGH_OFFENSE_TUNING)

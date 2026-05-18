@@ -1021,46 +1021,49 @@ interface BattedBallPhysics {
     }
 }
 
-interface BattedBallOutcomeByEvLaBucket {
-    evBin: number
-    laBin: number
+
+
+type BattedBallTrajectory = "groundBall" | "flyBall" | "lineDrive" | "popup"
+
+interface BattedBallEvLaModel {
     count: number
-    out: number
-    single: number
-    double: number
-    triple: number
-    hr: number
+    evMean: number
+    evStdDev: number
+    laMean: number
+    laStdDev: number
+    evLaCorrelation: number
 }
 
-
-interface BattedBallXyByTrajectoryBucket {
-    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
-    xBin: number
-    yBin: number
-    count: number
+interface BattedBallOutcomeFormula {
+    intercept: number
+    ev: number
+    la: number
+    ev2: number
+    la2: number
+    evLa: number
 }
 
-interface BattedBallXyByTrajectoryEvLaBucket {
-    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
-    evBin: number
-    laBin: number
-    xBin: number
-    yBin: number
-    count: number
+interface BattedBallOutcomeModel {
+    out: BattedBallOutcomeFormula
+    single: BattedBallOutcomeFormula
+    double: BattedBallOutcomeFormula
+    triple: BattedBallOutcomeFormula
+    hr: BattedBallOutcomeFormula
 }
 
-interface BattedBallSprayByTrajectoryBucket {
-    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
-    sprayBin: number
-    count: number
+interface BattedBallSprayModel {
+    pullMean: number
+    centerMean: number
+    oppoMean: number
+    pullShare: number
+    centerShare: number
+    oppoShare: number
+    stdDev: number
 }
 
-interface BattedBallSprayByTrajectoryEvLaBucket {
-    trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup"
-    evBin: number
-    laBin: number
-    sprayBin: number
-    count: number
+interface BattedBallDepthModel {
+    mean: number
+    stdDev: number
 }
 
 interface RunningAdvancementTarget {
@@ -1108,15 +1111,12 @@ interface PitchEnvironmentTarget {
         inPlayPercent: number
         contactRollInput: ContactTypeRollInput
         powerRollInput: PowerRollInput
-        outcomeByEvLa: BattedBallOutcomeByEvLaBucket[]
-        xy: {
-            byTrajectory: BattedBallXyByTrajectoryBucket[]
-            byTrajectoryEvLa: BattedBallXyByTrajectoryEvLaBucket[]
-        }
-        spray: {
-            byTrajectory: BattedBallSprayByTrajectoryBucket[]
-            byTrajectoryEvLa: BattedBallSprayByTrajectoryEvLaBucket[]
-        }
+
+        evLaModel: Record<BattedBallTrajectory, BattedBallEvLaModel>
+        outcomeModel: Record<BattedBallTrajectory, BattedBallOutcomeModel>
+        sprayModel: Record<BattedBallTrajectory, BattedBallSprayModel>
+        depthModel: Record<BattedBallTrajectory, BattedBallDepthModel>
+        
     }
 
 
