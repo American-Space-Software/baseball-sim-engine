@@ -584,11 +584,9 @@ class RollChartService {
 
     }
 
-    getMatchupPowerRollChart(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterChange:HitterChange, pitcherChange:PitcherChange, applyPlayerChanges:boolean) : RollChart {
+    getMatchupPowerRollChart(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterChange:HitterChange, pitcherChange:PitcherChange) : RollChart {
 
         let leagueAvgChart: RollChart = this.getPowerRollChart(pitchEnvironmentTarget.battedBall.powerRollInput)
-
-        if (!applyPlayerChanges) return leagueAvgChart
 
         let hitter:RollChart = this.getPowerRollChart(this.buildHitterPowerRollInput(pitchEnvironmentTarget, hitterChange))
         let pitcher:RollChart = this.getPowerRollChart(this.buildPitcherPowerRollInput(pitchEnvironmentTarget, pitcherChange))
@@ -600,11 +598,9 @@ class RollChartService {
 
     }
 
-    getMatchupContactRollChart(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterContactProfile:ContactProfile, pitcherContactProfile:ContactProfile, applyPlayerChanges:boolean): RollChart {
+    getMatchupContactRollChart(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterContactProfile:ContactProfile, pitcherContactProfile:ContactProfile): RollChart {
 
         let leagueAvgChart: RollChart = this.getContactTypeRollChart(pitchEnvironmentTarget.battedBall.contactRollInput)
-
-        if (!applyPlayerChanges) return leagueAvgChart
 
         let hitter:RollChart = this.getContactTypeRollChart(hitterContactProfile)
         let pitcher:RollChart = this.getContactTypeRollChart(pitcherContactProfile)

@@ -2,7 +2,7 @@ import { Worker } from "worker_threads"
 import seedrandom from "seedrandom"
 import { PitchEnvironmentTarget, PitchEnvironmentTuning, PlayerImportRaw } from "../sim/service/interfaces.js"
 import { RollChartService } from "../sim/service/roll-chart-service.js"
-import { GameInfo, GamePlayers, RunnerActions, SimRolls, SimService } from "../sim/service/sim-service.js"
+import { GameInfo, GamePlayers, SimRolls, SimService } from "../sim/service/sim-service.js"
 import { StatService } from "../sim/service/stat-service.js"
 import { DownloaderService } from "./service/downloader-service.js"
 import { PitchEnvironmentService } from "./service/pitch-environment-service.js"
@@ -10,8 +10,10 @@ import { v4 as uuidv4 } from "uuid"
 import path from "path"
 import { fileURLToPath } from "url"
 import fs from "fs"
-import { clamp } from "../util.js"
+import { clamp } from "./util.js"
 import { OpenAI } from "openai"
+import { RunnerService } from "../sim/service/runner-service.js"
+import { SubstitutionService } from "../sim/service/substitution-service.js"
 
 const CHATGPT_API_KEY = process.env.CHATGPT_API_KEY
 
@@ -53,12 +55,13 @@ const createPitchEnvironmentService = (baseDataDir: string): { pitchEnvironmentS
     const rollChartService = new RollChartService()
     const statService = new StatService()
     const simRolls = new SimRolls(rollChartService)
-    const gamePlayers = new GamePlayers(rollChartService)
-    const runnerActions = new RunnerActions(rollChartService, simRolls)
+    const gamePlayers = new GamePlayers()
+    const runnerService = new RunnerService(simRolls)
     const gameInfo = new GameInfo(gamePlayers)
-    const simService = new SimService(rollChartService, simRolls, runnerActions, gameInfo, {} as PitchEnvironmentTarget)
+    const substitutionService = new SubstitutionService()
+    const simService = new SimService(rollChartService, simRolls, runnerService, gameInfo, substitutionService, {} as PitchEnvironmentTarget)
     const downloader = new DownloaderService(baseDataDir, 1000)
-    const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, downloader)
+    const pitchEnvironmentService = new PitchEnvironmentService(simService, statService)
 
     return { pitchEnvironmentService, downloader }
 }

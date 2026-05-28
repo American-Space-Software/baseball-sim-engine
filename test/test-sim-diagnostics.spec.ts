@@ -19,7 +19,8 @@ import type {
     GamePlayer,
     RunnerEvent,
     RunnerResult,
-    RollChart
+    RollChart,
+    PitchZone
 } from "../src/sim/index.js"
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
@@ -41,123 +42,8 @@ const players = await downloaderservice.buildSeasonPlayerImports(season, new Set
 const evaluationSeed = 4
 const evaluationGames = 70
 
-const options = {
-    workers: 25,
-    gamesPerIteration: evaluationGames
-}
-
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
-const makeTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): PitchEnvironmentTuning["tuning"] => {
-    return {
-        contactQuality: {
-            evScale: overrides?.contactQuality?.evScale ?? 0,
-            laScale: overrides?.contactQuality?.laScale ?? 0,
-            distanceScale: overrides?.contactQuality?.distanceScale ?? 0,
-            outOutcomeScale: overrides?.contactQuality?.outOutcomeScale ?? 0,
-            doubleOutcomeScale: overrides?.contactQuality?.doubleOutcomeScale ?? 0,
-            tripleOutcomeScale: overrides?.contactQuality?.tripleOutcomeScale ?? 0,
-            homeRunOutcomeScale: overrides?.contactQuality?.homeRunOutcomeScale ?? 0,
-        },
-        swing: {
-            pitchQualityZoneSwingEffect: overrides?.swing?.pitchQualityZoneSwingEffect ?? 0,
-            pitchQualityChaseSwingEffect: overrides?.swing?.pitchQualityChaseSwingEffect ?? 0,
-            disciplineZoneSwingEffect: overrides?.swing?.disciplineZoneSwingEffect ?? 0,
-            disciplineChaseSwingEffect: overrides?.swing?.disciplineChaseSwingEffect ?? 0,
-            walkRateScale: overrides?.swing?.walkRateScale ?? 0,
-        },
-        contact: {
-            pitchQualityContactEffect: overrides?.contact?.pitchQualityContactEffect ?? 0,
-            contactSkillEffect: overrides?.contact?.contactSkillEffect ?? 0
-        },
-        running: {
-            stealAttemptAggressionScale: overrides?.running?.stealAttemptAggressionScale ?? 1,
-            advancementAggressionScale: overrides?.running?.advancementAggressionScale ?? 1
-        },
-        meta: {
-            fullPitchQualityBonus: overrides?.meta?.fullPitchQualityBonus ?? 0,
-            fullTeamDefenseBonus: overrides?.meta?.fullTeamDefenseBonus ?? 0,
-            fullFielderDefenseBonus: overrides?.meta?.fullFielderDefenseBonus ?? 0
-        }
-    }
-}
-
-
-const makeDisabledMetaTuning = (overrides?: Partial<PitchEnvironmentTuning["tuning"]>): PitchEnvironmentTuning["tuning"] => {
-    return makeTuning({
-        ...overrides,
-        meta: {
-            fullPitchQualityBonus: overrides?.meta?.fullPitchQualityBonus ?? -0,
-            fullTeamDefenseBonus: overrides?.meta?.fullTeamDefenseBonus ?? -0,
-            fullFielderDefenseBonus: overrides?.meta?.fullFielderDefenseBonus ?? -0
-        }
-    })
-}
-
-
-const HIGH_OFFENSE_TUNING: PitchEnvironmentTuning["tuning"] = makeTuning({
-    contactQuality: {
-        evScale: 0,
-        laScale: 0,
-        distanceScale: 0,
-        doubleOutcomeScale: 0.35,
-        tripleOutcomeScale: 0.15,
-        homeRunOutcomeScale: 1.25,
-        outOutcomeScale: -0.35
-    },
-    swing: {
-        pitchQualityZoneSwingEffect: 0,
-        pitchQualityChaseSwingEffect: 0,
-        disciplineZoneSwingEffect: 0,
-        disciplineChaseSwingEffect: 0,
-        walkRateScale: 0.1
-    },
-    contact: {
-        pitchQualityContactEffect: 0,
-        contactSkillEffect: 0
-    },
-    running: {
-        stealAttemptAggressionScale: 1.6,
-        advancementAggressionScale: 1.2
-    },
-    meta: {
-        fullPitchQualityBonus: 0,
-        fullTeamDefenseBonus: -100,
-        fullFielderDefenseBonus: -100
-    }
-})
-
-const LOW_OFFENSE_TUNING: PitchEnvironmentTuning["tuning"] = makeTuning({
-    contactQuality: {
-        evScale: 0,
-        laScale: 0,
-        distanceScale: 0,
-        doubleOutcomeScale: -0.35,
-        tripleOutcomeScale: -0.15,
-        homeRunOutcomeScale: -0.75,
-        outOutcomeScale: 0.35
-    },
-    swing: {
-        pitchQualityZoneSwingEffect: 0,
-        pitchQualityChaseSwingEffect: 0,
-        disciplineZoneSwingEffect: 0,
-        disciplineChaseSwingEffect: 0,
-        walkRateScale: -0.1
-    },
-    contact: {
-        pitchQualityContactEffect: 0,
-        contactSkillEffect: 0
-    },
-    running: {
-        stealAttemptAggressionScale: 0.1,
-        advancementAggressionScale: 0.4
-    },
-    meta: {
-        fullPitchQualityBonus: 0,
-        fullTeamDefenseBonus: 100,
-        fullFielderDefenseBonus: 100
-    }
-})
 
 const rngSequence = (values: number[]): (() => number) => {
     let index = 0
@@ -171,11 +57,212 @@ const rngSequence = (values: number[]): (() => number) => {
 
 describe("Baseball Sim Engine", async () => {
 
-
     it("should calculate pitch environment target for season", async () => {
         pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
         // console.log("PITCH ENVIRONMENT TARGET", JSON.stringify(pitchEnvironment))
         assert.ok(pitchEnvironment)
+    })
+
+    it("diagnostic: every generated pitch should have finite pitch quality velocity", () => {
+        const rng = seedrandom("pitch-velocity-diagnostic")
+        const game = pitchEnvironmentService.buildStartedBaselineGame(
+            clone(pitchEnvironment),
+            "pitch-velocity-diagnostic"
+        )
+
+        while (!game.isComplete) {
+            simService.simPitch(game, rng)
+        }
+
+        const pitches = game.halfInnings
+            .flatMap(halfInning => halfInning.plays)
+            .flatMap(play => play.pitchLog?.pitches ?? [])
+
+        const missingVelocity = pitches
+            .map((pitch, index) => ({ index, pitch }))
+            .filter(row =>
+                row.pitch?.quality?.velocity == undefined ||
+                !Number.isFinite(row.pitch.quality.velocity) ||
+                row.pitch.quality.velocity <= 0
+            )
+
+        assert.ok(pitches.length > 0, "No pitches were generated")
+
+        assert.equal(
+            missingVelocity.length,
+            0,
+            `Generated pitches missing quality.velocity count=${missingVelocity.length} sample=${JSON.stringify(missingVelocity.slice(0, 10), null, 2)}`
+        )
+
+        const velocities = pitches.map(pitch => pitch.quality.velocity)
+        const avgVelocity = velocities.reduce((sum, velocity) => sum + velocity, 0) / velocities.length
+
+        // console.log("PITCH VELOCITY DIAGNOSTIC", {
+        //     pitches: pitches.length,
+        //     minVelocity: Math.min(...velocities),
+        //     maxVelocity: Math.max(...velocities),
+        //     avgVelocity
+        // })
+    })
+
+    it("diagnostic: generated pitch locations should be physically coherent", () => {
+        const rng = seedrandom("pitch-location-diagnostic")
+        const game = pitchEnvironmentService.buildStartedBaselineGame(
+            clone(pitchEnvironment),
+            "pitch-location-diagnostic"
+        )
+
+        while (!game.isComplete) {
+            simService.simPitch(game, rng)
+        }
+
+        const pitches = game.halfInnings
+            .flatMap(halfInning => halfInning.plays)
+            .flatMap(play => play.pitchLog?.pitches ?? [])
+
+        assert.ok(pitches.length > 0, "No pitches were generated")
+
+        const badLocations = pitches
+            .map((pitch, index) => ({ index, pitch }))
+            .filter(row =>
+                !Number.isFinite(row.pitch.plateX) ||
+                !Number.isFinite(row.pitch.plateZ) ||
+                row.pitch.plateX < -4 ||
+                row.pitch.plateX > 4 ||
+                row.pitch.plateZ < -1 ||
+                row.pitch.plateZ > 7
+            )
+
+        assert.equal(
+            badLocations.length,
+            0,
+            `Bad plate locations count=${badLocations.length} sample=${JSON.stringify(badLocations.slice(0, 10), null, 2)}`
+        )
+
+        const getExpectedZone = (plateX: number, plateZ: number): PitchZone => {
+            const horizontal =
+                plateX < -0.25
+                    ? "INSIDE"
+                    : plateX > 0.25
+                        ? "AWAY"
+                        : "MIDDLE"
+
+            const vertical =
+                plateZ > 2.9
+                    ? "HIGH"
+                    : plateZ < 2.1
+                        ? "LOW"
+                        : "MID"
+
+            return `${vertical}_${horizontal}` as PitchZone
+        }
+
+        const zoneMismatch = pitches
+            .map((pitch, index) => ({ index, pitch }))
+            .filter(row => row.pitch.actualZone !== getExpectedZone(row.pitch.plateX, row.pitch.plateZ))
+
+        assert.equal(
+            zoneMismatch.length,
+            0,
+            `actualZone does not match plateX/plateZ count=${zoneMismatch.length} sample=${JSON.stringify(zoneMismatch.slice(0, 10), null, 2)}`
+        )
+
+        const strikeZone = {
+            left: -0.83,
+            right: 0.83,
+            bottom: 1.5,
+            top: 3.5
+        }
+
+        const isActuallyInZone = (plateX: number, plateZ: number): boolean => {
+            return plateX >= strikeZone.left &&
+                plateX <= strikeZone.right &&
+                plateZ >= strikeZone.bottom &&
+                plateZ <= strikeZone.top
+        }
+
+        const inZoneMismatch = pitches
+            .map((pitch, index) => ({ index, pitch }))
+            .filter(row => row.pitch.inZone !== isActuallyInZone(row.pitch.plateX, row.pitch.plateZ))
+
+        assert.equal(
+            inZoneMismatch.length,
+            0,
+            `inZone does not match strike-zone box count=${inZoneMismatch.length} sample=${JSON.stringify(inZoneMismatch.slice(0, 10), null, 2)}`
+        )
+
+        const callMismatch = pitches
+            .map((pitch, index) => ({ index, pitch }))
+            .filter(row => {
+                const pitch = row.pitch
+
+                if (pitch.result === PitchCall.HBP) return false
+                if (pitch.isWP || pitch.isPB) return false
+                if (pitch.swing) return false
+
+                const expectedCall = pitch.inZone ? PitchCall.STRIKE : PitchCall.BALL
+
+                return pitch.result !== expectedCall
+            })
+
+        assert.equal(
+            callMismatch.length,
+            0,
+            `Taken pitch call does not match inZone count=${callMismatch.length} sample=${JSON.stringify(callMismatch.slice(0, 10), null, 2)}`
+        )
+
+        const byPitchType = pitches.reduce((accumulator, pitch) => {
+            accumulator[pitch.type] ??= []
+            accumulator[pitch.type].push(pitch)
+            return accumulator
+        }, {} as Record<string, typeof pitches>)
+
+        const movementSummary = Object.entries(byPitchType).map(([pitchType, pitchTypePitches]) => {
+            const avg = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length
+
+            return {
+                pitchType,
+                count: pitchTypePitches.length,
+                avgHorizontalBreak: avg(pitchTypePitches.map(p => p.quality.horizontalBreak)),
+                avgVerticalBreak: avg(pitchTypePitches.map(p => p.quality.verticalBreak)),
+                avgPlateX: avg(pitchTypePitches.map(p => p.plateX)),
+                avgPlateZ: avg(pitchTypePitches.map(p => p.plateZ))
+            }
+        })
+
+        const distinctPitchTypes = movementSummary.filter(row => row.count >= 10)
+
+        assert.ok(
+            distinctPitchTypes.length >= 2,
+            `Need at least two pitch types with enough samples to compare movement summary=${JSON.stringify(movementSummary, null, 2)}`
+        )
+
+        // console.log("PITCH LOCATION DIAGNOSTIC", {
+        //     pitches: pitches.length,
+        //     plateX: {
+        //         min: Math.min(...pitches.map(p => p.plateX)),
+        //         max: Math.max(...pitches.map(p => p.plateX)),
+        //         avg: pitches.map(p => p.plateX).reduce((sum, value) => sum + value, 0) / pitches.length
+        //     },
+        //     plateZ: {
+        //         min: Math.min(...pitches.map(p => p.plateZ)),
+        //         max: Math.max(...pitches.map(p => p.plateZ)),
+        //         avg: pitches.map(p => p.plateZ).reduce((sum, value) => sum + value, 0) / pitches.length
+        //     },
+        //     movementSummary,
+        //     samples: pitches.slice(0, 20).map(pitch => ({
+        //         type: pitch.type,
+        //         intentZone: pitch.intentZone,
+        //         actualZone: pitch.actualZone,
+        //         plateX: pitch.plateX,
+        //         plateZ: pitch.plateZ,
+        //         horizontalBreak: pitch.quality.horizontalBreak,
+        //         verticalBreak: pitch.quality.verticalBreak,
+        //         locQ: pitch.locQ,
+        //         inZone: pitch.inZone,
+        //         result: pitch.result
+        //     }))
+        // })
     })
 
     it("evaluated hit type rates should equal hits per PA", () => {
@@ -314,7 +401,6 @@ describe("Baseball Sim Engine", async () => {
         assert.equal(adjustedFromDouble, PlayResult.HR)
         assert.equal(adjustedFromTriple, PlayResult.HR)
     })
-
 
     it("negative extra-base outcome scales should redistribute extra-base hits into singles", () => {
         const adjustedDouble = getTunedPowerResult(
@@ -965,213 +1051,3 @@ describe("Baseball Sim Engine", async () => {
 
 })
 
-const evaluateManualTuning = (name: string, tuning: PitchEnvironmentTuning["tuning"]) => {
-    const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
-
-    testPitchEnvironment.pitchEnvironmentTuning = {
-        _id: `manual-${name}`,
-        tuning
-    }
-
-    const evaluation = pitchEnvironmentService.evaluatePitchEnvironment(
-        testPitchEnvironment,
-        seedrandom(`manual-${name}-${evaluationGames}`),
-        evaluationGames
-    )
-
-    const rng = seedrandom(`manual-${name}-run-conversion-${evaluationGames}`)
-
-    let games = 0
-    let halfInnings = 0
-    let totalRuns = 0
-    let totalHits = 0
-    let totalHomeRuns = 0
-    let totalWalks = 0
-    let totalStrikeouts = 0
-    let totalOuts = 0
-    let totalPlateAppearances = 0
-    let totalLeftOnBase = 0
-    let totalRunnerOuts = 0
-    let totalRunnerScoredEvents = 0
-
-    const baseState = new Map<string, { pa: number, runs: number, hits: number, walks: number, homeRuns: number, outs: number }>()
-    const outState = new Map<number, { pa: number, runs: number, hits: number, walks: number, homeRuns: number }>()
-
-    const getBaseKey = (runnerResult: any): string => {
-        const first = runnerResult?.start?.first ? "1" : "0"
-        const second = runnerResult?.start?.second ? "1" : "0"
-        const third = runnerResult?.start?.third ? "1" : "0"
-
-        return `${first}${second}${third}`
-    }
-
-    const addBaseState = (key: string, play: any, runs: number) => {
-        if (!baseState.has(key)) {
-            baseState.set(key, { pa: 0, runs: 0, hits: 0, walks: 0, homeRuns: 0, outs: 0 })
-        }
-
-        const row = baseState.get(key)!
-        row.pa++
-        row.runs += runs
-
-        if (
-            play.result === PlayResult.SINGLE ||
-            play.result === PlayResult.DOUBLE ||
-            play.result === PlayResult.TRIPLE ||
-            play.result === PlayResult.HR
-        ) {
-            row.hits++
-        }
-
-        if (play.result === PlayResult.BB) row.walks++
-        if (play.result === PlayResult.HR) row.homeRuns++
-        if (play.result === PlayResult.OUT || play.result === PlayResult.STRIKEOUT) row.outs++
-    }
-
-    const addOutState = (outs: number, play: any, runs: number) => {
-        if (!outState.has(outs)) {
-            outState.set(outs, { pa: 0, runs: 0, hits: 0, walks: 0, homeRuns: 0 })
-        }
-
-        const row = outState.get(outs)!
-        row.pa++
-        row.runs += runs
-
-        if (
-            play.result === PlayResult.SINGLE ||
-            play.result === PlayResult.DOUBLE ||
-            play.result === PlayResult.TRIPLE ||
-            play.result === PlayResult.HR
-        ) {
-            row.hits++
-        }
-
-        if (play.result === PlayResult.BB) row.walks++
-        if (play.result === PlayResult.HR) row.homeRuns++
-    }
-
-    for (let gameIndex = 0; gameIndex < evaluationGames; gameIndex++) {
-        const game = pitchEnvironmentService.buildStartedBaselineGame(
-            clone(testPitchEnvironment),
-            `manual-${name}-run-conversion-${gameIndex}`
-        )
-
-        while (!game.isComplete) {
-            simService.simPitch(game, rng)
-        }
-
-        games++
-        totalRuns += game.score.away + game.score.home
-
-        for (const halfInning of game.halfInnings) {
-            halfInnings++
-
-            const plays = halfInning.plays ?? []
-            const finalPlay = plays[plays.length - 1]
-            const finalEnd = finalPlay?.runner?.result?.end
-
-            if (finalEnd) {
-                if (finalEnd.first) totalLeftOnBase++
-                if (finalEnd.second) totalLeftOnBase++
-                if (finalEnd.third) totalLeftOnBase++
-            }
-
-            for (const play of plays) {
-                const runnerStart = play.runner?.result?.start
-                const runnerEnd = play.runner?.result?.end
-                const playRuns = runnerEnd?.scored?.length ?? 0
-                const outsBefore = Math.min(2, totalOuts % 3)
-                const baseKey = getBaseKey(play.runner?.result)
-
-                totalPlateAppearances++
-                totalRunnerScoredEvents += playRuns
-
-                addBaseState(baseKey, play, playRuns)
-                addOutState(outsBefore, play, playRuns)
-
-                if (
-                    play.result === PlayResult.SINGLE ||
-                    play.result === PlayResult.DOUBLE ||
-                    play.result === PlayResult.TRIPLE ||
-                    play.result === PlayResult.HR
-                ) {
-                    totalHits++
-                }
-
-                if (play.result === PlayResult.HR) totalHomeRuns++
-                if (play.result === PlayResult.BB) totalWalks++
-                if (play.result === PlayResult.STRIKEOUT) totalStrikeouts++
-
-                const runnerOuts = runnerEnd?.out?.length ?? 0
-                totalRunnerOuts += runnerOuts
-                totalOuts += runnerOuts
-
-                if (!runnerEnd?.out?.includes(play.hitterId) && (play.result === PlayResult.OUT || play.result === PlayResult.STRIKEOUT)) {
-                    totalOuts++
-                }
-
-                if (runnerStart && runnerEnd) {
-                    void runnerStart
-                }
-            }
-        }
-    }
-
-    const formatMap = (map: Map<any, any>) => {
-        return Array.from(map.entries())
-            .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-            .map(([key, row]) => ({
-                key,
-                pa: row.pa,
-                runs: row.runs,
-                runsPerPA: row.pa > 0 ? row.runs / row.pa : 0,
-                hits: row.hits,
-                walks: row.walks,
-                homeRuns: row.homeRuns,
-                outs: row.outs
-            }))
-    }
-
-    console.log(`[MANUAL ${name.toUpperCase()}]`, {
-        runs: evaluation.actual.teamRunsPerGame,
-        avg: evaluation.actual.avg,
-        obp: evaluation.actual.obp,
-        slg: evaluation.actual.slg,
-        ops: evaluation.actual.ops,
-        babip: evaluation.actual.babip,
-        pitchesPerPA: evaluation.actual.pitchesPerPA,
-        zSwing: evaluation.actual.swingAtStrikesPercent,
-        chase: evaluation.actual.swingAtBallsPercent,
-        zContact: evaluation.actual.inZoneContactPercent,
-        chaseContact: evaluation.actual.outZoneContactPercent,
-        bbPercent: evaluation.actual.bbPercent,
-        soPercent: evaluation.actual.soPercent,
-        homeRunPercent: evaluation.actual.homeRunPercent,
-        teamHomeRunsPerGame: evaluation.actual.teamHomeRunsPerGame,
-        teamHitsPerGame: evaluation.actual.teamHitsPerGame,
-        teamBBPerGame: evaluation.actual.teamBBPerGame,
-        targetRuns: evaluation.target.teamRunsPerGame,
-        targetHomeRunPercent: evaluation.target.homeRunPercent,
-        targetTeamHomeRunsPerGame: evaluation.target.teamHomeRunsPerGame
-    })
-
-    console.log(`[MANUAL ${name.toUpperCase()} RUN CONVERSION]`, {
-        games,
-        teamRunsPerGame: totalRuns / games / 2,
-        teamHitsPerGame: totalHits / games / 2,
-        teamHomeRunsPerGame: totalHomeRuns / games / 2,
-        teamBBPerGame: totalWalks / games / 2,
-        teamSOPerGame: totalStrikeouts / games / 2,
-        leftOnBasePerTeamGame: totalLeftOnBase / games / 2,
-        runnerOutsPerTeamGame: totalRunnerOuts / games / 2,
-        scoredRunnerEventsPerTeamGame: totalRunnerScoredEvents / games / 2,
-        paPerTeamGame: totalPlateAppearances / games / 2,
-        runsPerHit: totalHits > 0 ? totalRuns / totalHits : 0,
-        runsPerTimesOnBase: (totalHits + totalWalks) > 0 ? totalRuns / (totalHits + totalWalks) : 0
-    })
-
-    console.log(`[MANUAL ${name.toUpperCase()} BASE STATE]`, formatMap(baseState))
-    console.log(`[MANUAL ${name.toUpperCase()} OUT STATE]`, formatMap(outState))
-
-    return evaluation
-}

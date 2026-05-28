@@ -31,8 +31,8 @@ const statService = new StatService()
 const downloaderService = {} as DownloaderService
 
 const simRolls = new SimRolls(rollChartService)
-const gamePlayers = new GamePlayers(rollChartService)
-const runnerActions = new RunnerActions(rollChartService, simRolls)
+const gamePlayers = new GamePlayers()
+const runnerActions = new RunnerActions(simRolls)
 const gameInfo = new GameInfo(gamePlayers)
 
 const defaultPitchEnvironmentTarget = {} as PitchEnvironmentTarget

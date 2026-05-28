@@ -267,28 +267,45 @@ Because the engine operates pitch-by-pitch, swing behavior can be analyzed at th
 
 ### Contact & Outcome System
 
-When contact occurs, the engine determines:
+When contact occurs, the engine resolves the physical shape of the batted ball before determining the final result of the play.
 
-- Contact type
-- Contact quality
-- Batted-ball trajectory
-- Final play outcome
+The contact system models:
 
-Results are influenced by:
+- Contact type (ground ball, line drive, fly ball, popup)
+- Exit velocity
+- Launch angle
+- Estimated carry distance
+- Spray direction and field coordinates
+- Defensive positioning context
+- Runner advancement opportunities
 
-- Batter ratings
-- Pitch quality
-- Defensive quality
-- Environment targets
-- Outcome distributions
+The simulation uses trajectory-specific distributions and outcome-conditioned batted-ball models built from real baseball data. Different contact types produce different launch-angle ranges, carry distances, spray behavior, and defensive interactions.
 
-Possible outcomes include:
+For example:
 
-- Outs
-- Singles
-- Doubles
-- Triples
-- Home runs
+- Ground balls produce shallow coordinate distributions and infield fielding opportunities
+- Line drives produce faster trajectories and higher hit probabilities
+- Fly balls and popups generate depth-based outfield behavior
+- Deep outfield contact can create throw decisions and extra-base advancement opportunities
+
+The engine also separates:
+
+- Contact generation
+- Ball trajectory
+- Defensive resolution
+- Runner advancement
+- Final scoring outcome
+
+This allows a play to develop naturally from the underlying contact profile rather than from a single precomputed outcome roll.
+
+Fielding resolution uses generated ball location and trajectory data to determine:
+
+- Which defender fields the ball
+- Whether the play is shallow, normal, or deep
+- Throw difficulty and advancement pressure
+- Safe/out probabilities on advancement attempts
+
+Because the system operates from pitch-level and batted-ball-level detail, the engine can reproduce realistic league-wide distributions while still preserving deterministic replay behavior from a supplied RNG seed.
 
 ---
 

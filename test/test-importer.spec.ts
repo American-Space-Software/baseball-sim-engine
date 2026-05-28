@@ -28,7 +28,7 @@ let tunedPitchEnvironment: PitchEnvironmentTarget
 const season = 2025
 const baseDataDir = "data"
 
-const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, {} as any)
+const pitchEnvironmentService = new PitchEnvironmentService(simService, statService)
 const downloaderservice = new DownloaderService("data", 1000)
 
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))

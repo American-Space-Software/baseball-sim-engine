@@ -24,7 +24,6 @@ const downloaderservice = new DownloaderService(baseDataDir, 1000)
 
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
 
-console.log(JSON.stringify(players.get("660271")))
 
 describe("Player Ratings", async () => {
 

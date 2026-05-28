@@ -200,8 +200,15 @@ enum HomeAway {
     AWAY = "Away"
 }
 
-
+enum PitchingRoleType {
+    STARTER = "starter",
+    CLOSER = "closer",
+    SETUP = "setup",
+    MIDDLE = "middle",
+    LONG = "long",
+    MOP_UP = "mop_up"
+}
 
 export {
-    ThrowResult,  HomeAway,  Contact, SwingResult, DefenseCreditType, PlayResult, OfficialRunnerResult, OfficialPlayResult,PitchType, ShallowDeep, PitchCall,  PitchZone, Position, Handedness, BaseResult
+    PitchingRoleType, ThrowResult,  HomeAway,  Contact, SwingResult, DefenseCreditType, PlayResult, OfficialRunnerResult, OfficialPlayResult,PitchType, ShallowDeep, PitchCall,  PitchZone, Position, Handedness, BaseResult
 }

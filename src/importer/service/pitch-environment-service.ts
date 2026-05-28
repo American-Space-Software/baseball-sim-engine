@@ -1,11 +1,8 @@
-import { Position, PitchType, Handedness } from "../../sim/service/enums.js"
-import { Game, HitResultCount, HitterStatLine, HittingRatings,  Lineup, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchRatings, PitchResultCount, PitchTypeMovementStat, Player, PlayerFromStatsCommand, PlayerImportRaw, RotationPitcher, Team } from "../../sim/service/interfaces.js"
+import { Position, PitchType, Handedness, PitchingRoleType } from "../../sim/service/enums.js"
+import { Game, HitResultCount, HitterStatLine, HittingRatings,  Lineup, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchingRole, PitchRatings, PitchResultCount, PitchTypeMovementStat, Player, PlayerFromStatsCommand, PlayerImportRaw, RotationPitcher, Team } from "../../sim/service/interfaces.js"
 import { SimService } from "../../sim/service/sim-service.js"
 import { StatService } from "../../sim/service/stat-service.js"
 import { v4 as uuidv4 } from 'uuid'
-
-
-import { DownloaderService } from "./downloader-service.js"
 
 
 
@@ -14,7 +11,6 @@ class PitchEnvironmentService {
     constructor(
         private simService: SimService, 
         private statService: StatService,
-        private downloaderService:DownloaderService
     ) { }
 
     static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>): PitchEnvironmentTarget {
@@ -232,8 +228,7 @@ class PitchEnvironmentService {
             velocity: createMomentStat(),
             horizontalBreak: createMomentStat(),
             verticalBreak: createMomentStat(),
-            byPitchType: {} as Record<string, { count: number, total: number, totalSquared: number, avg: number, totalHorizontalBreak: number, totalHorizontalBreakSquared: number, avgHorizontalBreak: number, totalVerticalBreak: number, totalVerticalBreakSquared: number, avgVerticalBreak: number }>
-        }
+            byPitchType: {} as Record<string, { count: number, totalVelocity: number, totalVelocitySquared: number, avgVelocity: number, totalHorizontalBreak: number, totalHorizontalBreakSquared: number, avgHorizontalBreak: number, totalVerticalBreak: number, totalVerticalBreakSquared: number, avgVerticalBreak: number }>        }
 
         for (const player of allPlayers) {
             this.accumulatePitchEnvironmentTotalsForPlayer(player, hitterTotals, pitcherTotals, runningTotals, fieldingTotals, splitHittingTotals, splitPitchingTotals)
@@ -1233,9 +1228,9 @@ class PitchEnvironmentService {
 
             const current = pitchingPhysicsTotals.byPitchType[pitchTypeKey] ?? {
                 count: 0,
-                total: 0,
-                totalSquared: 0,
-                avg: 0,
+                totalVelocity: 0,
+                totalVelocitySquared: 0,
+                avgVelocity: 0,
                 totalHorizontalBreak: 0,
                 totalHorizontalBreakSquared: 0,
                 avgHorizontalBreak: 0,
@@ -1245,14 +1240,14 @@ class PitchEnvironmentService {
             }
 
             current.count += count
-            current.total += totalMph
-            current.totalSquared += count * avgMph * avgMph
+            current.totalVelocity += totalMph
+            current.totalVelocitySquared += count * avgMph * avgMph
             current.totalHorizontalBreak += totalHorizontalBreak
             current.totalHorizontalBreakSquared += count * avgHorizontalBreak * avgHorizontalBreak
             current.totalVerticalBreak += totalVerticalBreak
             current.totalVerticalBreakSquared += count * avgVerticalBreak * avgVerticalBreak
 
-            current.avg = current.count > 0 ? Number((current.total / current.count).toFixed(3)) : 0
+            current.avgVelocity = current.count > 0 ? Number((current.totalVelocity / current.count).toFixed(3)) : 0
             current.avgHorizontalBreak = current.count > 0 ? Number((current.totalHorizontalBreak / current.count).toFixed(3)) : 0
             current.avgVerticalBreak = current.count > 0 ? Number((current.totalVerticalBreak / current.count).toFixed(3)) : 0
 
@@ -1355,11 +1350,11 @@ class PitchEnvironmentService {
 
         for (const pitchTypeKey of Object.keys(pitchingPhysicsTotals.byPitchType)) {
             const stat = pitchingPhysicsTotals.byPitchType[pitchTypeKey]
-            stat.avg = stat.count > 0 ? Number((stat.total / stat.count).toFixed(3)) : 0
+            stat.avgVelocity = stat.count > 0 ? Number((stat.totalVelocity / stat.count).toFixed(3)) : 0
             stat.avgHorizontalBreak = stat.count > 0 ? Number((stat.totalHorizontalBreak / stat.count).toFixed(3)) : 0
             stat.avgVerticalBreak = stat.count > 0 ? Number((stat.totalVerticalBreak / stat.count).toFixed(3)) : 0
-            stat.total = Number(stat.total.toFixed(3))
-            stat.totalSquared = Number(stat.totalSquared.toFixed(3))
+            stat.totalVelocity = Number(stat.totalVelocity.toFixed(3))
+            stat.totalVelocitySquared = Number(stat.totalVelocitySquared.toFixed(3))
             stat.totalHorizontalBreak = Number(stat.totalHorizontalBreak.toFixed(3))
             stat.totalHorizontalBreakSquared = Number(stat.totalHorizontalBreakSquared.toFixed(3))
             stat.totalVerticalBreak = Number(stat.totalVerticalBreak.toFixed(3))
@@ -1393,7 +1388,6 @@ class PitchEnvironmentService {
 
 
     public buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId: string = "baseline-game"): Game {
-        
         const awayPlayers = this.buildBaselinePlayers()
         const homePlayers = this.buildBaselinePlayers()
 
@@ -1401,14 +1395,30 @@ class PitchEnvironmentService {
         const homeLineup = this.buildBaselineLineup(homePlayers)
 
         const awayStartingPitcher: RotationPitcher = {
-            _id: awayPlayers.find(p => p.primaryPosition === Position.PITCHER)!._id,
-            stamina: 1
+            _id: awayPlayers.find(p => p.primaryPosition === Position.PITCHER)!._id
         }
 
         const homeStartingPitcher: RotationPitcher = {
-            _id: homePlayers.find(p => p.primaryPosition === Position.PITCHER)!._id,
-            stamina: 1
+            _id: homePlayers.find(p => p.primaryPosition === Position.PITCHER)!._id
         }
+
+        const buildAvailablePitchers = (players: Player[], startingPitcher: RotationPitcher): PitchingRole[] => {
+            return players
+                .filter(p => p.primaryPosition === Position.PITCHER && p._id !== startingPitcher._id)
+                .map((p, index) => ({
+                    playerId: p._id,
+                    role:
+                        index === 0 ? PitchingRoleType.CLOSER :
+                        index <= 2 ? PitchingRoleType.SETUP :
+                        index <= 4 ? PitchingRoleType.MIDDLE :
+                        index <= 6 ? PitchingRoleType.LONG :
+                        PitchingRoleType.MOP_UP,
+                    priority: index
+                }))
+        }
+
+        const awayAvailablePitchers = buildAvailablePitchers(awayPlayers, awayStartingPitcher)
+        const homeAvailablePitchers = buildAvailablePitchers(homePlayers, homeStartingPitcher)
 
         const awayTeam: Team = {
             _id: `${gameId}-away`,
@@ -1441,17 +1451,19 @@ class PitchEnvironmentService {
             awayPlayers,
             awayLineup,
             awayStartingPitcher,
+            awayAvailablePitchers,
 
             home: homeTeam,
             homeTeamOptions: {},
             homePlayers,
             homeLineup,
             homeStartingPitcher,
+            homeAvailablePitchers,
 
             pitchEnvironmentTarget: pitchEnvironment,
             date: new Date()
         })
-    }    
+    }  
 
     public evaluatePitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, rng: Function, games: number = 50): { actual: any, target: any, diff: any, score: number } {
         const normalize = (v: number): number => v / 100
@@ -1865,7 +1877,7 @@ class PitchEnvironmentService {
             throws: Handedness.R,
             hits: Handedness.R,
             isRetired: false,
-            stamina: 100,
+            stamina: this.getBaselineStamina(position, id),
             overallRating: 100,
             pitchRatings: {
                 contactProfile: { groundball: 43, flyBall: 35, lineDrive: 22 },
@@ -1906,31 +1918,75 @@ class PitchEnvironmentService {
 
     private buildBaselinePlayers(): Player[] {
         return [
-            this.buildBaselinePlayer("p", Position.PITCHER),
-            this.buildBaselinePlayer("c", Position.CATCHER),
-            this.buildBaselinePlayer("1b", Position.FIRST_BASE),
-            this.buildBaselinePlayer("2b", Position.SECOND_BASE),
-            this.buildBaselinePlayer("3b", Position.THIRD_BASE),
-            this.buildBaselinePlayer("ss", Position.SHORTSTOP),
-            this.buildBaselinePlayer("lf", Position.LEFT_FIELD),
-            this.buildBaselinePlayer("cf", Position.CENTER_FIELD),
-            this.buildBaselinePlayer("rf", Position.RIGHT_FIELD)
+            this.buildBaselinePlayer("c-1", Position.CATCHER),
+            this.buildBaselinePlayer("1b-1", Position.FIRST_BASE),
+            this.buildBaselinePlayer("2b-1", Position.SECOND_BASE),
+            this.buildBaselinePlayer("3b-1", Position.THIRD_BASE),
+            this.buildBaselinePlayer("ss-1", Position.SHORTSTOP),
+            this.buildBaselinePlayer("lf-1", Position.LEFT_FIELD),
+            this.buildBaselinePlayer("cf-1", Position.CENTER_FIELD),
+            this.buildBaselinePlayer("rf-1", Position.RIGHT_FIELD),
+
+            this.buildBaselinePlayer("c-2", Position.CATCHER),
+            this.buildBaselinePlayer("if-1", Position.SECOND_BASE),
+            this.buildBaselinePlayer("if-2", Position.THIRD_BASE),
+            this.buildBaselinePlayer("of-1", Position.LEFT_FIELD),
+            this.buildBaselinePlayer("util-1", Position.SHORTSTOP),
+
+            this.buildBaselinePlayer("sp-1", Position.PITCHER),
+            this.buildBaselinePlayer("sp-2", Position.PITCHER),
+            this.buildBaselinePlayer("sp-3", Position.PITCHER),
+            this.buildBaselinePlayer("sp-4", Position.PITCHER),
+            this.buildBaselinePlayer("sp-5", Position.PITCHER),
+
+            this.buildBaselinePlayer("rp-1", Position.PITCHER),
+            this.buildBaselinePlayer("rp-2", Position.PITCHER),
+            this.buildBaselinePlayer("rp-3", Position.PITCHER),
+            this.buildBaselinePlayer("rp-4", Position.PITCHER),
+            this.buildBaselinePlayer("rp-5", Position.PITCHER),
+            this.buildBaselinePlayer("rp-6", Position.PITCHER),
+            this.buildBaselinePlayer("rp-7", Position.PITCHER),
+            this.buildBaselinePlayer("rp-8", Position.PITCHER)
         ]
     }
 
     private buildBaselineLineup(players: Player[]): Lineup {
-        const pitcher = players.find(p => p.primaryPosition === Position.PITCHER)!
+        const startingPitchers = players
+            .filter(p => p.primaryPosition === Position.PITCHER)
+            .slice(0, 5)
+
+        const starterForPosition = (position: Position): Player => {
+            const player = players.find(p => p.primaryPosition === position)
+
+            if (!player) {
+                throw new Error(`No baseline player found for position ${position}`)
+            }
+
+            return player
+        }
 
         return {
-            order: players.map(p => ({
+            order: [
+                starterForPosition(Position.CATCHER),
+                starterForPosition(Position.FIRST_BASE),
+                starterForPosition(Position.SECOND_BASE),
+                starterForPosition(Position.THIRD_BASE),
+                starterForPosition(Position.SHORTSTOP),
+                starterForPosition(Position.LEFT_FIELD),
+                starterForPosition(Position.CENTER_FIELD),
+                starterForPosition(Position.RIGHT_FIELD),
+                startingPitchers[0]
+            ].map(p => ({
                 _id: p._id,
                 position: p.primaryPosition
-            })),
-            rotation: new Array(5).fill(0).map(() => ({
-                _id: pitcher._id,
-                stamina: 1
             }))
         } as Lineup
+    }
+
+    private getBaselineStamina (position: Position, id: string): number {
+        if (position !== Position.PITCHER) return 0
+        if (id.includes("sp")) return 1
+        return 0.25
     }
 
 }

@@ -1,26 +1,29 @@
-import { BaseResult, Contact, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchType, PitchZone, PlayResult, Position, ShallowDeep, ThrowResult } from "./service/enums.js"
+import { BaseResult, Contact, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchingRoleType, PitchType, PitchZone, PlayResult, Position, ShallowDeep, ThrowResult } from "./service/enums.js"
 import { InningEndingEvent, PitchEnvironmentTarget } from "./service/interfaces.js"
 import { PitchEnvironmentService } from "../importer/service/pitch-environment-service.js"
 import { RollChartService } from "./service/roll-chart-service.js"
-import { GameInfo, GamePlayers, Matchup, RunnerActions, SimRolls, SimService } from "./service/sim-service.js"
+import { GameInfo, GamePlayers, Matchup, SimRolls, SimService } from "./service/sim-service.js"
 
 import { StatService } from "./service/stat-service.js"
 
 
 import defaultPitchEnvironmentTargetJson from "../../data/2025/_pitch_environment_target.json" with { type: "json" }
+import { RunnerService } from "./service/runner-service.js"
+import { SubstitutionService } from "./service/substitution-service.js"
 
 let rollChartService = new RollChartService()
 let statService = new StatService()
 
 
 let simRolls = new SimRolls(rollChartService)
-let gamePlayers = new GamePlayers(rollChartService)
-let runnerActions = new RunnerActions(rollChartService, simRolls)
+let gamePlayers = new GamePlayers()
+let runnerService = new RunnerService(simRolls)
 let gameInfo = new GameInfo(gamePlayers)
+let substitutionService = new SubstitutionService()
         
 
 let defaultPitchEnvironmentTarget = defaultPitchEnvironmentTargetJson as unknown as PitchEnvironmentTarget
-let simService = new SimService(rollChartService, simRolls, runnerActions, gameInfo, defaultPitchEnvironmentTarget)
+let simService = new SimService(rollChartService, simRolls, runnerService, gameInfo, substitutionService, defaultPitchEnvironmentTarget)
 
 
 export {
@@ -43,6 +46,7 @@ export {
   ThrowResult,
   HomeAway,
   InningEndingEvent,
+  PitchingRoleType
 }
 
 export {
