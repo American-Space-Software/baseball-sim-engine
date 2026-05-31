@@ -40,31 +40,7 @@ const buildGame = (seed: string): Game => {
     )
 }
 
-let benchPlayerIndex = 0
 
-const addBenchPlayerForPosition = (team: TeamInfo, position: Position): GamePlayer => {
-    const starter = team.players.find(p =>
-        p.currentPosition === position &&
-        team.lineupIds.includes(p._id)
-    )
-
-    if (!starter) {
-        throw new Error(`No starter found at ${position}.`)
-    }
-
-    benchPlayerIndex++
-
-    const benchPlayer = clone(starter)
-    benchPlayer._id = `${starter._id}-bench-${position}-${benchPlayerIndex}`
-    benchPlayer.currentPosition = undefined
-    benchPlayer.lineupIndex = undefined
-    benchPlayer.positions = [position]
-    benchPlayer.pitchResult.pitches = 0
-
-    team.players.push(benchPlayer)
-
-    return benchPlayer
-}
 
 const getBenchPlayerForPosition = (team: TeamInfo, position: Position): GamePlayer => {
     const player = team.players.find(p =>
@@ -162,7 +138,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.ok(pitchers.every(p => p.positions.includes(Position.PITCHER)))
         assert.ok(pitchers.every(p => p._id !== team.currentPitcherId))
         assert.ok(pitchers.every(p => !team.lineupIds.includes(p._id)))
-        assert.ok(pitchers.every(p => p.stamina > 0))
+        assert.ok(pitchers.every(p => substitutionService.getPitcherPitchesRemaining(p) > 0))
 
         const usedPitcherIds = new Set(
             game.substitutions
@@ -199,7 +175,9 @@ describe("Baseball Sim Engine Substitutions", async () => {
         const team = game.home
 
         for (const pitcher of substitutionService.getAvailablePitchers(game, team)) {
-            pitcher.stamina = 0
+            pitcher.maxPitchCount = 30
+            pitcher.stamina = 1
+            pitcher.pitchResult.pitches = 30
         }
 
         const nextPitcher = substitutionService.getNextPitcher(game, team)
@@ -214,17 +192,51 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.ok(nextPitcher.pitchRatings)
     })
 
-    it("should calculate pitcher pitches remaining from starting stamina and pitch result", () => {
+    it("should calculate pitcher pitches remaining from max pitch count, stamina, and pitch result", () => {
         const game = buildGame("pitcher-pitches-remaining")
         const pitcher = game.home.players.find(p => p._id === game.home.currentPitcherId)
 
         assert.ok(pitcher)
 
+        pitcher.maxPitchCount = 80
         pitcher.stamina = 0.75
         pitcher.pitchResult.pitches = 12
 
-        assert.equal(substitutionService.getPitcherPitchesRemaining(pitcher), 63)
+        assert.equal(substitutionService.getPitcherPitchesRemaining(pitcher), 48)
     })
+
+    it("should not allow pitcher with stamina but no remaining pitches to enter", () => {
+        const game = buildGame("change-pitcher-no-pitches-remaining")
+        const team = game.home
+
+        const newPitcher = substitutionService.getAvailablePitchers(game, team)[0]
+        assert.ok(newPitcher)
+
+        newPitcher.maxPitchCount = 30
+        newPitcher.stamina = 1
+        newPitcher.pitchResult.pitches = 30
+
+        assert.throws(
+            () => substitutionService.changePitcher(game, team, newPitcher._id),
+            /pitches remaining/i
+        )
+    })
+
+    it("should not allow pitcher with no stamina to enter", () => {
+        const game = buildGame("change-pitcher-no-stamina")
+        const team = game.home
+
+        const newPitcher = substitutionService.getAvailablePitchers(game, team)[0]
+        assert.ok(newPitcher)
+
+        newPitcher.stamina = 0
+
+        assert.throws(
+            () => substitutionService.changePitcher(game, team, newPitcher._id),
+            /pitches remaining/i
+        )
+    })
+
 
     it("should return 100 pitches remaining for a position player pitcher", () => {
         const game = buildGame("position-player-pitches-remaining")
@@ -276,21 +288,6 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.throws(
             () => substitutionService.changePitcher(game, team, team.currentPitcherId),
             /already the current pitcher/i
-        )
-    })
-
-    it("should not allow pitcher with no stamina to enter", () => {
-        const game = buildGame("change-pitcher-no-stamina")
-        const team = game.home
-
-        const newPitcher = substitutionService.getAvailablePitchers(game, team)[0]
-        assert.ok(newPitcher)
-
-        newPitcher.stamina = 0
-
-        assert.throws(
-            () => substitutionService.changePitcher(game, team, newPitcher._id),
-            /stamina/i
         )
     })
 

@@ -1594,6 +1594,7 @@ class GamePlayers {
                 lastName: p.lastName,
                 displayName: `${p.firstName[0]}. ${p.lastName}`,
                 stamina: p.stamina,
+                maxPitchCount: p.maxPitchCount,
 
                 teamId: teamId,
 

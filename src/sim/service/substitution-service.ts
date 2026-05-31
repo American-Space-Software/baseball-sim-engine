@@ -21,8 +21,8 @@ class SubstitutionService {
             throw new Error("New pitcher must have pitch ratings.")
         }
 
-        if (newPitcher.positions.includes(Position.PITCHER) && newPitcher.stamina <= 0) {
-            throw new Error("New pitcher does not have enough stamina.")
+        if (newPitcher.positions.includes(Position.PITCHER) && this.getPitcherPitchesRemaining(newPitcher) <= 0) {
+            throw new Error("New pitcher does not have enough pitches remaining.")
         }
 
         this.replaceLineupPlayer(game, team, previousPitcherId, newPitcherId, Position.PITCHER, true)
@@ -149,7 +149,7 @@ class SubstitutionService {
             p._id !== team.currentPitcherId &&
             !team.lineupIds.includes(p._id) &&
             !usedPlayerIds.has(p._id) &&
-            p.stamina > 0
+            this.getPitcherPitchesRemaining(p) > 0
         )
     }
 
@@ -267,7 +267,7 @@ class SubstitutionService {
             return 100
         }
 
-        const maxPitchCount = Math.max(0, Math.round(pitcher.stamina * 100))
+        const maxPitchCount = Math.max(0, Math.round(pitcher.maxPitchCount * pitcher.stamina))
 
         return Math.max(0, maxPitchCount - pitcher.pitchResult.pitches)
     }

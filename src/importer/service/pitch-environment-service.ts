@@ -1878,6 +1878,7 @@ class PitchEnvironmentService {
             hits: Handedness.R,
             isRetired: false,
             stamina: this.getBaselineStamina(position, id),
+            maxPitchCount: 100,
             overallRating: 100,
             pitchRatings: {
                 contactProfile: { groundball: 43, flyBall: 35, lineDrive: 22 },

@@ -149,6 +149,7 @@ interface Player {
     isRetired: boolean
 
     stamina: number
+    maxPitchCount:number
     overallRating: number
 
     pitchRatings: PitchRatings
@@ -502,6 +503,7 @@ interface GamePlayer {
     displayName: string
 
     stamina:number
+    maxPitchCount:number
 
     age:number
 
