@@ -3,7 +3,7 @@ import { Game, GamePlayer, TeamInfo } from "./interfaces.js"
 
 class SubstitutionService {
 
-    public changePitcher(game: Game, team: TeamInfo, newPitcherId: string): void {
+    public changePitcher(game: Game, team: TeamInfo, newPitcherId: string, playIndex: number): void {
 
         const previousPitcherId = team.currentPitcherId
 
@@ -25,10 +25,10 @@ class SubstitutionService {
             throw new Error("New pitcher does not have enough pitches remaining.")
         }
 
-        this.replaceLineupPlayer(game, team, previousPitcherId, newPitcherId, Position.PITCHER, true)
+        this.replaceLineupPlayer(game, team, previousPitcherId, newPitcherId, Position.PITCHER, true, playIndex)
     }
 
-    public changeHitter(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string): void {
+    public changeHitter(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string, playIndex: number): void {
 
         const outPlayer = team.players.find(p => p._id === outPlayerId)
 
@@ -44,10 +44,10 @@ class SubstitutionService {
             throw new Error("Outgoing hitter was not found in the lineup.")
         }
 
-        this.replaceLineupPlayer(game, team, outPlayerId, inPlayerId, outPlayer.currentPosition, false)
+        this.replaceLineupPlayer(game, team, outPlayerId, inPlayerId, outPlayer.currentPosition, false, playIndex)
     }
 
-    public changeFielder(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string, position: Position): void {
+    public changeFielder(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string, position: Position, playIndex: number): void {
 
         const outPlayer = team.players.find(p => p._id === outPlayerId)
 
@@ -59,10 +59,10 @@ class SubstitutionService {
             throw new Error("Outgoing player is not currently playing that position.")
         }
 
-        this.replaceLineupPlayer(game, team, outPlayerId, inPlayerId, position, false)
+        this.replaceLineupPlayer(game, team, outPlayerId, inPlayerId, position, false, playIndex)
     }
 
-    public changeRunner(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string): void {
+    public changeRunner(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string, playIndex: number): void {
 
         const outPlayer = team.players.find(p => p._id === outPlayerId)
 
@@ -78,7 +78,7 @@ class SubstitutionService {
             throw new Error("Outgoing runner is not currently on base.")
         }
 
-        this.replaceLineupPlayer(game, team, outPlayerId, inPlayerId, outPlayer.currentPosition, false)
+        this.replaceLineupPlayer(game, team, outPlayerId, inPlayerId, outPlayer.currentPosition, false, playIndex)
 
         if (isRunner1B) {
             team.runner1BId = inPlayerId
@@ -89,7 +89,7 @@ class SubstitutionService {
         }
     }
 
-    private replaceLineupPlayer(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string, toPosition: Position, isPitchingChange: boolean): void {
+    private replaceLineupPlayer(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string, toPosition: Position, isPitchingChange: boolean, playIndex: number): void {
 
         const outPlayer = team.players.find(p => p._id === outPlayerId)
         const inPlayer = this.validateIncomingPlayer(game, team, inPlayerId)
@@ -131,7 +131,8 @@ class SubstitutionService {
             lineupIndex,
             fromPosition,
             toPosition,
-            isPitchingChange
+            isPitchingChange,
+            playIndex
         })
     }
 
@@ -272,16 +273,15 @@ class SubstitutionService {
         return Math.max(0, maxPitchCount - pitcher.pitchResult.pitches)
     }
 
-    public getPitchingRoleForLead(game:Game, lead:number) : PitchingRoleType {
+    public getPitchingRoleForLead(game: Game, lead: number): PitchingRoleType {
         return game.currentInning >= 9 && lead >= 1 && lead <= 3 ? PitchingRoleType.CLOSER :
-        game.currentInning >= 7 && lead >= -1 && lead <= 3 ? PitchingRoleType.SETUP :
-        game.currentInning <= 5 ? PitchingRoleType.LONG :
-        Math.abs(lead) >= 5 ? PitchingRoleType.MOP_UP :
-        PitchingRoleType.MIDDLE
-
+            game.currentInning >= 7 && lead >= -1 && lead <= 3 ? PitchingRoleType.SETUP :
+            game.currentInning <= 5 ? PitchingRoleType.LONG :
+            Math.abs(lead) >= 5 ? PitchingRoleType.MOP_UP :
+            PitchingRoleType.MIDDLE
     }
 
-    public changePitcherIfNeeded(game: Game, defense: TeamInfo): boolean {
+    public changePitcherIfNeeded(game: Game, defense: TeamInfo, playIndex: number): boolean {
 
         const pitcher = defense.players.find(p => p._id === defense.currentPitcherId)!
 
@@ -295,12 +295,12 @@ class SubstitutionService {
             return false
         }
 
-        this.changePitcher(game, defense, nextPitcher._id)
+        this.changePitcher(game, defense, nextPitcher._id, playIndex)
 
         return true
     }
 
-    public getFatigueScale(pitcher:GamePlayer) {
+    public getFatigueScale(pitcher: GamePlayer) {
 
         const pitchesRemaining = this.getPitcherPitchesRemaining(pitcher)
 
@@ -378,7 +378,6 @@ class SubstitutionService {
         return false
     }
 
-    
 }
 
 export {

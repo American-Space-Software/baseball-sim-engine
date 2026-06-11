@@ -1896,23 +1896,7 @@ class PitchEnvironmentService {
                 vsL: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 },
                 vsR: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 }
             },
-            potentialOverallRating: 100,
-            potentialPitchRatings: {
-                contactProfile: { groundball: 43, flyBall: 35, lineDrive: 22 },
-                power: 100,
-                vsL: { control: 100, movement: 100 },
-                vsR: { control: 100, movement: 100 },
-                pitches: [PitchType.FF, PitchType.CU, PitchType.SL, PitchType.FO]
-            },
-            potentialHittingRatings: {
-                contactProfile: { groundball: 43, flyBall: 35, lineDrive: 22 },
-                speed: 100,
-                steals: 100,
-                arm: 100,
-                defense: 100,
-                vsL: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 },
-                vsR: { contact: 100, gapPower: 100, homerunPower: 100, plateDiscipline: 100 }
-            },
+           
             age: 27
         } as Player
     }

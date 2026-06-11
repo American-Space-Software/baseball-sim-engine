@@ -139,9 +139,23 @@ class SimService {
 
         if (!command.play) {
 
-            const pitcherChanged = this.substitutionService.changePitcherIfNeeded(game, command.defense)
+            const pitcherChanged = this.substitutionService.changePitcherIfNeeded(game, command.defense, game.playIndex)
 
             if (pitcherChanged) {
+                command = this.createSimPitchCommand(game, rng)
+            }
+
+            const nextHitter = this.substitutionService.getNextHitter(game, command.offense, command.defense)
+
+            if (nextHitter) {
+                this.substitutionService.changeHitter(
+                    game,
+                    command.offense,
+                    command.hitter._id,
+                    nextHitter._id,
+                    game.playIndex
+                )
+
                 command = this.createSimPitchCommand(game, rng)
             }
 

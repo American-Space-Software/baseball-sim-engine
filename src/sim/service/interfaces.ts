@@ -125,6 +125,7 @@ interface GameSubstitution {
     fromPosition?: Position
     toPosition?: Position
     isPitchingChange: boolean
+    playIndex:number
 }
 
 interface Player {
@@ -154,12 +155,6 @@ interface Player {
 
     pitchRatings: PitchRatings
     hittingRatings: HittingRatings
-
-    potentialOverallRating: number
-    potentialPitchRatings: PitchRatings
-    potentialHittingRatings: HittingRatings
-
-    totalExperience?: string
 
     age: number
 
@@ -2056,5 +2051,6 @@ export {
     BattedBallOutcomeBucketRaw,
     BattedBallXyBucketRaw,
     BattedBallXyByTrajectoryBucketRaw,
-    BattedBallXyByTrajectoryEvLaBucketRaw
+    BattedBallXyByTrajectoryEvLaBucketRaw,
+    GameSubstitution
 }

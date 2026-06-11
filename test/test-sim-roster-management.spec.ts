@@ -217,7 +217,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         newPitcher.pitchResult.pitches = 30
 
         assert.throws(
-            () => substitutionService.changePitcher(game, team, newPitcher._id),
+            () => substitutionService.changePitcher(game, team, newPitcher._id, 1),
             /pitches remaining/i
         )
     })
@@ -232,7 +232,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         newPitcher.stamina = 0
 
         assert.throws(
-            () => substitutionService.changePitcher(game, team, newPitcher._id),
+            () => substitutionService.changePitcher(game, team, newPitcher._id, 1),
             /pitches remaining/i
         )
     })
@@ -252,6 +252,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
     it("should change pitcher", () => {
         const game = buildGame("change-pitcher")
         const team = game.home
+        const playIndex = 1
 
         const previousPitcherId = team.currentPitcherId
         const previousPitcher = team.players.find(p => p._id === previousPitcherId)
@@ -261,7 +262,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.ok(previousPitcher)
         assert.ok(newPitcher)
 
-        substitutionService.changePitcher(game, team, newPitcher._id)
+        substitutionService.changePitcher(game, team, newPitcher._id, playIndex)
 
         assert.equal(team.currentPitcherId, newPitcher._id)
         assert.equal(team.lineupIds[lineupIndex], newPitcher._id)
@@ -279,6 +280,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.equal(game.substitutions[0].lineupIndex, lineupIndex)
         assert.equal(game.substitutions[0].toPosition, Position.PITCHER)
         assert.equal(game.substitutions[0].isPitchingChange, true)
+        assert.equal(game.substitutions[0].playIndex, playIndex)
     })
 
     it("should not allow current pitcher to re-enter as the new pitcher", () => {
@@ -286,7 +288,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         const team = game.home
 
         assert.throws(
-            () => substitutionService.changePitcher(game, team, team.currentPitcherId),
+            () => substitutionService.changePitcher(game, team, team.currentPitcherId, 1),
             /already the current pitcher/i
         )
     })
@@ -300,10 +302,10 @@ describe("Baseball Sim Engine Substitutions", async () => {
 
         assert.ok(secondPitcher)
 
-        substitutionService.changePitcher(game, team, secondPitcher._id)
+        substitutionService.changePitcher(game, team, secondPitcher._id, 1)
 
         assert.throws(
-            () => substitutionService.changePitcher(game, team, firstPitcherId),
+            () => substitutionService.changePitcher(game, team, firstPitcherId, 2),
             /already left this game/i
         )
     })
@@ -343,6 +345,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
     it("should change hitter", () => {
         const game = buildGame("change-hitter")
         const team = game.away
+        const playIndex = 1
         const outPlayerId = team.lineupIds[team.currentHitterIndex]
         const outPlayer = team.players.find(p => p._id === outPlayerId)
 
@@ -352,7 +355,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         const inPlayer = getBenchPlayerForPosition(team, outPosition)
         const lineupIndex = team.lineupIds.findIndex(id => id === outPlayerId)
 
-        substitutionService.changeHitter(game, team, outPlayerId, inPlayer._id)
+        substitutionService.changeHitter(game, team, outPlayerId, inPlayer._id, playIndex)
 
         assert.equal(team.lineupIds[lineupIndex], inPlayer._id)
         assert.equal(outPlayer.currentPosition, undefined)
@@ -363,11 +366,13 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.equal(game.substitutions[0].outPlayerId, outPlayerId)
         assert.equal(game.substitutions[0].inPlayerId, inPlayer._id)
         assert.equal(game.substitutions[0].isPitchingChange, false)
+        assert.equal(game.substitutions[0].playIndex, playIndex)
     })
 
     it("should change fielder", () => {
         const game = buildGame("change-fielder")
         const team = game.home
+        const playIndex = 1
 
         const outPlayer = team.players.find(p =>
             team.lineupIds.includes(p._id) &&
@@ -385,7 +390,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         const inPlayer = getBenchPlayerForPosition(team, outPosition)
         const lineupIndex = team.lineupIds.findIndex(id => id === outPlayer._id)
 
-        substitutionService.changeFielder(game, team, outPlayer._id, inPlayer._id, outPosition)
+        substitutionService.changeFielder(game, team, outPlayer._id, inPlayer._id, outPosition, playIndex)
 
         assert.equal(team.lineupIds[lineupIndex], inPlayer._id)
         assert.equal(outPlayer.currentPosition, undefined)
@@ -396,11 +401,13 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.equal(game.substitutions[0].outPlayerId, outPlayer._id)
         assert.equal(game.substitutions[0].inPlayerId, inPlayer._id)
         assert.equal(game.substitutions[0].toPosition, outPosition)
+        assert.equal(game.substitutions[0].playIndex, playIndex)
     })
 
     it("should change runner", () => {
         const game = buildGame("change-runner")
         const team = game.away
+        const playIndex = 1
         const outPlayerId = team.lineupIds[0]
         const outPlayer = team.players.find(p => p._id === outPlayerId)
 
@@ -412,7 +419,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
 
         team.runner1BId = outPlayerId
 
-        substitutionService.changeRunner(game, team, outPlayerId, inPlayer._id)
+        substitutionService.changeRunner(game, team, outPlayerId, inPlayer._id, playIndex)
 
         assert.equal(team.runner1BId, inPlayer._id)
         assert.equal(team.lineupIds[lineupIndex], inPlayer._id)
@@ -423,6 +430,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.equal(game.substitutions.length, 1)
         assert.equal(game.substitutions[0].outPlayerId, outPlayerId)
         assert.equal(game.substitutions[0].inPlayerId, inPlayer._id)
+        assert.equal(game.substitutions[0].playIndex, playIndex)
     })
 
     it("should not change runner when outgoing player is not on base", () => {
@@ -436,7 +444,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         const inPlayer = getBenchPlayerForPosition(team, outPlayer.currentPosition)
 
         assert.throws(
-            () => substitutionService.changeRunner(game, team, outPlayerId, inPlayer._id),
+            () => substitutionService.changeRunner(game, team, outPlayerId, inPlayer._id, 1),
             /not currently on base/i
         )
     })
@@ -448,7 +456,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         const activePlayerId = team.lineupIds[1]
 
         assert.throws(
-            () => substitutionService.changeHitter(game, team, outPlayerId, activePlayerId),
+            () => substitutionService.changeHitter(game, team, outPlayerId, activePlayerId, 1),
             /already in the lineup/i
         )
     })
@@ -464,10 +472,10 @@ describe("Baseball Sim Engine Substitutions", async () => {
         const outPosition = outPlayer.currentPosition
         const firstBenchPlayer = getBenchPlayerForPosition(team, outPosition)
 
-        substitutionService.changeHitter(game, team, outPlayerId, firstBenchPlayer._id)
+        substitutionService.changeHitter(game, team, outPlayerId, firstBenchPlayer._id, 1)
 
         assert.throws(
-            () => substitutionService.changeHitter(game, team, firstBenchPlayer._id, outPlayerId),
+            () => substitutionService.changeHitter(game, team, firstBenchPlayer._id, outPlayerId, 2),
             /already left this game/i
         )
     })
@@ -475,6 +483,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
     it("should allow a position player to enter as pitcher", () => {
         const game = buildGame("position-player-pitcher")
         const team = game.home
+        const playIndex = 1
         const previousPitcherId = team.currentPitcherId
         const previousPitcher = team.players.find(p => p._id === previousPitcherId)
         const positionPlayer = getBenchPositionPlayer(team)
@@ -483,7 +492,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.ok(previousPitcher)
         assert.ok(positionPlayer)
 
-        substitutionService.changePitcher(game, team, positionPlayer._id)
+        substitutionService.changePitcher(game, team, positionPlayer._id, playIndex)
 
         assert.equal(team.currentPitcherId, positionPlayer._id)
         assert.equal(team.lineupIds[lineupIndex], positionPlayer._id)
@@ -492,6 +501,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.equal(positionPlayer.currentPosition, Position.PITCHER)
         assert.equal(positionPlayer.lineupIndex, lineupIndex)
         assert.equal(game.substitutions[0].isPitchingChange, true)
+        assert.equal(game.substitutions[0].playIndex, playIndex)
     })
 
     it("should not get next hitter before the 7th inning", () => {
@@ -644,7 +654,8 @@ describe("Baseball Sim Engine Substitutions", async () => {
             lineupIndex: 0,
             fromPosition: currentHitter.currentPosition,
             toPosition: currentHitter.currentPosition,
-            isPitchingChange: false
+            isPitchingChange: false,
+            playIndex: 1
         })
 
         const nextHitter = substitutionService.getNextHitter(game, offense, defense)
