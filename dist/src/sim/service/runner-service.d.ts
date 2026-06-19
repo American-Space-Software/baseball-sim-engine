@@ -1,0 +1,32 @@
+import { BaseResult, Contact, OfficialRunnerResult, PlayResult, Position, ShallowDeep } from "./enums.js";
+import { DefensiveCredit, GamePlayer, PitchCount, PitchEnvironmentTarget, RunnerEvent, RunnerResult, RunnerThrowCommand, SimPitchCommand, SimPitchResult, TeamInfo } from "./interfaces.js";
+import { SimRolls } from "./sim-service.js";
+declare class RunnerService {
+    private gameRolls;
+    constructor(gameRolls: SimRolls);
+    clearRunners(team: TeamInfo): void;
+    getTotalOuts(runnerEvents: RunnerEvent[]): number;
+    validateInningOver(allEvents: RunnerEvent[]): boolean;
+    getThrowCount(runnerEvents: RunnerEvent[]): number;
+    filterNonEvents(runnerEvents: RunnerEvent[], hitter: GamePlayer): RunnerEvent[];
+    initRunnerEvents(pitcher: GamePlayer, hitter: GamePlayer, runner1B: GamePlayer, runner2B: GamePlayer, runner3B: GamePlayer, pitchIndex: number): RunnerEvent[];
+    isRunUnearned(inningRunnerEvents: RunnerEvent[], runnerEvent: RunnerEvent): boolean;
+    runnerIsOut(runnerResult: RunnerResult, allEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], fielderPlayer: GamePlayer, runnerEvent: RunnerEvent, outNumber: number, outBase: BaseResult): void;
+    runnerToBase(runnerResult: RunnerResult, runnerEvent: RunnerEvent, start: BaseResult, end: BaseResult, eventType: PlayResult | OfficialRunnerResult, isForce: boolean): void;
+    runnerOutAtBase(runnerEvent: RunnerEvent, end: BaseResult, isForce: boolean, isFieldersChoice: boolean, defense: TeamInfo, throwFrom: GamePlayer, outs: number): void;
+    runnersTagWithThrow(gameRNG: () => number, runnerResult: RunnerResult, pitchEnvironmentTarget: PitchEnvironmentTarget, allEvents: RunnerEvent[], runnerEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], defense: TeamInfo, offense: TeamInfo, pitcher: GamePlayer, fielderPlayer: GamePlayer, runner1bRA: RunnerEvent, runner2bRA: RunnerEvent, runner3bRA: RunnerEvent, chanceRunnerSafe: number, pitchIndex: number): void;
+    runnerToBaseWithThrow(command: RunnerThrowCommand): void;
+    advanceRunnersOneBase(runnerResult: RunnerResult, events: RunnerEvent[], isForce: boolean): void;
+    advanceOtherRunnersOneBase(runnerResult: RunnerResult, events: RunnerEvent[], runner: RunnerEvent, isForce: boolean): void;
+    getPositionCoveringBase(throwFromPosition: Position, throwToBase: BaseResult): Position.CATCHER | Position.FIRST_BASE | Position.SECOND_BASE | Position.THIRD_BASE | Position.SHORTSTOP;
+    stealBases(runner1B: GamePlayer, runner2B: GamePlayer, runner3B: GamePlayer, gameRNG: () => number, runnerResult: RunnerResult, allEvents: RunnerEvent[], runnerEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], pitchEnvironmentTarget: PitchEnvironmentTarget, catcher: GamePlayer, defense: TeamInfo, offense: TeamInfo, pitcher: GamePlayer, pitchIndex: number, pitchCount: PitchCount): void;
+    private getStealSettingsForState;
+    getStolenBaseSafe(pitchEnvironmentTarget: PitchEnvironmentTarget, armRating: number, runnerSpeed: number, runnerSteals: number, defaultSuccess: number): any;
+    getChanceRunnerSafe(pitchEnvironmentTarget: PitchEnvironmentTarget, armRating: number, runnerSpeed: number, defaultSuccess: number): any;
+    getRunnerEvents(gameRNG: () => number, runnerResult: RunnerResult, halfInningRunnerEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], pitchEnvironmentTarget: PitchEnvironmentTarget, playResult: PlayResult, contact: Contact | undefined, shallowDeep: ShallowDeep | undefined, hitter: GamePlayer, fielderPlayer: GamePlayer | undefined, runner1B: GamePlayer | undefined, runner2B: GamePlayer | undefined, runner3B: GamePlayer | undefined, offense: TeamInfo, defense: TeamInfo, pitcher: GamePlayer, pitchIndex: number): RunnerEvent[];
+    generateRunnerEventsFromPitch(command: SimPitchCommand, pitchIndex: number, result: SimPitchResult): void;
+    validateRunners(firstId: string, secondId: string, thirdId: string): void;
+    validateRunnerResult(runnerResult: RunnerResult): void;
+    applyMinMaxToNumber(num: any, min: any, max: any): any;
+}
+export { RunnerService };

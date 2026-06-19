@@ -766,6 +766,68 @@ class RunnerService {
             return true
         }
 
+        const throwBatterToFirstAfterPriorForce = (chanceRunnerSafe: number): void => {
+            const throwTo: GamePlayer = defense.players.find(p => p.currentPosition == this.getPositionCoveringBase(fielderPlayer.currentPosition, BaseResult.FIRST))
+            const throwRoll: ThrowRoll = this.gameRolls.getThrowResult(gameRNG, chanceRunnerSafe)
+
+            hitterRA.movement.start = BaseResult.HOME
+            hitterRA.movement.end = BaseResult.FIRST
+            hitterRA.eventType = OfficialRunnerResult.FORCE_OUT
+            hitterRA.isForce = true
+            hitterRA.isFC = true
+
+            if (throwTo._id != fielderPlayer._id) {
+                hitterRA.throw = {
+                    result: throwRoll.result,
+                    from: {
+                        _id: fielderPlayer._id,
+                        position: fielderPlayer.currentPosition
+                    },
+                    to: {
+                        _id: throwTo._id,
+                        position: throwTo.currentPosition
+                    }
+                }
+            }
+
+            if (throwRoll.result == ThrowResult.OUT) {
+                if (throwTo._id != fielderPlayer._id) {
+                    defensiveCredits.push({
+                        _id: fielderPlayer._id,
+                        type: DefenseCreditType.ASSIST
+                    })
+                }
+
+                this.runnerIsOut(
+                    runnerResult,
+                    allEvents,
+                    defensiveCredits,
+                    throwTo,
+                    hitterRA,
+                    this.getTotalOuts(events),
+                    BaseResult.FIRST
+                )
+            } else {
+                this.runnerToBase(
+                    runnerResult,
+                    hitterRA,
+                    BaseResult.HOME,
+                    BaseResult.FIRST,
+                    OfficialRunnerResult.HOME_TO_FIRST,
+                    true
+                )
+
+                if (throwRoll.roll < 10) {
+                    hitterRA.isError = true
+
+                    defensiveCredits.push({
+                        _id: throwTo._id,
+                        type: DefenseCreditType.ERROR
+                    })
+                }
+            }
+        }
+
         const DEFAULT_SUCCESS = 95
 
         try {
@@ -778,11 +840,11 @@ class RunnerService {
                     if (!contact) throw new Error("OUT requires contact")
                     if (!fielderPlayer) throw new Error("OUT requires fielderPlayer")
 
-                    if (AtBatInfo.isInAir(contact) && AtBatInfo.isToOF(fielderPlayer?.currentPosition) && (shallowDeep == ShallowDeep.DEEP)) {
+                    if (AtBatInfo.isInAir(contact) && AtBatInfo.isToOF(fielderPlayer?.currentPosition) && shallowDeep == ShallowDeep.DEEP) {
                         this.runnerIsOut(runnerResult, allEvents, defensiveCredits, fielderPlayer, hitterRA, this.getTotalOuts(allEvents) + 1, BaseResult.HOME)
 
                         if (runnerResult.third && runner3bRA && shouldAdvance(advancement?.runnerOnThirdToHomeOnFlyBallDeep)) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS)
+                            const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS)
 
                             this.runnerToBaseWithThrow({
                                 gameRNG,
@@ -819,11 +881,11 @@ class RunnerService {
                         break
                     }
 
-                    if (AtBatInfo.isInAir(contact) && AtBatInfo.isToOF(fielderPlayer?.currentPosition) && (shallowDeep == ShallowDeep.NORMAL)) {
+                    if (AtBatInfo.isInAir(contact) && AtBatInfo.isToOF(fielderPlayer?.currentPosition) && shallowDeep == ShallowDeep.NORMAL) {
                         this.runnerIsOut(runnerResult, allEvents, defensiveCredits, fielderPlayer, hitterRA, this.getTotalOuts(allEvents) + 1, BaseResult.HOME)
 
                         if (runnerResult.third && runner3bRA && shouldAdvance(advancement?.runnerOnThirdToHomeOnFlyBallNormal)) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS - 5)
+                            const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS - 5)
 
                             this.runnerToBaseWithThrow({
                                 gameRNG,
@@ -864,7 +926,7 @@ class RunnerService {
                         this.runnerIsOut(runnerResult, allEvents, defensiveCredits, fielderPlayer, hitterRA, this.getTotalOuts(allEvents) + 1, BaseResult.HOME)
 
                         if (runnerResult.third && runner3bRA && shouldAdvance(advancement?.runnerOnThirdToHomeOnFlyBallShallow)) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS - 30)
+                            const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS - 20)
 
                             this.runnerToBaseWithThrow({
                                 gameRNG,
@@ -944,10 +1006,10 @@ class RunnerService {
                         }
 
                         if (runner3B != undefined) {
-                            runner3bRA.isForce = (runner2B != undefined && runner1B != undefined)
+                            runner3bRA.isForce = runner2B != undefined && runner1B != undefined
 
                             if (runner3bRA.isForce) {
-                                let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, 1)
+                                const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, 1)
 
                                 this.runnerToBaseWithThrow({
                                     gameRNG,
@@ -972,38 +1034,15 @@ class RunnerService {
                                     isFieldersChoice: true
                                 })
                             } else if (shouldAdvance(advancement?.runnerOnThirdToHomeOnGroundBall)) {
-                                let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner3B.hittingRatings.speed, DEFAULT_SUCCESS - 30)
-
-                                this.runnerToBaseWithThrow({
-                                    gameRNG,
-                                    runnerResult,
-                                    allEvents,
-                                    runnerEvents: events,
-                                    runnerEvent: runner3bRA,
-                                    hitterEvent: hitterRA,
-                                    defensiveCredits,
-                                    start: BaseResult.THIRD,
-                                    end: BaseResult.HOME,
-                                    eventType: OfficialRunnerResult.THIRD_TO_HOME,
-                                    eventTypeOut: OfficialRunnerResult.TAGGED_OUT,
-                                    pitchEnvironmentTarget,
-                                    pitcher,
-                                    offense,
-                                    pitchIndex,
-                                    defense,
-                                    throwFrom: fielderPlayer,
-                                    chanceRunnerSafe,
-                                    isForce: false,
-                                    isFieldersChoice: true
-                                })
+                                this.runnerToBase(runnerResult, runner3bRA, BaseResult.THIRD, BaseResult.HOME, OfficialRunnerResult.THIRD_TO_HOME, false)
                             }
                         }
 
                         if (runner2B != undefined) {
-                            runner2bRA.isForce = (runner1B != undefined)
+                            runner2bRA.isForce = runner1B != undefined
 
                             if (runner2bRA.isForce) {
-                                let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner2B.hittingRatings.speed, 1)
+                                const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner2B.hittingRatings.speed, 1)
 
                                 this.runnerToBaseWithThrow({
                                     gameRNG,
@@ -1036,7 +1075,7 @@ class RunnerService {
                             runner1bRA.isForce = true
 
                             if (this.getThrowCount(events) < 1) {
-                                let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 1)
+                                const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 1)
 
                                 this.runnerToBaseWithThrow({
                                     gameRNG,
@@ -1066,32 +1105,11 @@ class RunnerService {
                         }
 
                         if (this.getThrowCount(events) > 0) {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, hitter.hittingRatings.speed, 75)
+                            const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, hitter.hittingRatings.speed, 75)
 
-                            this.runnerToBaseWithThrow({
-                                gameRNG,
-                                runnerResult,
-                                allEvents,
-                                runnerEvents: events,
-                                runnerEvent: hitterRA,
-                                hitterEvent: hitterRA,
-                                defensiveCredits,
-                                start: BaseResult.HOME,
-                                end: BaseResult.FIRST,
-                                eventType: OfficialRunnerResult.HOME_TO_FIRST,
-                                eventTypeOut: OfficialRunnerResult.FORCE_OUT,
-                                pitchEnvironmentTarget,
-                                defense,
-                                pitcher,
-                                offense,
-                                pitchIndex,
-                                throwFrom: fielderPlayer,
-                                chanceRunnerSafe,
-                                isForce: true,
-                                isFieldersChoice: true
-                            })
+                            throwBatterToFirstAfterPriorForce(chanceRunnerSafe)
                         } else {
-                            let chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, hitter.hittingRatings.speed, 1)
+                            const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, hitter.hittingRatings.speed, 1)
 
                             this.runnerToBaseWithThrow({
                                 gameRNG,
@@ -1154,38 +1172,23 @@ class RunnerService {
                     this.runnerToBase(runnerResult, hitterRA, BaseResult.HOME, BaseResult.FIRST, PlayResult.HIT_BY_PITCH, true)
                     break
 
-                case PlayResult.SINGLE: {
-                    const outsBeforePlay = this.getTotalOuts(allEvents)
-
+                case PlayResult.SINGLE:
                     if (runnerResult.third != undefined) {
-                        this.runnerToBase(runnerResult, runner3bRA, BaseResult.THIRD, BaseResult.HOME, OfficialRunnerResult.THIRD_TO_HOME, (runnerResult.first != undefined && runnerResult.second != undefined))
+                        this.runnerToBase(runnerResult, runner3bRA, BaseResult.THIRD, BaseResult.HOME, OfficialRunnerResult.THIRD_TO_HOME, runnerResult.first != undefined && runnerResult.second != undefined)
                     }
 
                     if (runnerResult.second != undefined) {
                         this.runnerToBase(runnerResult, runner2bRA, BaseResult.SECOND, BaseResult.THIRD, OfficialRunnerResult.SECOND_TO_THIRD, runnerResult.first != undefined)
 
-                        const chanceRunnerSafe = AtBatInfo.isToOF(fielderPlayer?.currentPosition) && shallowDeep != ShallowDeep.SHALLOW
-                            ? this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner2B.hittingRatings.speed, 75)
-                            : 0
+                        const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner2B.hittingRatings.speed, DEFAULT_SUCCESS - 10)
 
-                        const sendRunnerHome =
-                            AtBatInfo.isToOF(fielderPlayer?.currentPosition) &&
-                            shallowDeep != ShallowDeep.SHALLOW &&
-                            (outsBeforePlay >= 2 || shouldRiskAdvance(advancement?.runnerOnSecondToHomeOnSingle, chanceRunnerSafe, 90))
-
-                        if (sendRunnerHome) {
-                            let clone: RunnerEvent = JSON.parse(JSON.stringify(runner2bRA))
-                            clone.movement.start = BaseResult.THIRD
-                            clone.movement.end = undefined
-
-                            events.push(clone)
-
+                        if (shouldRiskAdvance(advancement?.runnerOnSecondToHomeOnSingle, chanceRunnerSafe, 70)) {
                             this.runnerToBaseWithThrow({
                                 gameRNG,
                                 runnerResult,
                                 allEvents,
                                 runnerEvents: events,
-                                runnerEvent: clone,
+                                runnerEvent: runner2bRA,
                                 hitterEvent: hitterRA,
                                 defensiveCredits,
                                 start: BaseResult.THIRD,
@@ -1208,27 +1211,15 @@ class RunnerService {
                     if (runnerResult.first != undefined) {
                         this.runnerToBase(runnerResult, runner1bRA, BaseResult.FIRST, BaseResult.SECOND, OfficialRunnerResult.FIRST_TO_SECOND, true)
 
-                        const chanceRunnerSafe = (fielderPlayer.currentPosition == Position.RIGHT_FIELD || fielderPlayer.currentPosition == Position.CENTER_FIELD)
-                            ? this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 75)
-                            : 0
+                        const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, DEFAULT_SUCCESS - 5)
 
-                        const sendRunnerToThird =
-                            (fielderPlayer.currentPosition == Position.RIGHT_FIELD || fielderPlayer.currentPosition == Position.CENTER_FIELD) &&
-                            shouldRiskAdvance(advancement?.runnerOnFirstToThirdOnSingle, chanceRunnerSafe, outsBeforePlay === 1 ? 90 : 95)
-
-                        if (sendRunnerToThird) {
-                            let clone: RunnerEvent = JSON.parse(JSON.stringify(runner1bRA))
-                            clone.movement.start = BaseResult.SECOND
-                            clone.movement.end = undefined
-
-                            events.push(clone)
-
+                        if (this.getThrowCount(events) < 1 && shouldRiskAdvance(advancement?.runnerOnFirstToThirdOnSingle, chanceRunnerSafe, 75)) {
                             this.runnerToBaseWithThrow({
                                 gameRNG,
                                 runnerResult,
                                 allEvents,
                                 runnerEvents: events,
-                                runnerEvent: clone,
+                                runnerEvent: runner1bRA,
                                 hitterEvent: hitterRA,
                                 defensiveCredits,
                                 start: BaseResult.SECOND,
@@ -1250,38 +1241,26 @@ class RunnerService {
 
                     this.runnerToBase(runnerResult, hitterRA, BaseResult.HOME, BaseResult.FIRST, PlayResult.SINGLE, true)
                     break
-                }
 
-                case PlayResult.DOUBLE: {
-                    const outsBeforePlay = this.getTotalOuts(allEvents)
-
-                    this.runnerToBase(runnerResult, runner3bRA, BaseResult.THIRD, BaseResult.HOME, OfficialRunnerResult.THIRD_TO_HOME, (runnerResult.first != undefined && runnerResult.second != undefined))
+                case PlayResult.DOUBLE:
+                    this.runnerToBase(runnerResult, runner3bRA, BaseResult.THIRD, BaseResult.HOME, OfficialRunnerResult.THIRD_TO_HOME, runnerResult.first != undefined && runnerResult.second != undefined)
                     this.runnerToBase(runnerResult, runner2bRA, BaseResult.SECOND, BaseResult.HOME, OfficialRunnerResult.SECOND_TO_HOME, false)
 
                     if (runnerResult.first != undefined) {
                         this.runnerToBase(runnerResult, runner1bRA, BaseResult.FIRST, BaseResult.THIRD, OfficialRunnerResult.FIRST_TO_THIRD, false)
 
-                        const chanceRunnerSafe = shallowDeep != ShallowDeep.SHALLOW
-                            ? this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, 60)
-                            : 0
+                        const chanceRunnerSafe = this.getChanceRunnerSafe(pitchEnvironmentTarget, fielderPlayer.hittingRatings.arm, runner1B.hittingRatings.speed, DEFAULT_SUCCESS - 15)
 
-                        const sendRunnerHome =
+                        if (
                             shallowDeep != ShallowDeep.SHALLOW &&
-                            shouldRiskAdvance(advancement?.runnerOnFirstToHomeOnDouble, chanceRunnerSafe, outsBeforePlay >= 2 ? 95 : 90)
-
-                        if (sendRunnerHome) {
-                            let clone: RunnerEvent = JSON.parse(JSON.stringify(runner1bRA))
-                            clone.movement.start = BaseResult.THIRD
-                            clone.movement.end = undefined
-
-                            events.push(clone)
-
+                            shouldRiskAdvance(advancement?.runnerOnFirstToHomeOnDouble, chanceRunnerSafe, 70)
+                        ) {
                             this.runnerToBaseWithThrow({
                                 gameRNG,
                                 runnerResult,
                                 allEvents,
                                 runnerEvents: events,
-                                runnerEvent: clone,
+                                runnerEvent: runner1bRA,
                                 hitterEvent: hitterRA,
                                 defensiveCredits,
                                 start: BaseResult.THIRD,
@@ -1303,7 +1282,6 @@ class RunnerService {
 
                     this.runnerToBase(runnerResult, hitterRA, BaseResult.HOME, BaseResult.SECOND, PlayResult.DOUBLE, true)
                     break
-                }
 
                 case PlayResult.TRIPLE:
                     this.runnerToBase(runnerResult, runner3bRA, BaseResult.THIRD, BaseResult.HOME, OfficialRunnerResult.THIRD_TO_HOME, true)

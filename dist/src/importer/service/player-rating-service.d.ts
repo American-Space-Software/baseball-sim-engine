@@ -1,14 +1,74 @@
-import { HittingRatings, PitchEnvironmentTarget, PitchRatings, PlayerFromStatsCommand, PlayerImportBaseline, PlayerImportRaw } from "../../sim/service/interfaces.js";
+import { HittingRatings, PitchEnvironmentTarget, PitchRatings, PlayerFromStatsCommand, PlayerImportRaw, RatingTuning } from "../../sim/service/interfaces.js";
+import { BaselineGameService } from "./baseline-game-service.js";
+import { SimService } from "../../sim/service/sim-service.js";
+import { StatService } from "../../sim/service/stat-service.js";
 declare class PlayerRatingService {
-    static createPlayerFromStatsCommand(pitchEnvironment: PitchEnvironmentTarget, leagueImportBaseline: PlayerImportBaseline, playerImportBaseline: PlayerImportBaseline, playerImportRaw: PlayerImportRaw): PlayerFromStatsCommand;
+    private simService;
+    private statService;
+    private baselineGameService;
+    constructor(simService: SimService, statService: StatService, baselineGameService: BaselineGameService);
+    static createPlayerFromImportRaw(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw): PlayerFromStatsCommand;
     static buildHittingRatings(command: PlayerFromStatsCommand): HittingRatings;
+    private static applyHittingSplit;
     static buildPitchRatings(command: PlayerFromStatsCommand): PitchRatings;
-    static createPlayerFromStats(command: PlayerFromStatsCommand): {
+    private static getHitterObp;
+    private static getHitterSlg;
+    private static sumDeltas;
+    static createPlayerFromStatsCommand(command: PlayerFromStatsCommand): {
         hittingRatings: HittingRatings;
         pitchRatings: PitchRatings;
     };
-    static clampRating(value: number, min?: number, max?: number): number;
+    private static applyRatingTuning;
+    private static applyHittingSplitScale;
+    private static applyPitchingSplitScale;
+    private static scaleRating;
+    private static applyPitchingSplit;
+    private static getHitterContactProfile;
+    private static getPitcherContactProfile;
+    private static getPitchTypes;
+    private static getFastballVelocity;
+    private static getLeagueFastballVelocity;
+    private static getPitchMovement;
+    private static getLeaguePitchMovement;
+    private static emptyHittingRatings;
+    private static emptyPitchRatings;
+    private static getFieldingRatings;
+    private static allocateToHundred;
+    private static averageDeltas;
+    private static rating;
     static getHigherIsBetterDelta(playerRate: number, baselineRate: number, scale: number): number;
     static getLowerIsBetterDelta(playerRate: number, baselineRate: number, scale: number): number;
+    static seedRatingTuning(): RatingTuning;
+    printRatingIterationDiagnostics(stage: string, iteration: number, maxIterations: number, gamesPerIteration: number, candidate: RatingTuning, result: {
+        actual: any;
+        target: any;
+        diff: any;
+        score: number;
+    }): void;
+    isRatingCloseEnough(diff: any): boolean;
+    evaluatePlayerRatings(pitchEnvironment: PitchEnvironmentTarget, ratingTuning: RatingTuning, players: PlayerImportRaw[], rng: Function, gamesPerPlayer?: number): {
+        actual: any;
+        target: any;
+        diff: any;
+        score: number;
+    };
+    private evaluatePlayerRating;
+    private evaluateHitterRating;
+    private evaluatePitcherRating;
+    private simHitterForRatingEvaluation;
+    private simPitcherForRatingEvaluation;
+    private buildPlayerFromImportRawAndRatings;
+    private getPlayerEvaluationRole;
+    private getHitterRatingActual;
+    private getPitcherRatingActual;
+    private getHitterRatingTarget;
+    private getPitcherRatingTarget;
+    private getRatingEvaluationDiff;
+    private scorePitcherRatingEvaluationDiff;
+    private scoreHitterRatingEvaluationDiff;
+    private getRatingResultBlocks;
+    private averageRatingMetricBlock;
+    private findGamePlayer;
+    private averageScore;
 }
 export { PlayerRatingService };

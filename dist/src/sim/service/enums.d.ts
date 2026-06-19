@@ -151,4 +151,12 @@ declare enum HomeAway {
     HOME = "Home",
     AWAY = "Away"
 }
-export { ThrowResult, HomeAway, Contact, SwingResult, DefenseCreditType, PlayResult, OfficialRunnerResult, OfficialPlayResult, PitchType, ShallowDeep, PitchCall, PitchZone, Position, Handedness, BaseResult };
+declare enum PitchingRoleType {
+    STARTER = "starter",
+    CLOSER = "closer",
+    SETUP = "setup",
+    MIDDLE = "middle",
+    LONG = "long",
+    MOP_UP = "mop_up"
+}
+export { PitchingRoleType, ThrowResult, HomeAway, Contact, SwingResult, DefenseCreditType, PlayResult, OfficialRunnerResult, OfficialPlayResult, PitchType, ShallowDeep, PitchCall, PitchZone, Position, Handedness, BaseResult };

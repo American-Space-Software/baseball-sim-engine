@@ -13,8 +13,8 @@ declare class RollChartService {
     buildPitcherPowerRollInput(pitchEnvironmentTarget: PitchEnvironmentTarget, pitcherChange: PitcherChange): PowerRollInput;
     updatePowerRollInput(input: PowerRollInput, field: string, value: number): void;
     updateContactTypeInput(input: ContactTypeRollInput, field: string, value: number): void;
-    getMatchupPowerRollChart(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange, pitcherChange: PitcherChange, applyPlayerChanges: boolean): RollChart;
-    getMatchupContactRollChart(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterContactProfile: ContactProfile, pitcherContactProfile: ContactProfile, applyPlayerChanges: boolean): RollChart;
+    getMatchupPowerRollChart(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange, pitcherChange: PitcherChange): RollChart;
+    getMatchupContactRollChart(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterContactProfile: ContactProfile, pitcherContactProfile: ContactProfile): RollChart;
     getFirstRollIndex(chart: RollChart, result: string): number;
     private _getAverage;
 }

@@ -16,13 +16,16 @@ import type {
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
 import { DownloaderService } from "../src/importer/service/downloader-service.js"
+import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 
 const statService = new StatService()
 let pitchEnvironment: PitchEnvironmentTarget
 
 const season = 2025
 
-const pitchEnvironmentService = new PitchEnvironmentService(simService, statService)
+const baselineGameService = new BaselineGameService(simService)
+const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
+
 const downloaderService = new DownloaderService("data", 1000)
 
 const players = await downloaderService.buildSeasonPlayerImports(season, new Set([]))
@@ -34,7 +37,7 @@ const buildGame = (seed: string): Game => {
 
     environment.pitchEnvironmentTuning = pitchEnvironmentService.seedPitchEnvironmentTuning(environment)
 
-    return pitchEnvironmentService.buildStartedBaselineGame(
+    return baselineGameService.buildStartedBaselineGame(
         environment,
         seed
     )
@@ -662,4 +665,122 @@ describe("Baseball Sim Engine Substitutions", async () => {
 
         assert.equal(nextHitter, undefined)
     })
+
+
+    it("should change hitter for pitcher slot and require later pitcher change", () => {
+        const game = buildGame("change-hitter-for-pitcher")
+        const team = game.away
+        const playIndex = 1
+
+        const outPlayerId = team.currentPitcherId
+        const outPlayer = team.players.find(p => p._id === outPlayerId)
+        const inPlayer = getBenchPositionPlayer(team)
+        const lineupIndex = team.lineupIds.findIndex(id => id === outPlayerId)
+
+        assert.ok(outPlayer)
+        assert.ok(inPlayer)
+
+        substitutionService.changeHitter(game, team, outPlayerId, inPlayer._id, playIndex)
+
+        assert.equal(team.lineupIds[lineupIndex], inPlayer._id)
+        assert.equal(team.currentPitcherId, outPlayerId)
+
+        assert.equal(outPlayer.currentPosition, undefined)
+        assert.equal(outPlayer.lineupIndex, undefined)
+
+        assert.equal(inPlayer.currentPosition, undefined)
+        assert.equal(inPlayer.lineupIndex, lineupIndex)
+
+        assert.equal(game.substitutions.length, 1)
+        assert.equal(game.substitutions[0].outPlayerId, outPlayerId)
+        assert.equal(game.substitutions[0].inPlayerId, inPlayer._id)
+        assert.equal(game.substitutions[0].lineupIndex, lineupIndex)
+        assert.equal(game.substitutions[0].fromPosition, Position.PITCHER)
+        assert.equal(game.substitutions[0].toPosition, undefined)
+        assert.equal(game.substitutions[0].isPitchingChange, false)
+        assert.equal(game.substitutions[0].requiresPitcherChange, true)
+        assert.equal(game.substitutions[0].resolvedPitcherChange, false)
+        assert.equal(game.substitutions[0].playIndex, playIndex)
+    })
+
+    it("should resolve pending pitcher change after pitcher is pinch hit for", () => {
+        const game = buildGame("resolve-pending-pitcher-change")
+        const team = game.away
+        const playIndex = 1
+
+        const oldPitcherId = team.currentPitcherId
+        const oldPitcher = team.players.find(p => p._id === oldPitcherId)
+        const pinchHitter = getBenchPositionPlayer(team)
+        const lineupIndex = team.lineupIds.findIndex(id => id === oldPitcherId)
+
+        assert.ok(oldPitcher)
+        assert.ok(pinchHitter)
+
+        substitutionService.changeHitter(game, team, oldPitcherId, pinchHitter._id, playIndex)
+
+        const changed = substitutionService.changePitcherIfNeeded(game, team, playIndex + 1)
+
+        assert.equal(changed, true)
+
+        const pitcherSubstitution = game.substitutions[1]
+        const nextPitcher = team.players.find(p => p._id === pitcherSubstitution.inPlayerId)
+
+        assert.ok(nextPitcher)
+
+        assert.equal(team.currentPitcherId, nextPitcher._id)
+        assert.equal(team.lineupIds[lineupIndex], nextPitcher._id)
+
+        assert.equal(oldPitcher.currentPosition, undefined)
+        assert.equal(oldPitcher.lineupIndex, undefined)
+
+        assert.equal(pinchHitter.currentPosition, undefined)
+        assert.equal(pinchHitter.lineupIndex, undefined)
+
+        assert.equal(nextPitcher.currentPosition, Position.PITCHER)
+        assert.equal(nextPitcher.lineupIndex, lineupIndex)
+
+        assert.equal(game.substitutions.length, 2)
+
+        assert.equal(game.substitutions[0].outPlayerId, oldPitcherId)
+        assert.equal(game.substitutions[0].inPlayerId, pinchHitter._id)
+        assert.equal(game.substitutions[0].requiresPitcherChange, true)
+        assert.equal(game.substitutions[0].resolvedPitcherChange, true)
+
+        assert.equal(pitcherSubstitution.outPlayerId, pinchHitter._id)
+        assert.equal(pitcherSubstitution.inPlayerId, nextPitcher._id)
+        assert.equal(pitcherSubstitution.isPitchingChange, true)
+        assert.equal(pitcherSubstitution.toPosition, Position.PITCHER)
+        assert.equal(pitcherSubstitution.playIndex, playIndex + 1)
+    })
+
+    it("should get next hitter for pitcher slot from non-pitcher bench hitters", () => {
+        const game = buildGame("next-hitter-pitcher-slot")
+        const offense = game.away
+        const defense = game.home
+
+        const currentPitcher = offense.players.find(p => p._id === offense.currentPitcherId)
+        const defensivePitcher = defense.players.find(p => p._id === defense.currentPitcherId)
+        const benchHitter = getBenchPositionPlayer(offense)
+
+        assert.ok(currentPitcher)
+        assert.ok(defensivePitcher)
+        assert.ok(benchHitter)
+
+        offense.currentHitterIndex = offense.lineupIds.findIndex(id => id === offense.currentPitcherId)
+
+        game.currentInning = 8
+        game.score.away = 2
+        game.score.home = 4
+
+        setHitterMatchupRatings(currentPitcher, defensivePitcher, 1)
+        setHitterMatchupRatings(benchHitter, defensivePitcher, 100)
+
+        const nextHitter = substitutionService.getNextHitter(game, offense, defense)
+
+        assert.ok(nextHitter)
+        assert.equal(nextHitter._id, benchHitter._id)
+        assert.equal(nextHitter.positions.includes(Position.PITCHER), false)
+    })
+
+
 })

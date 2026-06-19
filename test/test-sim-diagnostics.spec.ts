@@ -26,6 +26,8 @@ import type {
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
 import { importPitchEnvironmentTarget } from "../src/importer/index.js"
 import { DownloaderService } from "../src/importer/service/downloader-service.js"
+import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
+import { GameInfo } from "../src/sim/service/sim-service.js"
 
 const statService = new StatService()
 let pitchEnvironment: PitchEnvironmentTarget
@@ -34,7 +36,8 @@ let tunedPitchEnvironment: PitchEnvironmentTarget
 const season = 2025
 const baseDataDir = "data"
 
-const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, {} as any)
+const baselineGameService = new BaselineGameService(simService)
+const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
 const downloaderservice = new DownloaderService("data", 1000)
 
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
@@ -63,9 +66,951 @@ describe("Baseball Sim Engine", async () => {
         assert.ok(pitchEnvironment)
     })
 
+    it("diagnostic: expected vs actual batted ball outcome mix", async () => {
+
+        const games = 300
+
+        const testPitchEnvironment = clone(pitchEnvironment)
+        const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
+
+        testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+
+        const expected = testPitchEnvironment.battedBall.powerRollInput
+
+        const actual = {
+            out: 0,
+            single: 0,
+            double: 0,
+            triple: 0,
+            hr: 0
+        }
+
+        let totalInPlayResults = 0
+
+        const isTrackedResult = (result: PlayResult): boolean => {
+            return result === PlayResult.OUT ||
+                result === PlayResult.SINGLE ||
+                result === PlayResult.DOUBLE ||
+                result === PlayResult.TRIPLE ||
+                result === PlayResult.HR
+        }
+
+        for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+
+            const rng = seedrandom(`expected-vs-actual-${gameIndex}`)
+
+            const game = baselineGameService.buildStartedBaselineGame(
+                clone(testPitchEnvironment),
+                `expected-vs-actual-${gameIndex}`
+            )
+
+            while (!game.isComplete) {
+                simService.simPitch(game, rng)
+            }
+
+            for (const play of GameInfo.getPlays(game)) {
+
+                if (!isTrackedResult(play.result)) continue
+
+                totalInPlayResults++
+
+                switch (play.result) {
+
+                    case PlayResult.OUT:
+                        actual.out++
+                        break
+
+                    case PlayResult.SINGLE:
+                        actual.single++
+                        break
+
+                    case PlayResult.DOUBLE:
+                        actual.double++
+                        break
+
+                    case PlayResult.TRIPLE:
+                        actual.triple++
+                        break
+
+                    case PlayResult.HR:
+                        actual.hr++
+                        break
+                }
+            }
+        }
+
+        const actualScaled = {
+            out: actual.out / totalInPlayResults * 1000,
+            single: actual.single / totalInPlayResults * 1000,
+            double: actual.double / totalInPlayResults * 1000,
+            triple: actual.triple / totalInPlayResults * 1000,
+            hr: actual.hr / totalInPlayResults * 1000
+        }
+
+        const actualBabip =
+            (actual.single + actual.double + actual.triple) /
+            Math.max(
+                1,
+                actual.out +
+                actual.single +
+                actual.double +
+                actual.triple
+            )
+
+        const expectedBabip =
+            (expected.singles + expected.doubles + expected.triples) /
+            Math.max(
+                1,
+                expected.out +
+                expected.singles +
+                expected.doubles +
+                expected.triples
+            )
+
+        console.log("\n=== EXPECTED VS ACTUAL BATTED BALL OUTCOME MIX ===")
+        console.log(JSON.stringify({
+            expected,
+            actual,
+            actualScaled,
+            expectedBabip,
+            actualBabip,
+            deltas: {
+                out: actualScaled.out - expected.out,
+                single: actualScaled.single - expected.singles,
+                double: actualScaled.double - expected.doubles,
+                triple: actualScaled.triple - expected.triples,
+                hr: actualScaled.hr - expected.hr
+            }
+        }, null, 2))
+
+        assert.ok(totalInPlayResults > 0)
+    })
+
+    it("diagnostic: imported babip vs power roll babip", async () => {
+
+        const env = clone(pitchEnvironment)
+
+        const powerRollBabip =
+            (env.battedBall.powerRollInput.singles +
+                env.battedBall.powerRollInput.doubles +
+                env.battedBall.powerRollInput.triples) /
+            (
+                env.battedBall.powerRollInput.out +
+                env.battedBall.powerRollInput.singles +
+                env.battedBall.powerRollInput.doubles +
+                env.battedBall.powerRollInput.triples
+            )
+
+        console.log("\n=== IMPORTED BABIP VS POWER ROLL BABIP ===")
+        console.log(JSON.stringify({
+            targetBabip: env.outcome.babip,
+            powerRollBabip,
+
+            powerRollInput: env.battedBall.powerRollInput,
+
+            importReference: {
+                ab: env.importReference.hitter.ab,
+                hits: env.importReference.hitter.hits,
+                homeRuns: env.importReference.hitter.homeRuns,
+                strikeouts: env.importReference.hitter.so,
+                ballsInPlay: env.importReference.hitter.ballsInPlay
+            }
+        }, null, 2))
+
+        assert.ok(powerRollBabip > 0)
+    })
+
+
+    it("diagnostic: run creation decomposition", async () => {
+        const games = 150
+        const samples = 3
+        const totalGames = games * samples
+        const teamGames = totalGames * 2
+
+        const testPitchEnvironment = clone(pitchEnvironment)
+        const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
+
+        testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+
+        const totals = {
+            runs: 0,
+            pa: 0,
+            ab: 0,
+            hits: 0,
+            singles: 0,
+            doubles: 0,
+            triples: 0,
+            homeRuns: 0,
+            bb: 0,
+            hbp: 0,
+            so: 0,
+            totalBases: 0,
+            nonHrBaserunners: 0,
+            baserunners: 0,
+            runnersStartedOnBase: 0,
+            runnersScoredFromBase: 0,
+            runnersOutOnBase: 0,
+            lob: 0,
+            gidpLike: 0,
+            cs: 0,
+            sb: 0,
+            sbAttempts: 0,
+            extraBaseRiskAttempts: 0,
+            extraBaseRiskSafe: 0,
+            extraBaseRiskOut: 0
+        }
+
+        const byBaseState: Record<string, any> = {}
+
+        const getBaseStateKey = (play: any): string => {
+            const outs = play.count?.start?.outs ?? 0
+            const start = play.runner?.result?.start
+
+            const first = start?.first ? "1" : "_"
+            const second = start?.second ? "2" : "_"
+            const third = start?.third ? "3" : "_"
+
+            return `${outs}:${first}${second}${third}`
+        }
+
+        const getRow = (key: string): any => {
+            if (!byBaseState[key]) {
+                byBaseState[key] = {
+                    key,
+                    pa: 0,
+                    runs: 0,
+                    hits: 0,
+                    bb: 0,
+                    hbp: 0,
+                    outs: 0,
+                    runnerOuts: 0,
+                    gidpLike: 0
+                }
+            }
+
+            return byBaseState[key]
+        }
+
+        const countStartRunners = (play: any): number => {
+            const start = play.runner?.result?.start
+
+            return [
+                start?.first,
+                start?.second,
+                start?.third
+            ].filter(id => id != undefined).length
+        }
+
+        const isHit = (result: PlayResult): boolean => {
+            return result === PlayResult.SINGLE ||
+                result === PlayResult.DOUBLE ||
+                result === PlayResult.TRIPLE ||
+                result === PlayResult.HR
+        }
+
+        const getTotalBases = (result: PlayResult): number => {
+            if (result === PlayResult.SINGLE) return 1
+            if (result === PlayResult.DOUBLE) return 2
+            if (result === PlayResult.TRIPLE) return 3
+            if (result === PlayResult.HR) return 4
+            return 0
+        }
+
+        for (let sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
+            const rng = seedrandom(`run-creation-decomposition-sample-${sampleIndex}`)
+
+            for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+                const game = baselineGameService.buildStartedBaselineGame(
+                    clone(testPitchEnvironment),
+                    `run-creation-decomposition-sample-${sampleIndex}-${gameIndex}`
+                )
+
+                while (!game.isComplete) {
+                    simService.simPitch(game, rng)
+                }
+
+                totals.runs += game.score.home + game.score.away
+
+                for (const halfInning of game.halfInnings) {
+                    totals.lob += halfInning.linescore.leftOnBase ?? 0
+                }
+
+                for (const play of GameInfo.getPlays(game)) {
+                    if (!play.count?.end) continue
+
+                    const row = getRow(getBaseStateKey(play))
+                    const events: RunnerEvent[] = play.runner?.events ?? []
+                    const runsOnPlay = events.filter(event => event.isScoringEvent).length
+                    const outEvents = events.filter(event => event.movement?.isOut)
+                    const runnerOutEvents = outEvents.filter(event => event.movement?.start !== BaseResult.HOME && !event.isCS)
+                    const startedRunners = countStartRunners(play)
+                    const nonCaughtStealingOuts = outEvents.filter(event => !event.isCS).length
+
+                    totals.pa++
+                    totals.runnersStartedOnBase += startedRunners
+                    totals.runnersScoredFromBase += events.filter(event => event.isScoringEvent && event.movement?.start !== BaseResult.HOME).length
+                    totals.runnersOutOnBase += runnerOutEvents.length
+
+                    row.pa++
+                    row.runs += runsOnPlay
+                    row.outs += outEvents.length
+                    row.runnerOuts += runnerOutEvents.length
+
+                    if (play.result !== PlayResult.BB && play.result !== PlayResult.HIT_BY_PITCH) {
+                        totals.ab++
+                    }
+
+                    if (isHit(play.result)) {
+                        totals.hits++
+                        totals.totalBases += getTotalBases(play.result)
+                        row.hits++
+                    }
+
+                    if (play.result === PlayResult.SINGLE) totals.singles++
+                    if (play.result === PlayResult.DOUBLE) totals.doubles++
+                    if (play.result === PlayResult.TRIPLE) totals.triples++
+                    if (play.result === PlayResult.HR) totals.homeRuns++
+
+                    if (play.result === PlayResult.BB) {
+                        totals.bb++
+                        row.bb++
+                    }
+
+                    if (play.result === PlayResult.HIT_BY_PITCH) {
+                        totals.hbp++
+                        row.hbp++
+                    }
+
+                    if (play.result === PlayResult.STRIKEOUT) totals.so++
+
+                    if (play.contact === Contact.GROUNDBALL && play.result === PlayResult.OUT && nonCaughtStealingOuts >= 2) {
+                        totals.gidpLike++
+                        row.gidpLike++
+                    }
+
+                    for (const event of events) {
+                        if (event.isSBAttempt) totals.sbAttempts++
+                        if (event.isSB) totals.sb++
+                        if (event.isCS) totals.cs++
+
+                        if (
+                            !event.isSB &&
+                            !event.isCS &&
+                            event.throw &&
+                            event.movement?.start !== BaseResult.HOME
+                        ) {
+                            totals.extraBaseRiskAttempts++
+
+                            if (event.movement?.isOut) {
+                                totals.extraBaseRiskOut++
+                            } else {
+                                totals.extraBaseRiskSafe++
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        totals.baserunners = totals.hits + totals.bb + totals.hbp
+        totals.nonHrBaserunners = totals.baserunners - totals.homeRuns
+
+        const output = {
+            gamesEach: games,
+            samples,
+            totalGames,
+            teamGames,
+
+            runsPerTeamGame: totals.runs / teamGames,
+            paPerTeamGame: totals.pa / teamGames,
+
+            avg: totals.hits / Math.max(1, totals.ab),
+            obp: totals.baserunners / Math.max(1, totals.pa),
+            slg: totals.totalBases / Math.max(1, totals.ab),
+            babip: (totals.hits - totals.homeRuns) / Math.max(1, totals.ab - totals.so - totals.homeRuns),
+
+            hitsPerTeamGame: totals.hits / teamGames,
+            bbPerTeamGame: totals.bb / teamGames,
+            hbpPerTeamGame: totals.hbp / teamGames,
+            baserunnersPerTeamGame: totals.baserunners / teamGames,
+            nonHrBaserunnersPerTeamGame: totals.nonHrBaserunners / teamGames,
+            totalBasesPerTeamGame: totals.totalBases / teamGames,
+
+            runsPerBaserunner: totals.runs / Math.max(1, totals.baserunners),
+            runsPerNonHrBaserunner: totals.runs / Math.max(1, totals.nonHrBaserunners),
+            runsPerTotalBase: totals.runs / Math.max(1, totals.totalBases),
+
+            runnersStartedOnBasePerTeamGame: totals.runnersStartedOnBase / teamGames,
+            runnersScoredFromBasePerTeamGame: totals.runnersScoredFromBase / teamGames,
+            runnerScoreRateFromBase: totals.runnersScoredFromBase / Math.max(1, totals.runnersStartedOnBase),
+            runnersOutOnBasePerTeamGame: totals.runnersOutOnBase / teamGames,
+            runnerOutRateFromBase: totals.runnersOutOnBase / Math.max(1, totals.runnersStartedOnBase),
+
+            lobPerTeamGame: totals.lob / teamGames,
+            gidpLikePerTeamGame: totals.gidpLike / teamGames,
+            csPerTeamGame: totals.cs / teamGames,
+            sbPerTeamGame: totals.sb / teamGames,
+            sbAttemptsPerTeamGame: totals.sbAttempts / teamGames,
+
+            extraBaseRiskAttemptsPerTeamGame: totals.extraBaseRiskAttempts / teamGames,
+            extraBaseRiskSafeRate: totals.extraBaseRiskSafe / Math.max(1, totals.extraBaseRiskAttempts),
+            extraBaseRiskOutRate: totals.extraBaseRiskOut / Math.max(1, totals.extraBaseRiskAttempts),
+
+            byBaseState: Object.values(byBaseState)
+                .map((row: any) => ({
+                    key: row.key,
+                    pa: row.pa,
+                    paShare: row.pa / Math.max(1, totals.pa),
+                    runsPerPA: row.runs / Math.max(1, row.pa),
+                    hitsPerPA: row.hits / Math.max(1, row.pa),
+                    bbPerPA: row.bb / Math.max(1, row.pa),
+                    hbpPerPA: row.hbp / Math.max(1, row.pa),
+                    outsPerPA: row.outs / Math.max(1, row.pa),
+                    runnerOutsPerPA: row.runnerOuts / Math.max(1, row.pa),
+                    gidpLikePerPA: row.gidpLike / Math.max(1, row.pa)
+                }))
+                .sort((a: any, b: any) => b.pa - a.pa)
+        }
+
+        console.log("\n=== RUN CREATION DECOMPOSITION ===")
+        console.log(JSON.stringify(output, null, 2))
+
+        assert.ok(output.runsPerTeamGame > 0)
+    })
+
+    it("diagnostic: run conversion accounting by play result and base state", async () => {
+        const games = 150
+        const samples = 3
+        const totalGames = games * samples
+
+        const testPitchEnvironment = clone(pitchEnvironment)
+        const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
+
+        testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+
+        const byPlayResult: Record<string, any> = {}
+        const byBaseState: Record<string, any> = {}
+
+        const getRow = (rows: Record<string, any>, key: string) => {
+            if (!rows[key]) {
+                rows[key] = {
+                    key,
+                    pa: 0,
+                    runs: 0,
+                    eventOuts: 0,
+                    countOuts: 0,
+                    batterOuts: 0,
+                    runnerOuts: 0,
+                    runnerEvents: 0,
+                    multiOutPlays: 0
+                }
+            }
+
+            return rows[key]
+        }
+
+        const baseStateKey = (play: any) => {
+            const outs = Number(play.count?.start?.outs ?? 0)
+            const start = play.runner?.result?.start
+
+            const first = start?.first ? "1" : "_"
+            const second = start?.second ? "2" : "_"
+            const third = start?.third ? "3" : "_"
+
+            return `${outs}:${first}${second}${third}`
+        }
+
+        const eventStart = (event: any) => event?.movement?.start
+        const eventEnd = (event: any) => event?.movement?.end
+
+        const isBatterEvent = (event: any) => {
+            return eventStart(event) === BaseResult.HOME
+        }
+
+        const isOutEvent = (event: any) => {
+            return event?.movement?.isOut === true
+        }
+
+        const getOutDeltaFromCount = (play: any) => {
+            const startOuts = Number(play.count?.start?.outs)
+            const endOuts = Number(play.count?.end?.outs)
+
+            if (!Number.isFinite(startOuts) || !Number.isFinite(endOuts)) return 0
+
+            return Math.max(0, endOuts - startOuts)
+        }
+
+        let totalRunsFromEvents = 0
+        let totalRunsFromScore = 0
+        let totalEventOuts = 0
+        let totalCountOuts = 0
+        let totalBatterOuts = 0
+        let totalRunnerOuts = 0
+        let totalMultiOutPlaysByEvents = 0
+        let totalMultiOutPlaysByCount = 0
+        let totalPA = 0
+
+        const advancement = {
+            single1BOpportunities: 0,
+            single1BTo3BOrHome: 0,
+            single2BOpportunities: 0,
+            single2BToHome: 0,
+            double1BOpportunities: 0,
+            double1BToHome: 0
+        }
+
+        for (let sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
+            const rng = seedrandom(`run-conversion-accounting-diagnostic-sample-${sampleIndex}`)
+
+            for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+                const game = baselineGameService.buildStartedBaselineGame(
+                    clone(testPitchEnvironment),
+                    `run-conversion-accounting-diagnostic-sample-${sampleIndex}-${gameIndex}`
+                )
+
+                while (!game.isComplete) {
+                    simService.simPitch(game, rng)
+                }
+
+                totalRunsFromScore += game.score.home + game.score.away
+
+                const plays = GameInfo.getPlays(game)
+
+                for (const play of plays) {
+                    if (!play.count?.end) continue
+
+                    totalPA++
+
+                    const key = String(play.result)
+                    const stateKey = baseStateKey(play)
+                    const events = play.runner?.events ?? []
+
+                    const runs = events.filter((event: any) => event?.isScoringEvent === true).length
+                    const eventOuts = events.filter(isOutEvent).length
+                    const countOuts = getOutDeltaFromCount(play)
+                    const batterOuts = events.filter((event: any) => isOutEvent(event) && isBatterEvent(event)).length
+                    const runnerOuts = events.filter((event: any) => isOutEvent(event) && !isBatterEvent(event)).length
+
+                    totalRunsFromEvents += runs
+                    totalEventOuts += eventOuts
+                    totalCountOuts += countOuts
+                    totalBatterOuts += batterOuts
+                    totalRunnerOuts += runnerOuts
+
+                    if (eventOuts >= 2) totalMultiOutPlaysByEvents++
+                    if (countOuts >= 2) totalMultiOutPlaysByCount++
+
+                    const playRow = getRow(byPlayResult, key)
+                    playRow.pa++
+                    playRow.runs += runs
+                    playRow.eventOuts += eventOuts
+                    playRow.countOuts += countOuts
+                    playRow.batterOuts += batterOuts
+                    playRow.runnerOuts += runnerOuts
+                    playRow.runnerEvents += events.length
+                    if (eventOuts >= 2 || countOuts >= 2) playRow.multiOutPlays++
+
+                    const stateRow = getRow(byBaseState, stateKey)
+                    stateRow.pa++
+                    stateRow.runs += runs
+                    stateRow.eventOuts += eventOuts
+                    stateRow.countOuts += countOuts
+                    stateRow.batterOuts += batterOuts
+                    stateRow.runnerOuts += runnerOuts
+                    stateRow.runnerEvents += events.length
+                    if (eventOuts >= 2 || countOuts >= 2) stateRow.multiOutPlays++
+
+                    const start = play.runner?.result?.start
+                    const finalForRunner = (runnerId: string | undefined) => {
+                        if (!runnerId) return undefined
+                        return events.filter((event: any) => event?.runner?._id === runnerId).at(-1)
+                    }
+
+                    if (play.result === PlayResult.SINGLE && start?.first) {
+                        advancement.single1BOpportunities++
+                        const final = finalForRunner(start.first)
+
+                        if (
+                            eventEnd(final) === BaseResult.THIRD ||
+                            final?.isScoringEvent === true
+                        ) {
+                            advancement.single1BTo3BOrHome++
+                        }
+                    }
+
+                    if (play.result === PlayResult.SINGLE && start?.second) {
+                        advancement.single2BOpportunities++
+                        const final = finalForRunner(start.second)
+
+                        if (final?.isScoringEvent === true) {
+                            advancement.single2BToHome++
+                        }
+                    }
+
+                    if (play.result === PlayResult.DOUBLE && start?.first) {
+                        advancement.double1BOpportunities++
+                        const final = finalForRunner(start.first)
+
+                        if (final?.isScoringEvent === true) {
+                            advancement.double1BToHome++
+                        }
+                    }
+                }
+            }
+        }
+
+        const summarizeRows = (rows: Record<string, any>) => {
+            return Object.values(rows)
+                .map((row: any) => ({
+                    key: row.key,
+                    pa: row.pa,
+                    paShare: totalPA > 0 ? row.pa / totalPA : 0,
+                    runs: row.runs,
+                    runsPerPA: row.pa > 0 ? row.runs / row.pa : 0,
+                    eventOuts: row.eventOuts,
+                    eventOutsPerPA: row.pa > 0 ? row.eventOuts / row.pa : 0,
+                    countOuts: row.countOuts,
+                    countOutsPerPA: row.pa > 0 ? row.countOuts / row.pa : 0,
+                    batterOuts: row.batterOuts,
+                    batterOutsPerPA: row.pa > 0 ? row.batterOuts / row.pa : 0,
+                    runnerOuts: row.runnerOuts,
+                    runnerOutsPerPA: row.pa > 0 ? row.runnerOuts / row.pa : 0,
+                    runnerEventsPerPA: row.pa > 0 ? row.runnerEvents / row.pa : 0,
+                    multiOutPlays: row.multiOutPlays
+                }))
+                .sort((a: any, b: any) => b.pa - a.pa)
+        }
+
+        const output = {
+            gamesEach: games,
+            samples,
+            totalGames,
+            totalRunsFromScore,
+            totalRunsFromEvents,
+            scoreMinusEvents: totalRunsFromScore - totalRunsFromEvents,
+            runsPerGame: totalRunsFromScore / totalGames,
+            paPerGame: totalPA / totalGames,
+            totalEventOuts,
+            totalCountOuts,
+            eventOutsMinusCountOuts: totalEventOuts - totalCountOuts,
+            eventOutsPerGame: totalEventOuts / totalGames,
+            countOutsPerGame: totalCountOuts / totalGames,
+            batterOutsPerGame: totalBatterOuts / totalGames,
+            runnerOutsPerGame: totalRunnerOuts / totalGames,
+            multiOutPlaysByEventsPerGame: totalMultiOutPlaysByEvents / totalGames,
+            multiOutPlaysByCountPerGame: totalMultiOutPlaysByCount / totalGames,
+            advancement: {
+                ...advancement,
+                single1BTo3BOrHomeRate: advancement.single1BOpportunities > 0 ? advancement.single1BTo3BOrHome / advancement.single1BOpportunities : 0,
+                single2BToHomeRate: advancement.single2BOpportunities > 0 ? advancement.single2BToHome / advancement.single2BOpportunities : 0,
+                double1BToHomeRate: advancement.double1BOpportunities > 0 ? advancement.double1BToHome / advancement.double1BOpportunities : 0
+            },
+            byPlayResult: summarizeRows(byPlayResult),
+            topBaseStates: summarizeRows(byBaseState).slice(0, 16)
+        }
+
+        console.log("\n=== RUN CONVERSION ACCOUNTING ===")
+        console.log(JSON.stringify(output, null, 2))
+
+        assert.equal(totalEventOuts, totalCountOuts)
+    })
+
+    it("diagnostic: multi-out play detection and double play pathing", async () => {
+        const games = 150
+        const samples = 3
+        const totalGames = games * samples
+
+        const testPitchEnvironment = clone(pitchEnvironment)
+        const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
+
+        testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+
+        const byPlayResult: Record<string, any> = {}
+        const byEventOutSignature: Record<string, number> = {}
+        const sampleMultiOutPlays: any[] = []
+        const sampleMismatchedOutPlays: any[] = []
+
+        const increment = (rows: Record<string, any>, key: string, patch: any = {}) => {
+            if (!rows[key]) {
+                rows[key] = {
+                    key,
+                    pa: 0,
+                    countOuts0: 0,
+                    countOuts1: 0,
+                    countOuts2: 0,
+                    countOuts3: 0,
+                    eventOuts0: 0,
+                    eventOuts1: 0,
+                    eventOuts2: 0,
+                    eventOuts3: 0,
+                    countMultiOuts: 0,
+                    eventMultiOuts: 0,
+                    countEventMismatch: 0
+                }
+            }
+
+            rows[key].pa++
+
+            for (const [patchKey, value] of Object.entries(patch)) {
+                rows[key][patchKey] = Number(rows[key][patchKey] ?? 0) + Number(value)
+            }
+        }
+
+        const getOutDeltaFromCount = (play: any) => {
+            const startOuts = Number(play.count?.start?.outs)
+            const endOuts = Number(play.count?.end?.outs)
+
+            if (!Number.isFinite(startOuts) || !Number.isFinite(endOuts)) return 0
+
+            return Math.max(0, endOuts - startOuts)
+        }
+
+        const compactEvent = (event: any) => ({
+            runnerId: event?.runner?._id,
+            runnerName: event?.runner?.fullName,
+            eventType: event?.eventType,
+            start: event?.movement?.start,
+            end: event?.movement?.end,
+            isOut: event?.movement?.isOut === true,
+            isForce: event?.isForce === true,
+            isScoringEvent: event?.isScoringEvent === true,
+            throwResult: event?.throw?.result,
+            throwFrom: event?.throw?.from?.currentPosition,
+            throwTo: event?.throw?.to
+        })
+
+        let totalPA = 0
+        let totalCountOuts = 0
+        let totalEventOuts = 0
+        let totalCountMultiOuts = 0
+        let totalEventMultiOuts = 0
+        let totalMismatches = 0
+
+        for (let sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
+            const rng = seedrandom(`multi-out-play-detection-diagnostic-sample-${sampleIndex}`)
+
+            for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+                const game = baselineGameService.buildStartedBaselineGame(
+                    clone(testPitchEnvironment),
+                    `multi-out-play-detection-diagnostic-sample-${sampleIndex}-${gameIndex}`
+                )
+
+                while (!game.isComplete) {
+                    simService.simPitch(game, rng)
+                }
+
+                for (const play of GameInfo.getPlays(game)) {
+                    if (!play.count?.end) continue
+
+                    totalPA++
+
+                    const key = String(play.result)
+                    const events = play.runner?.events ?? []
+                    const countOuts = getOutDeltaFromCount(play)
+                    const eventOuts = events.filter((event: any) => event?.movement?.isOut === true).length
+
+                    totalCountOuts += countOuts
+                    totalEventOuts += eventOuts
+
+                    if (countOuts >= 2) totalCountMultiOuts++
+                    if (eventOuts >= 2) totalEventMultiOuts++
+                    if (countOuts !== eventOuts) totalMismatches++
+
+                    const patch: any = {}
+
+                    patch[`countOuts${Math.min(countOuts, 3)}`] = 1
+                    patch[`eventOuts${Math.min(eventOuts, 3)}`] = 1
+
+                    if (countOuts >= 2) patch.countMultiOuts = 1
+                    if (eventOuts >= 2) patch.eventMultiOuts = 1
+                    if (countOuts !== eventOuts) patch.countEventMismatch = 1
+
+                    increment(byPlayResult, key, patch)
+
+                    const eventOutSignature = events
+                        .filter((event: any) => event?.movement?.isOut === true)
+                        .map((event: any) => `${event?.movement?.start}->${event?.movement?.end}:${event?.eventType}`)
+                        .join("|") || "no-outs"
+
+                    byEventOutSignature[eventOutSignature] = Number(byEventOutSignature[eventOutSignature] ?? 0) + 1
+
+                    if ((countOuts >= 2 || eventOuts >= 2) && sampleMultiOutPlays.length < 12) {
+                        sampleMultiOutPlays.push({
+                            result: play.result,
+                            contact: play.contact,
+                            shallowDeep: play.shallowDeep,
+                            countStart: play.count?.start,
+                            countEnd: play.count?.end,
+                            countOuts,
+                            eventOuts,
+                            runnerStart: play.runner?.result?.start,
+                            runnerEnd: play.runner?.result?.end,
+                            events: events.map(compactEvent)
+                        })
+                    }
+
+                    if (countOuts !== eventOuts && sampleMismatchedOutPlays.length < 12) {
+                        sampleMismatchedOutPlays.push({
+                            result: play.result,
+                            contact: play.contact,
+                            shallowDeep: play.shallowDeep,
+                            countStart: play.count?.start,
+                            countEnd: play.count?.end,
+                            countOuts,
+                            eventOuts,
+                            runnerStart: play.runner?.result?.start,
+                            runnerEnd: play.runner?.result?.end,
+                            events: events.map(compactEvent)
+                        })
+                    }
+                }
+            }
+        }
+
+        const output = {
+            gamesEach: games,
+            samples,
+            totalGames,
+            totalPA,
+            paPerGame: totalPA / totalGames,
+            totalCountOuts,
+            totalEventOuts,
+            countOutsPerGame: totalCountOuts / totalGames,
+            eventOutsPerGame: totalEventOuts / totalGames,
+            totalCountMultiOuts,
+            totalEventMultiOuts,
+            countMultiOutsPerGame: totalCountMultiOuts / totalGames,
+            eventMultiOutsPerGame: totalEventMultiOuts / totalGames,
+            totalMismatches,
+            mismatchesPerGame: totalMismatches / totalGames,
+            byPlayResult: Object.values(byPlayResult).sort((a: any, b: any) => b.pa - a.pa),
+            topEventOutSignatures: Object.entries(byEventOutSignature)
+                .map(([key, count]) => ({ key, count }))
+                .sort((a: any, b: any) => b.count - a.count)
+                .slice(0, 20),
+            sampleMultiOutPlays,
+            sampleMismatchedOutPlays
+        }
+
+        console.log("\n=== MULTI-OUT PLAY DETECTION ===")
+        console.log(JSON.stringify(output, null, 2))
+
+        assert.equal(totalCountOuts, totalEventOuts)
+    })
+
+    it("diagnostic: runner advancement opportunity conversion rates", async () => {
+        const games = 150
+        const samples = 3
+        const totalGames = games * samples
+
+        const testPitchEnvironment = clone(pitchEnvironment)
+        const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
+
+        testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+
+        const rows: Record<string, any> = {}
+
+        const getRow = (key: string) => {
+            if (!rows[key]) {
+                rows[key] = {
+                    key,
+                    opportunities: 0,
+                    scored: 0,
+                    advanced: 0,
+                    out: 0
+                }
+            }
+
+            return rows[key]
+        }
+
+        const finalForRunner = (events: RunnerEvent[], runnerId: string) => {
+            return events.filter(e => e.runner?._id === runnerId).at(-1)
+        }
+
+        for (let sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
+            const rng = seedrandom(`advancement-opportunity-diagnostic-sample-${sampleIndex}`)
+
+            for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+                const game = baselineGameService.buildStartedBaselineGame(
+                    clone(testPitchEnvironment),
+                    `advancement-opportunity-diagnostic-sample-${sampleIndex}-${gameIndex}`
+                )
+
+                while (!game.isComplete) {
+                    simService.simPitch(game, rng)
+                }
+
+                for (const play of GameInfo.getPlays(game)) {
+                    if (!play.count?.end) continue
+
+                    const start = play.runner?.result?.start
+                    const events: RunnerEvent[] = play.runner?.events ?? []
+
+                    if (play.result === PlayResult.SINGLE && start.first) {
+                        const row = getRow("single_runner_on_1B_to_3B_or_home")
+                        const final = finalForRunner(events, start.first)
+
+                        row.opportunities++
+
+                        if (final?.movement?.isOut) row.out++
+                        if (final?.isScoringEvent || final?.movement?.end === BaseResult.HOME) row.scored++
+                        if (
+                            final?.isScoringEvent ||
+                            final?.movement?.end === BaseResult.HOME ||
+                            final?.movement?.end === BaseResult.THIRD
+                        ) {
+                            row.advanced++
+                        }
+                    }
+
+                    if (play.result === PlayResult.SINGLE && start.second) {
+                        const row = getRow("single_runner_on_2B_to_home")
+                        const final = finalForRunner(events, start.second)
+
+                        row.opportunities++
+
+                        if (final?.movement?.isOut) row.out++
+                        if (final?.isScoringEvent || final?.movement?.end === BaseResult.HOME) row.scored++
+                        if (final?.isScoringEvent || final?.movement?.end === BaseResult.HOME) row.advanced++
+                    }
+
+                    if (play.result === PlayResult.DOUBLE && start.first) {
+                        const row = getRow("double_runner_on_1B_to_home")
+                        const final = finalForRunner(events, start.first)
+
+                        row.opportunities++
+
+                        if (final?.movement?.isOut) row.out++
+                        if (final?.isScoringEvent || final?.movement?.end === BaseResult.HOME) row.scored++
+                        if (final?.isScoringEvent || final?.movement?.end === BaseResult.HOME) row.advanced++
+                    }
+                }
+            }
+        }
+
+        const output = Object.values(rows).map(row => ({
+            key: row.key,
+            totalGames,
+            opportunities: row.opportunities,
+            opportunitiesPerGame: row.opportunities / totalGames,
+            advanced: row.advanced,
+            scored: row.scored,
+            out: row.out,
+            advanceRate: row.opportunities > 0 ? row.advanced / row.opportunities : 0,
+            scoreRate: row.opportunities > 0 ? row.scored / row.opportunities : 0,
+            outRate: row.opportunities > 0 ? row.out / row.opportunities : 0
+        }))
+
+        console.log("\n=== RUNNER ADVANCEMENT OPPORTUNITY CONVERSION ===")
+        console.log(JSON.stringify(output, null, 2))
+
+        assert.ok(output.length > 0)
+    })
+
     it("diagnostic: every generated pitch should have finite pitch quality velocity", () => {
         const rng = seedrandom("pitch-velocity-diagnostic")
-        const game = pitchEnvironmentService.buildStartedBaselineGame(
+        const game = baselineGameService.buildStartedBaselineGame(
             clone(pitchEnvironment),
             "pitch-velocity-diagnostic"
         )
@@ -107,7 +1052,7 @@ describe("Baseball Sim Engine", async () => {
 
     it("diagnostic: generated pitch locations should be physically coherent", () => {
         const rng = seedrandom("pitch-location-diagnostic")
-        const game = pitchEnvironmentService.buildStartedBaselineGame(
+        const game = baselineGameService.buildStartedBaselineGame(
             clone(pitchEnvironment),
             "pitch-location-diagnostic"
         )
@@ -183,7 +1128,11 @@ describe("Baseball Sim Engine", async () => {
 
         const inZoneMismatch = pitches
             .map((pitch, index) => ({ index, pitch }))
-            .filter(row => row.pitch.inZone !== isActuallyInZone(row.pitch.plateX, row.pitch.plateZ))
+            .filter(row => {
+                if (row.pitch.result === PitchCall.HBP) return false
+
+                return row.pitch.inZone !== isActuallyInZone(row.pitch.plateX, row.pitch.plateZ)
+            })
 
         assert.equal(
             inZoneMismatch.length,
@@ -459,595 +1408,683 @@ describe("Baseball Sim Engine", async () => {
         assert.notEqual(contact, Contact.GROUNDBALL)
     })
     
-    it("should print full tuning knob sensitivity ranges for offense and advancement", () => {
-        const games = 60
-
-        type KnobSpec = {
-            name: string
-            values: number[]
-            apply: (tuning: PitchEnvironmentTuning["tuning"], value: number) => void
-        }
-
-        const knobSpecs: KnobSpec[] = [
-            {
-                name: "advancementAggressionScale",
-                values: [-0.99, -0.5, 0, 0.5, 1, 2, 3, 4],
-                apply: (tuning, value) => { tuning.running.advancementAggressionScale = value }
-            },
-            {
-                name: "stealAttemptAggressionScale",
-                values: [-0.75, -0.5, 0, 0.25, 0.5, 1, 1.5, 2],
-                apply: (tuning, value) => { tuning.running.stealAttemptAggressionScale = value }
-            },
-            {
-                name: "walkRateScale",
-                values: [-0.05, -0.025, 0, 0.025, 0.05, 0.075, 0.1],
-                apply: (tuning, value) => { tuning.swing.walkRateScale = value }
-            },
-            {
-                name: "outOutcomeScale",
-                values: [-0.25, -0.15, -0.075, 0, 0.075, 0.15, 0.25],
-                apply: (tuning, value) => { tuning.contactQuality.outOutcomeScale = value }
-            },
-
-            {
-                name: "doubleOutcomeScale",
-                values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
-                apply: (tuning, value) => { tuning.contactQuality.doubleOutcomeScale = value }
-            },
-            {
-                name: "tripleOutcomeScale",
-                values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
-                apply: (tuning, value) => { tuning.contactQuality.tripleOutcomeScale = value }
-            },
-            {
-                name: "homeRunOutcomeScale",
-                values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
-                apply: (tuning, value) => { tuning.contactQuality.homeRunOutcomeScale = value }
-            },
-            {
-                name: "pitchQualityContactEffect",
-                values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
-                apply: (tuning, value) => {
-                    tuning.contact.pitchQualityContactEffect = value
-                    tuning.contact.contactSkillEffect = value
-                }
-            },
-            {
-                name: "fullTeamDefenseBonus",
-                values: [-200, -100, -50, 0, 50, 100, 200],
-                apply: (tuning, value) => { tuning.meta.fullTeamDefenseBonus = value }
-            },
-            {
-                name: "fullFielderDefenseBonus",
-                values: [-200, -100, -50, 0, 50, 100, 200],
-                apply: (tuning, value) => { tuning.meta.fullFielderDefenseBonus = value }
-            }
-        ]
-
-        const getBaseStateKey = (first?: string, second?: string, third?: string): string => `${first ? "1" : "_"}${second ? "2" : "_"}${third ? "3" : "_"}`
-        const baseText = (base: BaseResult | undefined): string => base === undefined ? "NONE" : String(base)
-
-        const getRow = (map: Map<string, any>, key: string, factory: () => any): any => {
-            if (!map.has(key)) map.set(key, factory())
-            return map.get(key)
-        }
-
-        const getOrderedRunnerEvents = (events: RunnerEvent[]): RunnerEvent[] => {
-            const baseRank = (base: BaseResult | undefined): number => {
-                if (base === BaseResult.HOME) return 0
-                if (base === BaseResult.FIRST) return 1
-                if (base === BaseResult.SECOND) return 2
-                if (base === BaseResult.THIRD) return 3
-                return -1
-            }
-
-            return events.slice().sort((a, b) => {
-                const pitchDiff = (a.pitchIndex ?? 0) - (b.pitchIndex ?? 0)
-                if (pitchDiff !== 0) return pitchDiff
-                return baseRank(a.movement?.start) - baseRank(b.movement?.start)
-            })
-        }
-
-        const evaluate = (label: string, apply?: (tuning: PitchEnvironmentTuning["tuning"]) => void) => {
-            const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
-            const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
-
-            testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
-
-            if (apply) {
-                apply(testPitchEnvironment.pitchEnvironmentTuning.tuning!)
-            }
-
-            const totals = {
-                label,
-                games,
-                pa: 0,
-                ab: 0,
-                runs: 0,
-                hits: 0,
-                singles: 0,
-                doubles: 0,
-                triples: 0,
-                hr: 0,
-                bb: 0,
-                hbp: 0,
-                so: 0,
-                outs: 0,
-                lob: 0,
-                scoreRuns: 0,
-                linescoreRuns: 0,
-                eventRuns: 0,
-                runnersOnPa: 0,
-                basesEmptyPa: 0,
-                runnerOutsOnBases: 0,
-                gidpLike: 0,
-                sbAttempts: 0,
-                sb: 0,
-                cs: 0,
-                wildPitchAdvances: 0,
-                passedBallAdvances: 0
-            }
-
-            const advancement = {
-                single1BTo3BRiskAttempts: 0,
-                single1BTo3BSafe: 0,
-                single1BTo3BOut: 0,
-                single2BToHomeRiskAttempts: 0,
-                single2BToHomeSafe: 0,
-                single2BToHomeOut: 0,
-                double1BToHomeRiskAttempts: 0,
-                double1BToHomeSafe: 0,
-                double1BToHomeOut: 0,
-                out3BToHomeAttempts: 0,
-                out3BToHomeSafe: 0,
-                out3BToHomeOut: 0,
-                automaticSecondToHomeOnDouble: 0,
-                automaticThirdToHomeOnSingle: 0,
-                automaticThirdToHomeOnDouble: 0
-            }
-
-            const baseStates = new Map<string, any>()
-            const playResults = new Map<string, any>()
-            const chainRows = new Map<string, any>()
-
-            const rng = seedrandom(`knob-sensitivity-${label}`)
-
-            for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-                const game = pitchEnvironmentService.buildStartedBaselineGame(
-                    clone(testPitchEnvironment),
-                    `knob-sensitivity-${label}-${gameIndex}`
-                )
-
-                while (!game.isComplete) {
-                    simService.simPitch(game, rng)
-                }
-
-                totals.scoreRuns += game.score.away + game.score.home
-                totals.runs += game.score.away + game.score.home
-
-                for (const halfInning of game.halfInnings) {
-                    totals.linescoreRuns += halfInning.linescore.runs ?? 0
-                    totals.lob += halfInning.linescore.leftOnBase ?? 0
-
-                    for (const play of halfInning.plays) {
-                        if (!play.count?.end) continue
-
-                        const start: RunnerResult = play.runner?.result?.start
-                        const events: RunnerEvent[] = play.runner?.events ?? []
-                        const startedWithRunners = !!start.first || !!start.second || !!start.third
-                        const baseStateKey = `${play.count?.start?.outs ?? 0}:${getBaseStateKey(start.first, start.second, start.third)}`
-                        const playResultKey = String(play.result)
-                        const runsOnPlay = events.filter(event => event.isScoringEvent).length
-                        const outsOnPlay = events.filter(event => event.movement?.isOut).length
-                        const runnerOutsOnBases = events.filter(event => event.movement?.isOut && event.movement?.start !== BaseResult.HOME && !event.isCS).length
-
-                        totals.pa++
-                        totals.eventRuns += runsOnPlay
-                        totals.outs += outsOnPlay
-                        totals.runnerOutsOnBases += runnerOutsOnBases
-
-                        if (startedWithRunners) totals.runnersOnPa++
-                        else totals.basesEmptyPa++
-
-                        if (play.result !== PlayResult.BB && play.result !== PlayResult.HIT_BY_PITCH) {
-                            totals.ab++
-                        }
-
-                        if (play.result === PlayResult.BB) totals.bb++
-                        if (play.result === PlayResult.HIT_BY_PITCH) totals.hbp++
-                        if (play.result === PlayResult.STRIKEOUT) totals.so++
-
-                        if (play.result === PlayResult.SINGLE) {
-                            totals.hits++
-                            totals.singles++
-                        }
-
-                        if (play.result === PlayResult.DOUBLE) {
-                            totals.hits++
-                            totals.doubles++
-                        }
-
-                        if (play.result === PlayResult.TRIPLE) {
-                            totals.hits++
-                            totals.triples++
-                        }
-
-                        if (play.result === PlayResult.HR) {
-                            totals.hits++
-                            totals.hr++
-                        }
-
-                        if (play.result === PlayResult.OUT && play.contact === Contact.GROUNDBALL && events.filter(event => event.movement?.isOut && !event.isCS).length >= 2) {
-                            totals.gidpLike++
-                        }
-
-                        totals.sbAttempts += events.filter(event => event.isSBAttempt).length
-                        totals.sb += events.filter(event => event.isSB).length
-                        totals.cs += events.filter(event => event.isCS).length
-                        totals.wildPitchAdvances += events.filter(event => event.isWP).length
-                        totals.passedBallAdvances += events.filter(event => event.isPB).length
-
-                        const baseStateRow = getRow(baseStates, baseStateKey, () => ({
-                            key: baseStateKey,
-                            pa: 0,
-                            runs: 0,
-                            hits: 0,
-                            bb: 0,
-                            outs: 0,
-                            runnerOutsOnBases: 0
-                        }))
-
-                        baseStateRow.pa++
-                        baseStateRow.runs += runsOnPlay
-                        baseStateRow.outs += outsOnPlay
-                        baseStateRow.runnerOutsOnBases += runnerOutsOnBases
-                        if (play.result === PlayResult.BB) baseStateRow.bb++
-                        if (play.result === PlayResult.SINGLE || play.result === PlayResult.DOUBLE || play.result === PlayResult.TRIPLE || play.result === PlayResult.HR) baseStateRow.hits++
-
-                        const playResultRow = getRow(playResults, playResultKey, () => ({
-                            key: playResultKey,
-                            pa: 0,
-                            runs: 0,
-                            outs: 0,
-                            runnerOutsOnBases: 0,
-                            runnersOn: 0,
-                            basesEmpty: 0
-                        }))
-
-                        playResultRow.pa++
-                        playResultRow.runs += runsOnPlay
-                        playResultRow.outs += outsOnPlay
-                        playResultRow.runnerOutsOnBases += runnerOutsOnBases
-                        if (startedWithRunners) playResultRow.runnersOn++
-                        else playResultRow.basesEmpty++
-
-                        const originalStartByRunner = new Map<string, BaseResult | undefined>()
-
-                        if (start.first) originalStartByRunner.set(start.first, BaseResult.FIRST)
-                        if (start.second) originalStartByRunner.set(start.second, BaseResult.SECOND)
-                        if (start.third) originalStartByRunner.set(start.third, BaseResult.THIRD)
-                        if (play.hitterId) originalStartByRunner.set(play.hitterId, BaseResult.HOME)
-
-                        const eventsByRunner = new Map<string, RunnerEvent[]>()
-
-                        for (const event of events) {
-                            const runnerId = event.runner?._id
-                            if (!runnerId) continue
-
-                            if (!originalStartByRunner.has(runnerId)) {
-                                originalStartByRunner.set(runnerId, event.movement?.start)
-                            }
-
-                            if (!eventsByRunner.has(runnerId)) {
-                                eventsByRunner.set(runnerId, [])
-                            }
-
-                            eventsByRunner.get(runnerId)!.push(event)
-                        }
-
-                        for (const [runnerId, runnerEvents] of eventsByRunner.entries()) {
-                            const orderedEvents = getOrderedRunnerEvents(runnerEvents)
-                            const originalStart = originalStartByRunner.get(runnerId)
-                            const finalEvent = orderedEvents[orderedEvents.length - 1]
-                            const finalEnd = finalEvent?.movement?.end
-                            const isOut = orderedEvents.some(event => event.movement?.isOut)
-                            const scored = orderedEvents.some(event => event.isScoringEvent)
-                            const hasThrow = orderedEvents.some(event => event.throw)
-                            const hasSB = orderedEvents.some(event => event.isSB)
-                            const hasCS = orderedEvents.some(event => event.isCS)
-                            const hasWP = orderedEvents.some(event => event.isWP)
-                            const hasPB = orderedEvents.some(event => event.isPB)
-
-                            const chainKey = [
-                                `play=${String(play.result)}`,
-                                `contact=${String(play.contact)}`,
-                                `shallow=${String(play.shallowDeep)}`,
-                                `orig=${baseText(originalStart)}`,
-                                `final=${baseText(finalEnd)}`,
-                                `out=${isOut}`,
-                                `scored=${scored}`,
-                                `throw=${hasThrow}`,
-                                `sb=${hasSB}`,
-                                `cs=${hasCS}`,
-                                `wp=${hasWP}`,
-                                `pb=${hasPB}`,
-                                `steps=${orderedEvents.length}`
-                            ].join("|")
-
-                            const chainRow = getRow(chainRows, chainKey, () => ({
-                                key: chainKey,
-                                count: 0,
-                                runs: 0,
-                                outs: 0,
-                                throws: 0
-                            }))
-
-                            chainRow.count++
-                            if (scored) chainRow.runs++
-                            if (isOut) chainRow.outs++
-                            if (hasThrow) chainRow.throws++
-
-                            if (play.result === PlayResult.SINGLE && originalStart === BaseResult.THIRD && scored) {
-                                advancement.automaticThirdToHomeOnSingle++
-                            }
-
-                            if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.THIRD && scored) {
-                                advancement.automaticThirdToHomeOnDouble++
-                            }
-
-                            if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.SECOND && scored) {
-                                advancement.automaticSecondToHomeOnDouble++
-                            }
-
-                            if (play.result === PlayResult.SINGLE && originalStart === BaseResult.FIRST && orderedEvents.length > 1) {
-                                advancement.single1BTo3BRiskAttempts++
-                                if (isOut) advancement.single1BTo3BOut++
-                                else if (finalEnd === BaseResult.THIRD || finalEnd === BaseResult.HOME || scored) advancement.single1BTo3BSafe++
-                            }
-
-                            if (play.result === PlayResult.SINGLE && originalStart === BaseResult.SECOND && orderedEvents.length > 1) {
-                                advancement.single2BToHomeRiskAttempts++
-                                if (isOut) advancement.single2BToHomeOut++
-                                else if (finalEnd === BaseResult.HOME || scored) advancement.single2BToHomeSafe++
-                            }
-
-                            if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.FIRST && orderedEvents.length > 1) {
-                                advancement.double1BToHomeRiskAttempts++
-                                if (isOut) advancement.double1BToHomeOut++
-                                else if (finalEnd === BaseResult.HOME || scored) advancement.double1BToHomeSafe++
-                            }
-
-                            if (play.result === PlayResult.OUT && originalStart === BaseResult.THIRD && (orderedEvents.length > 1 || finalEnd === BaseResult.HOME || isOut)) {
-                                advancement.out3BToHomeAttempts++
-                                if (isOut) advancement.out3BToHomeOut++
-                                else if (finalEnd === BaseResult.HOME || scored) advancement.out3BToHomeSafe++
-                            }
-                        }
-                    }
-                }
-            }
-
-            const ab = Math.max(1, totals.ab)
-            const pa = Math.max(1, totals.pa)
-            const bip = Math.max(1, totals.ab - totals.so - totals.hr)
-            const totalBases = totals.singles + (totals.doubles * 2) + (totals.triples * 3) + (totals.hr * 4)
-
-            const summary = {
-                label,
-                teamRunsPerGame: totals.runs / games / 2,
-                teamPaPerGame: totals.pa / games / 2,
-                avg: totals.hits / ab,
-                obp: (totals.hits + totals.bb + totals.hbp) / pa,
-                slg: totalBases / ab,
-                ops: ((totals.hits + totals.bb + totals.hbp) / pa) + (totalBases / ab),
-                babip: (totals.hits - totals.hr) / bip,
-                bbPercent: totals.bb / pa,
-                soPercent: totals.so / pa,
-                singlePercent: totals.singles / pa,
-                doublePercent: totals.doubles / pa,
-                triplePercent: totals.triples / pa,
-                homeRunPercent: totals.hr / pa,
-                xbhPercent: (totals.doubles + totals.triples + totals.hr) / pa,
-                teamHomeRunsPerGame: totals.hr / games / 2,
-                teamDoublesPerGame: totals.doubles / games / 2,
-                teamSBAttemptsPerGame: totals.sbAttempts / games / 2,
-                teamSBPerGame: totals.sb / games / 2,
-                teamCSPerGame: totals.cs / games / 2,
-                stealSuccessRate: totals.sbAttempts > 0 ? totals.sb / totals.sbAttempts : 0,
-                teamLOBPerGame: totals.lob / games / 2,
-                runnersOnPAShare: totals.runnersOnPa / pa,
-                runnerOutsOnBasesPerGame: totals.runnerOutsOnBases / games / 2,
-                gidpLikePerGame: totals.gidpLike / games / 2,
-                wildPitchAdvancesPerGame: totals.wildPitchAdvances / games / 2,
-                passedBallAdvancesPerGame: totals.passedBallAdvances / games / 2,
-                scoreMinusLinescore: totals.scoreRuns - totals.linescoreRuns,
-                scoreMinusEvents: totals.scoreRuns - totals.eventRuns,
-                single1BTo3BRiskAttemptsPerGame: advancement.single1BTo3BRiskAttempts / games / 2,
-                single1BTo3BRiskSafeRate: advancement.single1BTo3BRiskAttempts > 0 ? advancement.single1BTo3BSafe / advancement.single1BTo3BRiskAttempts : 0,
-                single1BTo3BRiskOutRate: advancement.single1BTo3BRiskAttempts > 0 ? advancement.single1BTo3BOut / advancement.single1BTo3BRiskAttempts : 0,
-                single2BToHomeRiskAttemptsPerGame: advancement.single2BToHomeRiskAttempts / games / 2,
-                single2BToHomeRiskSafeRate: advancement.single2BToHomeRiskAttempts > 0 ? advancement.single2BToHomeSafe / advancement.single2BToHomeRiskAttempts : 0,
-                single2BToHomeRiskOutRate: advancement.single2BToHomeRiskAttempts > 0 ? advancement.single2BToHomeOut / advancement.single2BToHomeRiskAttempts : 0,
-                double1BToHomeRiskAttemptsPerGame: advancement.double1BToHomeRiskAttempts / games / 2,
-                double1BToHomeRiskSafeRate: advancement.double1BToHomeRiskAttempts > 0 ? advancement.double1BToHomeSafe / advancement.double1BToHomeRiskAttempts : 0,
-                double1BToHomeRiskOutRate: advancement.double1BToHomeRiskAttempts > 0 ? advancement.double1BToHomeOut / advancement.double1BToHomeRiskAttempts : 0,
-                out3BToHomeAttemptsPerGame: advancement.out3BToHomeAttempts / games / 2,
-                out3BToHomeSafeRate: advancement.out3BToHomeAttempts > 0 ? advancement.out3BToHomeSafe / advancement.out3BToHomeAttempts : 0,
-                out3BToHomeOutRate: advancement.out3BToHomeAttempts > 0 ? advancement.out3BToHomeOut / advancement.out3BToHomeAttempts : 0,
-                automaticSecondToHomeOnDoublePerGame: advancement.automaticSecondToHomeOnDouble / games / 2,
-                automaticThirdToHomeOnSinglePerGame: advancement.automaticThirdToHomeOnSingle / games / 2,
-                automaticThirdToHomeOnDoublePerGame: advancement.automaticThirdToHomeOnDouble / games / 2
-            }
-
-            const topBaseStates = Array.from(baseStates.values())
-                .map(row => ({
-                    key: row.key,
-                    pa: row.pa,
-                    paShare: row.pa / pa,
-                    runsPerPA: row.runs / Math.max(1, row.pa),
-                    runnerOutsOnBasesPerPA: row.runnerOutsOnBases / Math.max(1, row.pa)
-                }))
-                .sort((a, b) => b.pa - a.pa)
-                .slice(0, 12)
-
-            const topPlayResults = Array.from(playResults.values())
-                .map(row => ({
-                    key: row.key,
-                    pa: row.pa,
-                    paShare: row.pa / pa,
-                    runsPerEvent: row.runs / Math.max(1, row.pa),
-                    runnerOutsOnBasesPerEvent: row.runnerOutsOnBases / Math.max(1, row.pa),
-                    runnersOnShare: row.runnersOn / Math.max(1, row.pa)
-                }))
-                .sort((a, b) => b.pa - a.pa)
-
-            const topChains = Array.from(chainRows.values())
-                .sort((a, b) => b.count - a.count)
-                .slice(0, 20)
-
-            return {
-                label,
-                tuning: testPitchEnvironment.pitchEnvironmentTuning?.tuning,
-                summary,
-                topBaseStates,
-                topPlayResults,
-                topChains
-            }
-        }
-
-        const baseline = evaluate("baseline-defaults")
-
-        console.log("\n=== BASELINE DEFAULT TUNING ===")
-        console.log(JSON.stringify(baseline.tuning, null, 2))
-
-        console.log("\n=== BASELINE DEFAULT SUMMARY ===")
-        console.log(JSON.stringify(baseline.summary, null, 2))
-
-        console.log("\n=== BASELINE PLAY RESULT RUN VALUE ===")
-        for (const row of baseline.topPlayResults) {
-            console.log(row)
-        }
-
-        console.log("\n=== BASELINE TOP BASE STATES ===")
-        for (const row of baseline.topBaseStates) {
-            console.log(row)
-        }
-
-        const allRows: any[] = []
-
-        for (const spec of knobSpecs) {
-            console.log(`\n=== KNOB SWEEP START ${spec.name} ===`)
-
-            const rows = spec.values.map(value => {
-                const result = evaluate(`${spec.name}=${value}`, tuning => spec.apply(tuning, value))
-                const row = {
-                    knob: spec.name,
-                    value,
-                    ...result.summary,
-                    deltaRuns: result.summary.teamRunsPerGame - baseline.summary.teamRunsPerGame,
-                    deltaAVG: result.summary.avg - baseline.summary.avg,
-                    deltaOBP: result.summary.obp - baseline.summary.obp,
-                    deltaSLG: result.summary.slg - baseline.summary.slg,
-                    deltaOPS: result.summary.ops - baseline.summary.ops,
-                    deltaBABIP: result.summary.babip - baseline.summary.babip,
-                    deltaBBPercent: result.summary.bbPercent - baseline.summary.bbPercent,
-                    deltaSOPercent: result.summary.soPercent - baseline.summary.soPercent,
-                    deltaHRPercent: result.summary.homeRunPercent - baseline.summary.homeRunPercent,
-                    deltaDoublePercent: result.summary.doublePercent - baseline.summary.doublePercent,
-                    deltaSBPerGame: result.summary.teamSBPerGame - baseline.summary.teamSBPerGame,
-                    deltaSBAttemptsPerGame: result.summary.teamSBAttemptsPerGame - baseline.summary.teamSBAttemptsPerGame,
-                    deltaRunnerOutsOnBasesPerGame: result.summary.runnerOutsOnBasesPerGame - baseline.summary.runnerOutsOnBasesPerGame,
-                    deltaDouble1BToHomeRiskAttemptsPerGame: result.summary.double1BToHomeRiskAttemptsPerGame - baseline.summary.double1BToHomeRiskAttemptsPerGame,
-                    deltaSingle2BToHomeRiskAttemptsPerGame: result.summary.single2BToHomeRiskAttemptsPerGame - baseline.summary.single2BToHomeRiskAttemptsPerGame,
-                    deltaSingle1BTo3BRiskAttemptsPerGame: result.summary.single1BTo3BRiskAttemptsPerGame - baseline.summary.single1BTo3BRiskAttemptsPerGame
-                }
-
-                allRows.push(row)
-
-                console.log(JSON.stringify(row, null, 2))
-
-                if (spec.name === "advancementAggressionScale") {
-                    console.log(`\n=== ADVANCEMENT DETAIL ${spec.name}=${value} TOP PLAY RESULTS ===`)
-                    for (const playRow of result.topPlayResults) {
-                        console.log(playRow)
-                    }
-
-                    console.log(`\n=== ADVANCEMENT DETAIL ${spec.name}=${value} TOP CHAINS ===`)
-                    for (const chainRow of result.topChains) {
-                        console.log(chainRow)
-                    }
-                }
-
-                return row
-            })
-
-            const minRuns = rows.reduce((best, row) => row.teamRunsPerGame < best.teamRunsPerGame ? row : best, rows[0])
-            const maxRuns = rows.reduce((best, row) => row.teamRunsPerGame > best.teamRunsPerGame ? row : best, rows[0])
-            const minOps = rows.reduce((best, row) => row.ops < best.ops ? row : best, rows[0])
-            const maxOps = rows.reduce((best, row) => row.ops > best.ops ? row : best, rows[0])
-
-            console.log(`\n=== KNOB SWEEP SUMMARY ${spec.name} ===`)
-            console.log({
-                knob: spec.name,
-                runsRange: maxRuns.teamRunsPerGame - minRuns.teamRunsPerGame,
-                minRuns: {
-                    value: minRuns.value,
-                    teamRunsPerGame: minRuns.teamRunsPerGame,
-                    ops: minRuns.ops,
-                    avg: minRuns.avg,
-                    babip: minRuns.babip
-                },
-                maxRuns: {
-                    value: maxRuns.value,
-                    teamRunsPerGame: maxRuns.teamRunsPerGame,
-                    ops: maxRuns.ops,
-                    avg: maxRuns.avg,
-                    babip: maxRuns.babip
-                },
-                opsRange: maxOps.ops - minOps.ops,
-                minOps: {
-                    value: minOps.value,
-                    teamRunsPerGame: minOps.teamRunsPerGame,
-                    ops: minOps.ops
-                },
-                maxOps: {
-                    value: maxOps.value,
-                    teamRunsPerGame: maxOps.teamRunsPerGame,
-                    ops: maxOps.ops
-                }
-            })
-        }
-
-        console.log("\n=== ALL KNOB ROWS COMPACT ===")
-        for (const row of allRows) {
-            console.log([
-                row.knob,
-                `v=${row.value}`,
-                `R=${row.teamRunsPerGame.toFixed(3)}`,
-                `dR=${row.deltaRuns.toFixed(3)}`,
-                `AVG=${row.avg.toFixed(3)}`,
-                `OBP=${row.obp.toFixed(3)}`,
-                `SLG=${row.slg.toFixed(3)}`,
-                `OPS=${row.ops.toFixed(3)}`,
-                `BABIP=${row.babip.toFixed(3)}`,
-                `BB%=${row.bbPercent.toFixed(3)}`,
-                `SO%=${row.soPercent.toFixed(3)}`,
-                `HR%=${row.homeRunPercent.toFixed(3)}`,
-                `2B%=${row.doublePercent.toFixed(3)}`,
-                `SBA/G=${row.teamSBAttemptsPerGame.toFixed(3)}`,
-                `SB/G=${row.teamSBPerGame.toFixed(3)}`,
-                `ROOB/G=${row.runnerOutsOnBasesPerGame.toFixed(3)}`,
-                `1B3B/G=${row.single1BTo3BRiskAttemptsPerGame.toFixed(3)}`,
-                `2BH/G=${row.single2BToHomeRiskAttemptsPerGame.toFixed(3)}`,
-                `1BH2B/G=${row.double1BToHomeRiskAttemptsPerGame.toFixed(3)}`
-            ].join(" | "))
-        }
-
-        assert.strictEqual(baseline.summary.scoreMinusLinescore, 0)
-        assert.strictEqual(baseline.summary.scoreMinusEvents, 0)
-        assert.ok(baseline.summary.teamRunsPerGame > 0)
-    })
+    // it("should print full tuning knob sensitivity ranges for offense and advancement", () => {
+    //     const games = 150
+    //     const samples = 3
+    //     const totalGames = games * samples
+
+    //     type KnobSpec = {
+    //         name: string
+    //         values: number[]
+    //         apply: (tuning: PitchEnvironmentTuning["tuning"], value: number) => void
+    //     }
+
+    //     const knobSpecs: KnobSpec[] = [
+    //         {
+    //             name: "advancementAggressionScale",
+    //             values: [-0.99, -0.5, 0, 0.5, 1, 2, 3, 4],
+    //             apply: (tuning, value) => {
+    //                 tuning.running.advancementAggressionScale = value
+    //             }
+    //         },
+    //         {
+    //             name: "stealAttemptAggressionScale",
+    //             values: [-0.75, -0.5, 0, 0.25, 0.5, 1, 1.5, 2],
+    //             apply: (tuning, value) => {
+    //                 tuning.running.stealAttemptAggressionScale = value
+    //             }
+    //         },
+    //         {
+    //             name: "walkRateScale",
+    //             values: [-0.05, -0.025, 0, 0.025, 0.05, 0.075, 0.1],
+    //             apply: (tuning, value) => {
+    //                 tuning.swing.walkRateScale = value
+    //             }
+    //         },
+    //         {
+    //             name: "outOutcomeScale",
+    //             values: [-0.25, -0.15, -0.075, 0, 0.075, 0.15, 0.25],
+    //             apply: (tuning, value) => {
+    //                 tuning.contactQuality.outOutcomeScale = value
+    //             }
+    //         },
+    //         {
+    //             name: "doubleOutcomeScale",
+    //             values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
+    //             apply: (tuning, value) => {
+    //                 tuning.contactQuality.doubleOutcomeScale = value
+    //             }
+    //         },
+    //         {
+    //             name: "tripleOutcomeScale",
+    //             values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
+    //             apply: (tuning, value) => {
+    //                 tuning.contactQuality.tripleOutcomeScale = value
+    //             }
+    //         },
+    //         {
+    //             name: "homeRunOutcomeScale",
+    //             values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
+    //             apply: (tuning, value) => {
+    //                 tuning.contactQuality.homeRunOutcomeScale = value
+    //             }
+    //         },
+    //         {
+    //             name: "pitchQualityContactEffect",
+    //             values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
+    //             apply: (tuning, value) => {
+    //                 tuning.contact.pitchQualityContactEffect = value
+    //                 tuning.contact.contactSkillEffect = value
+    //             }
+    //         },
+    //         {
+    //             name: "fullTeamDefenseBonus",
+    //             values: [-200, -100, -50, 0, 50, 100, 200],
+    //             apply: (tuning, value) => {
+    //                 tuning.meta.fullTeamDefenseBonus = value
+    //             }
+    //         },
+    //         {
+    //             name: "fullFielderDefenseBonus",
+    //             values: [-200, -100, -50, 0, 50, 100, 200],
+    //             apply: (tuning, value) => {
+    //                 tuning.meta.fullFielderDefenseBonus = value
+    //             }
+    //         }
+    //     ]
+
+    //     const getBaseStateKey = (first?: string, second?: string, third?: string): string => {
+    //         return `${first ? "1" : "_"}${second ? "2" : "_"}${third ? "3" : "_"}`
+    //     }
+
+    //     const baseText = (base: BaseResult | undefined): string => {
+    //         return base === undefined ? "NONE" : String(base)
+    //     }
+
+    //     const getRow = (map: Map<string, any>, key: string, factory: () => any): any => {
+    //         if (!map.has(key)) {
+    //             map.set(key, factory())
+    //         }
+
+    //         return map.get(key)
+    //     }
+
+    //     const getOrderedRunnerEvents = (events: RunnerEvent[]): RunnerEvent[] => {
+    //         const baseRank = (base: BaseResult | undefined): number => {
+    //             if (base === BaseResult.HOME) return 0
+    //             if (base === BaseResult.FIRST) return 1
+    //             if (base === BaseResult.SECOND) return 2
+    //             if (base === BaseResult.THIRD) return 3
+    //             return -1
+    //         }
+
+    //         return events.slice().sort((a, b) => {
+    //             const pitchDiff = (a.pitchIndex ?? 0) - (b.pitchIndex ?? 0)
+
+    //             if (pitchDiff !== 0) {
+    //                 return pitchDiff
+    //             }
+
+    //             return baseRank(a.movement?.start) - baseRank(b.movement?.start)
+    //         })
+    //     }
+
+    //     const evaluate = (label: string, apply?: (tuning: PitchEnvironmentTuning["tuning"]) => void) => {
+    //         const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
+    //         const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
+
+    //         testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+
+    //         if (apply) {
+    //             apply(testPitchEnvironment.pitchEnvironmentTuning.tuning!)
+    //         }
+
+    //         const totals = {
+    //             label,
+    //             gamesEach: games,
+    //             samples,
+    //             totalGames,
+    //             pa: 0,
+    //             ab: 0,
+    //             runs: 0,
+    //             hits: 0,
+    //             singles: 0,
+    //             doubles: 0,
+    //             triples: 0,
+    //             hr: 0,
+    //             bb: 0,
+    //             hbp: 0,
+    //             so: 0,
+    //             outs: 0,
+    //             lob: 0,
+    //             scoreRuns: 0,
+    //             linescoreRuns: 0,
+    //             eventRuns: 0,
+    //             runnersOnPa: 0,
+    //             basesEmptyPa: 0,
+    //             runnerOutsOnBases: 0,
+    //             gidpLike: 0,
+    //             sbAttempts: 0,
+    //             sb: 0,
+    //             cs: 0,
+    //             wildPitchAdvances: 0,
+    //             passedBallAdvances: 0
+    //         }
+
+    //         const advancement = {
+    //             single1BTo3BRiskAttempts: 0,
+    //             single1BTo3BSafe: 0,
+    //             single1BTo3BOut: 0,
+    //             single2BToHomeRiskAttempts: 0,
+    //             single2BToHomeSafe: 0,
+    //             single2BToHomeOut: 0,
+    //             double1BToHomeRiskAttempts: 0,
+    //             double1BToHomeSafe: 0,
+    //             double1BToHomeOut: 0,
+    //             out3BToHomeAttempts: 0,
+    //             out3BToHomeSafe: 0,
+    //             out3BToHomeOut: 0,
+    //             automaticSecondToHomeOnDouble: 0,
+    //             automaticThirdToHomeOnSingle: 0,
+    //             automaticThirdToHomeOnDouble: 0
+    //         }
+
+    //         const baseStates = new Map<string, any>()
+    //         const playResults = new Map<string, any>()
+    //         const chainRows = new Map<string, any>()
+
+    //         for (let sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
+    //             const rng = seedrandom(`knob-sensitivity-${label}-sample-${sampleIndex}`)
+
+    //             for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+    //                 const game = baselineGameService.buildStartedBaselineGame(
+    //                     clone(testPitchEnvironment),
+    //                     `knob-sensitivity-${label}-sample-${sampleIndex}-${gameIndex}`
+    //                 )
+
+    //                 while (!game.isComplete) {
+    //                     simService.simPitch(game, rng)
+    //                 }
+
+    //                 totals.scoreRuns += game.score.away + game.score.home
+    //                 totals.runs += game.score.away + game.score.home
+
+    //                 for (const halfInning of game.halfInnings) {
+    //                     totals.linescoreRuns += halfInning.linescore.runs ?? 0
+    //                     totals.lob += halfInning.linescore.leftOnBase ?? 0
+
+    //                     for (const play of halfInning.plays) {
+    //                         if (!play.count?.end) continue
+
+    //                         const start: RunnerResult = play.runner?.result?.start
+    //                         const events: RunnerEvent[] = play.runner?.events ?? []
+    //                         const startedWithRunners = !!start.first || !!start.second || !!start.third
+    //                         const baseStateKey = `${play.count?.start?.outs ?? 0}:${getBaseStateKey(start.first, start.second, start.third)}`
+    //                         const playResultKey = String(play.result)
+    //                         const runsOnPlay = events.filter(event => event.isScoringEvent).length
+    //                         const outsOnPlay = events.filter(event => event.movement?.isOut).length
+    //                         const runnerOutsOnBases = events.filter(event => event.movement?.isOut && event.movement?.start !== BaseResult.HOME && !event.isCS).length
+
+    //                         totals.pa++
+    //                         totals.eventRuns += runsOnPlay
+    //                         totals.outs += outsOnPlay
+    //                         totals.runnerOutsOnBases += runnerOutsOnBases
+
+    //                         if (startedWithRunners) {
+    //                             totals.runnersOnPa++
+    //                         } else {
+    //                             totals.basesEmptyPa++
+    //                         }
+
+    //                         if (play.result !== PlayResult.BB && play.result !== PlayResult.HIT_BY_PITCH) {
+    //                             totals.ab++
+    //                         }
+
+    //                         if (play.result === PlayResult.BB) totals.bb++
+    //                         if (play.result === PlayResult.HIT_BY_PITCH) totals.hbp++
+    //                         if (play.result === PlayResult.STRIKEOUT) totals.so++
+
+    //                         if (play.result === PlayResult.SINGLE) {
+    //                             totals.hits++
+    //                             totals.singles++
+    //                         }
+
+    //                         if (play.result === PlayResult.DOUBLE) {
+    //                             totals.hits++
+    //                             totals.doubles++
+    //                         }
+
+    //                         if (play.result === PlayResult.TRIPLE) {
+    //                             totals.hits++
+    //                             totals.triples++
+    //                         }
+
+    //                         if (play.result === PlayResult.HR) {
+    //                             totals.hits++
+    //                             totals.hr++
+    //                         }
+
+    //                         if (play.result === PlayResult.OUT && play.contact === Contact.GROUNDBALL && events.filter(event => event.movement?.isOut && !event.isCS).length >= 2) {
+    //                             totals.gidpLike++
+    //                         }
+
+    //                         totals.sbAttempts += events.filter(event => event.isSBAttempt).length
+    //                         totals.sb += events.filter(event => event.isSB).length
+    //                         totals.cs += events.filter(event => event.isCS).length
+    //                         totals.wildPitchAdvances += events.filter(event => event.isWP).length
+    //                         totals.passedBallAdvances += events.filter(event => event.isPB).length
+
+    //                         const baseStateRow = getRow(baseStates, baseStateKey, () => ({
+    //                             key: baseStateKey,
+    //                             pa: 0,
+    //                             runs: 0,
+    //                             hits: 0,
+    //                             bb: 0,
+    //                             outs: 0,
+    //                             runnerOutsOnBases: 0
+    //                         }))
+
+    //                         baseStateRow.pa++
+    //                         baseStateRow.runs += runsOnPlay
+    //                         baseStateRow.outs += outsOnPlay
+    //                         baseStateRow.runnerOutsOnBases += runnerOutsOnBases
+
+    //                         if (play.result === PlayResult.BB) {
+    //                             baseStateRow.bb++
+    //                         }
+
+    //                         if (play.result === PlayResult.SINGLE || play.result === PlayResult.DOUBLE || play.result === PlayResult.TRIPLE || play.result === PlayResult.HR) {
+    //                             baseStateRow.hits++
+    //                         }
+
+    //                         const playResultRow = getRow(playResults, playResultKey, () => ({
+    //                             key: playResultKey,
+    //                             pa: 0,
+    //                             runs: 0,
+    //                             outs: 0,
+    //                             runnerOutsOnBases: 0,
+    //                             runnersOn: 0,
+    //                             basesEmpty: 0
+    //                         }))
+
+    //                         playResultRow.pa++
+    //                         playResultRow.runs += runsOnPlay
+    //                         playResultRow.outs += outsOnPlay
+    //                         playResultRow.runnerOutsOnBases += runnerOutsOnBases
+
+    //                         if (startedWithRunners) {
+    //                             playResultRow.runnersOn++
+    //                         } else {
+    //                             playResultRow.basesEmpty++
+    //                         }
+
+    //                         const originalStartByRunner = new Map<string, BaseResult | undefined>()
+
+    //                         if (start.first) originalStartByRunner.set(start.first, BaseResult.FIRST)
+    //                         if (start.second) originalStartByRunner.set(start.second, BaseResult.SECOND)
+    //                         if (start.third) originalStartByRunner.set(start.third, BaseResult.THIRD)
+    //                         if (play.hitterId) originalStartByRunner.set(play.hitterId, BaseResult.HOME)
+
+    //                         const eventsByRunner = new Map<string, RunnerEvent[]>()
+
+    //                         for (const event of events) {
+    //                             const runnerId = event.runner?._id
+
+    //                             if (!runnerId) {
+    //                                 continue
+    //                             }
+
+    //                             if (!originalStartByRunner.has(runnerId)) {
+    //                                 originalStartByRunner.set(runnerId, event.movement?.start)
+    //                             }
+
+    //                             if (!eventsByRunner.has(runnerId)) {
+    //                                 eventsByRunner.set(runnerId, [])
+    //                             }
+
+    //                             eventsByRunner.get(runnerId)!.push(event)
+    //                         }
+
+    //                         for (const [runnerId, runnerEvents] of eventsByRunner.entries()) {
+    //                             const orderedEvents = getOrderedRunnerEvents(runnerEvents)
+    //                             const originalStart = originalStartByRunner.get(runnerId)
+    //                             const finalEvent = orderedEvents[orderedEvents.length - 1]
+    //                             const finalEnd = finalEvent?.movement?.end
+    //                             const isOut = orderedEvents.some(event => event.movement?.isOut)
+    //                             const scored = orderedEvents.some(event => event.isScoringEvent)
+    //                             const hasThrow = orderedEvents.some(event => event.throw)
+    //                             const hasSB = orderedEvents.some(event => event.isSB)
+    //                             const hasCS = orderedEvents.some(event => event.isCS)
+    //                             const hasWP = orderedEvents.some(event => event.isWP)
+    //                             const hasPB = orderedEvents.some(event => event.isPB)
+
+    //                             const chainKey = [
+    //                                 `play=${String(play.result)}`,
+    //                                 `contact=${String(play.contact)}`,
+    //                                 `shallow=${String(play.shallowDeep)}`,
+    //                                 `orig=${baseText(originalStart)}`,
+    //                                 `final=${baseText(finalEnd)}`,
+    //                                 `out=${isOut}`,
+    //                                 `scored=${scored}`,
+    //                                 `throw=${hasThrow}`,
+    //                                 `sb=${hasSB}`,
+    //                                 `cs=${hasCS}`,
+    //                                 `wp=${hasWP}`,
+    //                                 `pb=${hasPB}`,
+    //                                 `steps=${orderedEvents.length}`
+    //                             ].join("|")
+
+    //                             const chainRow = getRow(chainRows, chainKey, () => ({
+    //                                 key: chainKey,
+    //                                 count: 0,
+    //                                 runs: 0,
+    //                                 outs: 0,
+    //                                 throws: 0
+    //                             }))
+
+    //                             chainRow.count++
+
+    //                             if (scored) {
+    //                                 chainRow.runs++
+    //                             }
+
+    //                             if (isOut) {
+    //                                 chainRow.outs++
+    //                             }
+
+    //                             if (hasThrow) {
+    //                                 chainRow.throws++
+    //                             }
+
+    //                             if (play.result === PlayResult.SINGLE && originalStart === BaseResult.THIRD && scored) {
+    //                                 advancement.automaticThirdToHomeOnSingle++
+    //                             }
+
+    //                             if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.THIRD && scored) {
+    //                                 advancement.automaticThirdToHomeOnDouble++
+    //                             }
+
+    //                             if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.SECOND && scored) {
+    //                                 advancement.automaticSecondToHomeOnDouble++
+    //                             }
+
+    //                             if (play.result === PlayResult.SINGLE && originalStart === BaseResult.FIRST && orderedEvents.length > 1) {
+    //                                 advancement.single1BTo3BRiskAttempts++
+
+    //                                 if (isOut) {
+    //                                     advancement.single1BTo3BOut++
+    //                                 } else if (finalEnd === BaseResult.THIRD || finalEnd === BaseResult.HOME || scored) {
+    //                                     advancement.single1BTo3BSafe++
+    //                                 }
+    //                             }
+
+    //                             if (play.result === PlayResult.SINGLE && originalStart === BaseResult.SECOND && orderedEvents.length > 1) {
+    //                                 advancement.single2BToHomeRiskAttempts++
+
+    //                                 if (isOut) {
+    //                                     advancement.single2BToHomeOut++
+    //                                 } else if (finalEnd === BaseResult.HOME || scored) {
+    //                                     advancement.single2BToHomeSafe++
+    //                                 }
+    //                             }
+
+    //                             if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.FIRST && orderedEvents.length > 1) {
+    //                                 advancement.double1BToHomeRiskAttempts++
+
+    //                                 if (isOut) {
+    //                                     advancement.double1BToHomeOut++
+    //                                 } else if (finalEnd === BaseResult.HOME || scored) {
+    //                                     advancement.double1BToHomeSafe++
+    //                                 }
+    //                             }
+
+    //                             if (play.result === PlayResult.OUT && originalStart === BaseResult.THIRD && (orderedEvents.length > 1 || finalEnd === BaseResult.HOME || isOut)) {
+    //                                 advancement.out3BToHomeAttempts++
+
+    //                                 if (isOut) {
+    //                                     advancement.out3BToHomeOut++
+    //                                 } else if (finalEnd === BaseResult.HOME || scored) {
+    //                                     advancement.out3BToHomeSafe++
+    //                                 }
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         }
+
+    //         const ab = Math.max(1, totals.ab)
+    //         const pa = Math.max(1, totals.pa)
+    //         const bip = Math.max(1, totals.ab - totals.so - totals.hr)
+    //         const totalBases = totals.singles + (totals.doubles * 2) + (totals.triples * 3) + (totals.hr * 4)
+
+    //         const summary = {
+    //             label,
+    //             gamesEach: games,
+    //             samples,
+    //             totalGames,
+    //             teamRunsPerGame: totals.runs / totalGames / 2,
+    //             teamPaPerGame: totals.pa / totalGames / 2,
+    //             avg: totals.hits / ab,
+    //             obp: (totals.hits + totals.bb + totals.hbp) / pa,
+    //             slg: totalBases / ab,
+    //             ops: ((totals.hits + totals.bb + totals.hbp) / pa) + (totalBases / ab),
+    //             babip: (totals.hits - totals.hr) / bip,
+    //             bbPercent: totals.bb / pa,
+    //             soPercent: totals.so / pa,
+    //             singlePercent: totals.singles / pa,
+    //             doublePercent: totals.doubles / pa,
+    //             triplePercent: totals.triples / pa,
+    //             homeRunPercent: totals.hr / pa,
+    //             xbhPercent: (totals.doubles + totals.triples + totals.hr) / pa,
+    //             teamHomeRunsPerGame: totals.hr / totalGames / 2,
+    //             teamDoublesPerGame: totals.doubles / totalGames / 2,
+    //             teamSBAttemptsPerGame: totals.sbAttempts / totalGames / 2,
+    //             teamSBPerGame: totals.sb / totalGames / 2,
+    //             teamCSPerGame: totals.cs / totalGames / 2,
+    //             stealSuccessRate: totals.sbAttempts > 0 ? totals.sb / totals.sbAttempts : 0,
+    //             teamLOBPerGame: totals.lob / totalGames / 2,
+    //             runnersOnPAShare: totals.runnersOnPa / pa,
+    //             runnerOutsOnBasesPerGame: totals.runnerOutsOnBases / totalGames / 2,
+    //             gidpLikePerGame: totals.gidpLike / totalGames / 2,
+    //             wildPitchAdvancesPerGame: totals.wildPitchAdvances / totalGames / 2,
+    //             passedBallAdvancesPerGame: totals.passedBallAdvances / totalGames / 2,
+    //             scoreMinusLinescore: totals.scoreRuns - totals.linescoreRuns,
+    //             scoreMinusEvents: totals.scoreRuns - totals.eventRuns,
+    //             single1BTo3BRiskAttemptsPerGame: advancement.single1BTo3BRiskAttempts / totalGames / 2,
+    //             single1BTo3BRiskSafeRate: advancement.single1BTo3BRiskAttempts > 0 ? advancement.single1BTo3BSafe / advancement.single1BTo3BRiskAttempts : 0,
+    //             single1BTo3BRiskOutRate: advancement.single1BTo3BRiskAttempts > 0 ? advancement.single1BTo3BOut / advancement.single1BTo3BRiskAttempts : 0,
+    //             single2BToHomeRiskAttemptsPerGame: advancement.single2BToHomeRiskAttempts / totalGames / 2,
+    //             single2BToHomeRiskSafeRate: advancement.single2BToHomeRiskAttempts > 0 ? advancement.single2BToHomeSafe / advancement.single2BToHomeRiskAttempts : 0,
+    //             single2BToHomeRiskOutRate: advancement.single2BToHomeRiskAttempts > 0 ? advancement.single2BToHomeOut / advancement.single2BToHomeRiskAttempts : 0,
+    //             double1BToHomeRiskAttemptsPerGame: advancement.double1BToHomeRiskAttempts / totalGames / 2,
+    //             double1BToHomeRiskSafeRate: advancement.double1BToHomeRiskAttempts > 0 ? advancement.double1BToHomeSafe / advancement.double1BToHomeRiskAttempts : 0,
+    //             double1BToHomeRiskOutRate: advancement.double1BToHomeRiskAttempts > 0 ? advancement.double1BToHomeOut / advancement.double1BToHomeRiskAttempts : 0,
+    //             out3BToHomeAttemptsPerGame: advancement.out3BToHomeAttempts / totalGames / 2,
+    //             out3BToHomeSafeRate: advancement.out3BToHomeAttempts > 0 ? advancement.out3BToHomeSafe / advancement.out3BToHomeAttempts : 0,
+    //             out3BToHomeOutRate: advancement.out3BToHomeAttempts > 0 ? advancement.out3BToHomeOut / advancement.out3BToHomeAttempts : 0,
+    //             automaticSecondToHomeOnDoublePerGame: advancement.automaticSecondToHomeOnDouble / totalGames / 2,
+    //             automaticThirdToHomeOnSinglePerGame: advancement.automaticThirdToHomeOnSingle / totalGames / 2,
+    //             automaticThirdToHomeOnDoublePerGame: advancement.automaticThirdToHomeOnDouble / totalGames / 2
+    //         }
+
+    //         const topBaseStates = Array.from(baseStates.values())
+    //             .map(row => ({
+    //                 key: row.key,
+    //                 pa: row.pa,
+    //                 paShare: row.pa / pa,
+    //                 runsPerPA: row.runs / Math.max(1, row.pa),
+    //                 runnerOutsOnBasesPerPA: row.runnerOutsOnBases / Math.max(1, row.pa)
+    //             }))
+    //             .sort((a, b) => b.pa - a.pa)
+    //             .slice(0, 12)
+
+    //         const topPlayResults = Array.from(playResults.values())
+    //             .map(row => ({
+    //                 key: row.key,
+    //                 pa: row.pa,
+    //                 paShare: row.pa / pa,
+    //                 runsPerEvent: row.runs / Math.max(1, row.pa),
+    //                 runnerOutsOnBasesPerEvent: row.runnerOutsOnBases / Math.max(1, row.pa),
+    //                 runnersOnShare: row.runnersOn / Math.max(1, row.pa)
+    //             }))
+    //             .sort((a, b) => b.pa - a.pa)
+
+    //         const topChains = Array.from(chainRows.values())
+    //             .sort((a, b) => b.count - a.count)
+    //             .slice(0, 20)
+
+    //         return {
+    //             label,
+    //             tuning: testPitchEnvironment.pitchEnvironmentTuning?.tuning,
+    //             summary,
+    //             topBaseStates,
+    //             topPlayResults,
+    //             topChains
+    //         }
+    //     }
+
+    //     const baseline = evaluate("baseline-defaults")
+
+    //     console.log("\n=== BASELINE DEFAULT TUNING ===")
+    //     console.log(JSON.stringify(baseline.tuning, null, 2))
+
+    //     console.log("\n=== BASELINE DEFAULT SUMMARY ===")
+    //     console.log(JSON.stringify(baseline.summary, null, 2))
+
+    //     console.log("\n=== BASELINE PLAY RESULT RUN VALUE ===")
+    //     for (const row of baseline.topPlayResults) {
+    //         console.log(row)
+    //     }
+
+    //     console.log("\n=== BASELINE TOP BASE STATES ===")
+    //     for (const row of baseline.topBaseStates) {
+    //         console.log(row)
+    //     }
+
+    //     const allRows: any[] = []
+
+    //     for (const spec of knobSpecs) {
+    //         console.log(`\n=== KNOB SWEEP START ${spec.name} ===`)
+
+    //         const rows = spec.values.map(value => {
+    //             const result = evaluate(`${spec.name}=${value}`, tuning => {
+    //                 spec.apply(tuning, value)
+    //             })
+
+    //             const row = {
+    //                 knob: spec.name,
+    //                 value,
+    //                 ...result.summary,
+    //                 deltaRuns: result.summary.teamRunsPerGame - baseline.summary.teamRunsPerGame,
+    //                 deltaAVG: result.summary.avg - baseline.summary.avg,
+    //                 deltaOBP: result.summary.obp - baseline.summary.obp,
+    //                 deltaSLG: result.summary.slg - baseline.summary.slg,
+    //                 deltaOPS: result.summary.ops - baseline.summary.ops,
+    //                 deltaBABIP: result.summary.babip - baseline.summary.babip,
+    //                 deltaBBPercent: result.summary.bbPercent - baseline.summary.bbPercent,
+    //                 deltaSOPercent: result.summary.soPercent - baseline.summary.soPercent,
+    //                 deltaHRPercent: result.summary.homeRunPercent - baseline.summary.homeRunPercent,
+    //                 deltaDoublePercent: result.summary.doublePercent - baseline.summary.doublePercent,
+    //                 deltaSBPerGame: result.summary.teamSBPerGame - baseline.summary.teamSBPerGame,
+    //                 deltaSBAttemptsPerGame: result.summary.teamSBAttemptsPerGame - baseline.summary.teamSBAttemptsPerGame,
+    //                 deltaRunnerOutsOnBasesPerGame: result.summary.runnerOutsOnBasesPerGame - baseline.summary.runnerOutsOnBasesPerGame,
+    //                 deltaDouble1BToHomeRiskAttemptsPerGame: result.summary.double1BToHomeRiskAttemptsPerGame - baseline.summary.double1BToHomeRiskAttemptsPerGame,
+    //                 deltaSingle2BToHomeRiskAttemptsPerGame: result.summary.single2BToHomeRiskAttemptsPerGame - baseline.summary.single2BToHomeRiskAttemptsPerGame,
+    //                 deltaSingle1BTo3BRiskAttemptsPerGame: result.summary.single1BTo3BRiskAttemptsPerGame - baseline.summary.single1BTo3BRiskAttemptsPerGame
+    //             }
+
+    //             allRows.push(row)
+
+    //             console.log(JSON.stringify(row, null, 2))
+
+    //             if (spec.name === "advancementAggressionScale") {
+    //                 console.log(`\n=== ADVANCEMENT DETAIL ${spec.name}=${value} TOP PLAY RESULTS ===`)
+
+    //                 for (const playRow of result.topPlayResults) {
+    //                     console.log(playRow)
+    //                 }
+
+    //                 console.log(`\n=== ADVANCEMENT DETAIL ${spec.name}=${value} TOP CHAINS ===`)
+
+    //                 for (const chainRow of result.topChains) {
+    //                     console.log(chainRow)
+    //                 }
+    //             }
+
+    //             return row
+    //         })
+
+    //         const minRuns = rows.reduce((best, row) => row.teamRunsPerGame < best.teamRunsPerGame ? row : best, rows[0])
+    //         const maxRuns = rows.reduce((best, row) => row.teamRunsPerGame > best.teamRunsPerGame ? row : best, rows[0])
+    //         const minOps = rows.reduce((best, row) => row.ops < best.ops ? row : best, rows[0])
+    //         const maxOps = rows.reduce((best, row) => row.ops > best.ops ? row : best, rows[0])
+
+    //         console.log(`\n=== KNOB SWEEP SUMMARY ${spec.name} ===`)
+    //         console.log({
+    //             knob: spec.name,
+    //             runsRange: maxRuns.teamRunsPerGame - minRuns.teamRunsPerGame,
+    //             minRuns: {
+    //                 value: minRuns.value,
+    //                 teamRunsPerGame: minRuns.teamRunsPerGame,
+    //                 ops: minRuns.ops,
+    //                 avg: minRuns.avg,
+    //                 babip: minRuns.babip
+    //             },
+    //             maxRuns: {
+    //                 value: maxRuns.value,
+    //                 teamRunsPerGame: maxRuns.teamRunsPerGame,
+    //                 ops: maxRuns.ops,
+    //                 avg: maxRuns.avg,
+    //                 babip: maxRuns.babip
+    //             },
+    //             opsRange: maxOps.ops - minOps.ops,
+    //             minOps: {
+    //                 value: minOps.value,
+    //                 teamRunsPerGame: minOps.teamRunsPerGame,
+    //                 ops: minOps.ops
+    //             },
+    //             maxOps: {
+    //                 value: maxOps.value,
+    //                 teamRunsPerGame: maxOps.teamRunsPerGame,
+    //                 ops: maxOps.ops
+    //             }
+    //         })
+    //     }
+
+    //     console.log("\n=== ALL KNOB ROWS COMPACT ===")
+
+    //     for (const row of allRows) {
+    //         console.log([
+    //             row.knob,
+    //             `v=${row.value}`,
+    //             `R=${row.teamRunsPerGame.toFixed(3)}`,
+    //             `dR=${row.deltaRuns.toFixed(3)}`,
+    //             `AVG=${row.avg.toFixed(3)}`,
+    //             `OBP=${row.obp.toFixed(3)}`,
+    //             `SLG=${row.slg.toFixed(3)}`,
+    //             `OPS=${row.ops.toFixed(3)}`,
+    //             `BABIP=${row.babip.toFixed(3)}`,
+    //             `BB%=${row.bbPercent.toFixed(3)}`,
+    //             `SO%=${row.soPercent.toFixed(3)}`,
+    //             `HR%=${row.homeRunPercent.toFixed(3)}`,
+    //             `2B%=${row.doublePercent.toFixed(3)}`,
+    //             `SBA/G=${row.teamSBAttemptsPerGame.toFixed(3)}`,
+    //             `SB/G=${row.teamSBPerGame.toFixed(3)}`,
+    //             `ROOB/G=${row.runnerOutsOnBasesPerGame.toFixed(3)}`,
+    //             `1B3B/G=${row.single1BTo3BRiskAttemptsPerGame.toFixed(3)}`,
+    //             `2BH/G=${row.single2BToHomeRiskAttemptsPerGame.toFixed(3)}`,
+    //             `1BH2B/G=${row.double1BToHomeRiskAttemptsPerGame.toFixed(3)}`
+    //         ].join(" | "))
+    //     }
+
+    //     assert.strictEqual(baseline.summary.scoreMinusLinescore, 0)
+    //     assert.strictEqual(baseline.summary.scoreMinusEvents, 0)
+    //     assert.ok(baseline.summary.teamRunsPerGame > 0)
+    // })
+
+
+
 
 })
 

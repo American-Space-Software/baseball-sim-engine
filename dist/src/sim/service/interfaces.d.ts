@@ -1,4 +1,4 @@
-import { BaseResult, Contact, DefenseCreditType, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchType, PitchZone, PlayResult, Position, ShallowDeep, ThrowResult } from "./enums.js";
+import { BaseResult, Contact, DefenseCreditType, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchingRoleType, PitchType, PitchZone, PlayResult, Position, ShallowDeep, ThrowResult } from "./enums.js";
 interface StartGameCommand {
     game: Game;
     home: Team;
@@ -6,11 +6,13 @@ interface StartGameCommand {
     homePlayers: Player[];
     homeLineup: Lineup;
     homeStartingPitcher: RotationPitcher;
+    homeAvailablePitchers: PitchingRole[];
     away: Team;
     awayTeamOptions: any;
     awayLineup: Lineup;
     awayPlayers: Player[];
     awayStartingPitcher: RotationPitcher;
+    awayAvailablePitchers: PitchingRole[];
     pitchEnvironmentTarget?: PitchEnvironmentTarget;
     date: Date;
 }
@@ -77,8 +79,23 @@ interface Game {
     currentSimDate?: Date;
     startDate?: Date;
     gameDate?: Date;
+    substitutions: GameSubstitution[];
     lastUpdated?: Date;
     dateCreated?: Date;
+}
+interface GameSubstitution {
+    inning: number;
+    top: boolean;
+    teamId: string;
+    outPlayerId: string;
+    inPlayerId: string;
+    lineupIndex?: number;
+    fromPosition?: Position;
+    toPosition?: Position;
+    isPitchingChange: boolean;
+    playIndex: number;
+    requiresPitcherChange?: boolean;
+    resolvedPitcherChange?: boolean;
 }
 interface Player {
     _id: string;
@@ -94,13 +111,10 @@ interface Player {
     hits: Handedness;
     isRetired: boolean;
     stamina: number;
+    maxPitchCount: number;
     overallRating: number;
     pitchRatings: PitchRatings;
     hittingRatings: HittingRatings;
-    potentialOverallRating: number;
-    potentialPitchRatings: PitchRatings;
-    potentialHittingRatings: HittingRatings;
-    totalExperience?: string;
     age: number;
     lastGamePitched?: Date;
     lastGamePlayed?: Date;
@@ -124,11 +138,17 @@ interface TeamInfo {
     color2?: string;
     players?: GamePlayer[];
     lineupIds?: string[];
+    availablePitchers?: PitchingRole[];
     currentHitterIndex?: number;
     currentPitcherId?: string;
     runner1BId?: string;
     runner2BId?: string;
     runner3BId?: string;
+}
+interface PitchingRole {
+    playerId: string;
+    role: PitchingRoleType;
+    priority: number;
 }
 interface GamePlayerBio {
     _id: string;
@@ -277,6 +297,8 @@ interface PitchLog {
 interface Pitch {
     intentZone: PitchZone;
     actualZone: PitchZone;
+    plateX: number;
+    plateZ: number;
     result: PitchCall;
     count?: Count;
     type: PitchType;
@@ -353,6 +375,8 @@ interface GamePlayer {
     firstName: string;
     lastName: string;
     displayName: string;
+    stamina: number;
+    maxPitchCount: number;
     age: number;
     teamId?: string;
     overallRating: {
@@ -365,6 +389,7 @@ interface GamePlayer {
     pitchRatings: PitchRatings;
     hittingRatings: HittingRatings;
     currentPosition?: Position;
+    positions: Position[];
     lineupIndex?: number;
     hitResult: HitResultCount;
     pitchResult: PitchResultCount;
@@ -630,7 +655,6 @@ interface LinescoreTeam {
 }
 interface Lineup {
     order?: LineupPlayer[];
-    rotation?: RotationPitcher[];
     valid?: boolean;
 }
 interface LineupPlayer {
@@ -639,7 +663,6 @@ interface LineupPlayer {
 }
 interface RotationPitcher {
     _id?: string;
-    stamina?: number;
 }
 interface RollChart {
     entries?: Map<number, string>;
@@ -943,6 +966,8 @@ interface PitchEnvironmentTarget {
             starts: number;
             battersFaced: number;
             outs: number;
+            runsAllowed: number;
+            earnedRunsAllowed: number;
             hitsAllowed: number;
             doublesAllowed: number;
             triplesAllowed: number;
@@ -1034,36 +1059,29 @@ interface PitchEnvironmentTuning {
             fullFielderDefenseBonus: number;
         };
     };
-    ratingTuning?: {
-        hitting: {
-            overallPlateDisciplineScale: number;
-            splitPlateDisciplineScale: number;
-            overallContactScale: number;
-            splitContactScale: number;
-            contactSkillScale: number;
-            contactDecisionScale: number;
-            contactEvScale: number;
-            overallGapPowerScale: number;
-            splitGapPowerScale: number;
-            overallHrPowerScale: number;
-            splitHrPowerScale: number;
-            hrEvScale: number;
-        };
-        pitching: {
-            minFastball: number;
-            maxFastball: number;
-            veloScale: number;
-            kScale: number;
-            baselinePowerScale: number;
-            overallControlScale: number;
-            splitControlScale: number;
-            strikeoutControlHelpScale: number;
-            overallMovementScale: number;
-            splitMovementScale: number;
-            arsenalMovementScale: number;
-            contactSuppressionScale: number;
-            missBatScale: number;
-        };
+}
+interface RatingTuning {
+    _id: string;
+    hitting: {
+        contactScale: number;
+        plateDisciplineScale: number;
+        gapPowerScale: number;
+        homerunPowerScale: number;
+        splitScale: number;
+    };
+    pitching: {
+        powerScale: number;
+        controlScale: number;
+        movementScale: number;
+        splitScale: number;
+    };
+    running: {
+        speedScale: number;
+        stealsScale: number;
+    };
+    fielding: {
+        defenseScale: number;
+        armScale: number;
     };
 }
 interface InZoneByCount {
@@ -1096,8 +1114,6 @@ interface PlayerFromStatsCommand {
     running: PlayerRunningStats;
     splits: PlayerSplitsStats;
     pitchEnvironmentTarget: PitchEnvironmentTarget;
-    playerImportBaseline: PlayerImportBaseline;
-    leagueImportBaseline: PlayerImportBaseline;
 }
 interface PlayerHittingStats {
     games: number;
@@ -1206,6 +1222,8 @@ interface PlayerHittingSplitStats {
 interface PlayerPitchingSplitStats {
     battersFaced: number;
     outs: number;
+    runsAllowed: number;
+    earnedRunsAllowed: number;
     hitsAllowed: number;
     doublesAllowed: number;
     triplesAllowed: number;
@@ -1220,39 +1238,6 @@ interface PlayerPitchingSplitStats {
     outZoneContactAllowed?: number;
     foulsAllowed?: number;
     ballsInPlayAllowed?: number;
-}
-interface PlayerImportBaseline {
-    hitting: {
-        plateDisciplineBBPercent: number;
-        contactSOPercent: number;
-        gapPowerPercent: number;
-        homerunPowerPercent: number;
-        speedExtraBaseTakenPercent: number;
-        stealsAttemptPercent: number;
-        stealsSuccessPercent: number;
-        defenseErrorPercent: number;
-        defenseFieldingPlayPercent: number;
-        armThrowOutPercent: number;
-        defenseDoublePlayPercent: number;
-        catcherCaughtStealingPercent?: number;
-        catcherPassedBallPercent?: number;
-        outfieldAssistPercent?: number;
-        contactProfile: {
-            groundball: number;
-            flyBall: number;
-            lineDrive: number;
-        };
-    };
-    pitching: {
-        powerSOPercent: number;
-        controlBBPercent: number;
-        movementHRPercent: number;
-        contactProfile: {
-            groundball: number;
-            flyBall: number;
-            lineDrive: number;
-        };
-    };
 }
 interface ExitVelocityStat {
     count: number;
@@ -1472,6 +1457,8 @@ interface PlayerImportRaw {
         starts: number;
         battersFaced: number;
         outs: number;
+        runsAllowed: number;
+        earnedRunsAllowed: number;
         hitsAllowed: number;
         doublesAllowed: number;
         triplesAllowed: number;
@@ -1565,4 +1552,4 @@ interface PitchQuality {
     horizontalBreak: number;
     verticalBreak: number;
 }
-export { PitchQuality, ContactQuality, StolenBaseByCount, PitchCount, InZoneByCount, PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance, TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score, Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount, HitResultCount, MatchupHandedness, GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team, Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, PlayerFromStatsCommand, PlayerHittingStats, PlayerPitchingStats, PlayerFieldingStats, PlayerRunningStats, PlayerSplitsStats, PlayerHittingSplitStats, PlayerPitchingSplitStats, PlayerImportBaseline, PlayerImportRaw, PitchTypeMovementStat, ExitVelocityStat, PlayerFieldingPositionRaw, PlayerRunningStatsRaw, PitchEnvironmentTuning, BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, LaunchAngleStat, PitchPhysics, BattedBallPhysics, BattedBallOutcomeBucketRaw, BattedBallXyBucketRaw, BattedBallXyByTrajectoryBucketRaw, BattedBallXyByTrajectoryEvLaBucketRaw };
+export { PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount, PitchCount, InZoneByCount, PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance, TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score, Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount, HitResultCount, MatchupHandedness, GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team, Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, PlayerFromStatsCommand, PlayerHittingStats, PlayerPitchingStats, PlayerFieldingStats, PlayerRunningStats, PlayerSplitsStats, PlayerHittingSplitStats, PlayerPitchingSplitStats, PlayerImportRaw, PitchTypeMovementStat, ExitVelocityStat, PlayerFieldingPositionRaw, PlayerRunningStatsRaw, PitchEnvironmentTuning, BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, LaunchAngleStat, PitchPhysics, BattedBallPhysics, BattedBallOutcomeBucketRaw, BattedBallXyBucketRaw, BattedBallXyByTrajectoryBucketRaw, BattedBallXyByTrajectoryEvLaBucketRaw, GameSubstitution, RatingTuning };

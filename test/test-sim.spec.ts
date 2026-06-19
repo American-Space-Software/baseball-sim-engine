@@ -23,6 +23,7 @@ import type {
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
 import { importPitchEnvironmentTarget } from "../src/importer/index.js"
 import { DownloaderService } from "../src/importer/service/downloader-service.js"
+import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 
 const statService = new StatService()
 let pitchEnvironment: PitchEnvironmentTarget
@@ -31,7 +32,9 @@ let tunedPitchEnvironment: PitchEnvironmentTarget
 const season = 2025
 const baseDataDir = "data"
 
-const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, {} as any)
+const baselineGameService = new BaselineGameService(simService)
+const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
+
 const downloaderservice = new DownloaderService("data", 1000)
 
 const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
@@ -186,7 +189,7 @@ describe("Baseball Sim Engine", async () => {
     })
     
     it("should expose lineup wrap when next hitter is still on base", () => {
-        const baselineGame = pitchEnvironmentService.buildStartedBaselineGame(pitchEnvironment)
+        const baselineGame = baselineGameService.buildStartedBaselineGame(pitchEnvironment)
         const game = clone(baselineGame)
         const offense = game.home
 
@@ -231,7 +234,7 @@ describe("Baseball Sim Engine", async () => {
     })
 
     it("single should allow runner from second to score through cloned third-to-home event exactly once", () => {
-        const baselineGame = pitchEnvironmentService.buildStartedBaselineGame(pitchEnvironment)
+        const baselineGame = baselineGameService.buildStartedBaselineGame(pitchEnvironment)
         const offense = clone(baselineGame.away)
         const defense = clone(baselineGame.home)
         const target = clone(pitchEnvironment)
@@ -291,7 +294,7 @@ describe("Baseball Sim Engine", async () => {
     })
 
     it("single should allow runner from first to reach third through cloned second-to-third event without scoring twice", () => {
-        const baselineGame = pitchEnvironmentService.buildStartedBaselineGame(pitchEnvironment)
+        const baselineGame = baselineGameService.buildStartedBaselineGame(pitchEnvironment)
         const offense = clone(baselineGame.away)
         const defense = clone(baselineGame.home)
         const target = clone(pitchEnvironment)
@@ -351,7 +354,7 @@ describe("Baseball Sim Engine", async () => {
     })
 
     it("double should allow runner from first to score through cloned third-to-home event exactly once", () => {
-        const baselineGame = pitchEnvironmentService.buildStartedBaselineGame(pitchEnvironment)
+        const baselineGame = baselineGameService.buildStartedBaselineGame(pitchEnvironment)
         const offense = clone(baselineGame.away)
         const defense = clone(baselineGame.home)
         const target = clone(pitchEnvironment)
@@ -411,7 +414,7 @@ describe("Baseball Sim Engine", async () => {
     })
 
     it("line-drive out to outfielder should record hitter out", () => {
-        const baselineGame = pitchEnvironmentService.buildStartedBaselineGame(pitchEnvironment)
+        const baselineGame = baselineGameService.buildStartedBaselineGame(pitchEnvironment)
         const offense = clone(baselineGame.away)
         const defense = clone(baselineGame.home)
         const target = clone(pitchEnvironment)
@@ -497,8 +500,6 @@ describe("Baseball Sim Engine", async () => {
         )
     })
 
-
-
     it("default vs stronger pitch-quality offense should print pitch quality change distribution on balls in play", () => {
         const makePitchEnvironment = (label: string): PitchEnvironmentTarget => {
             const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
@@ -559,7 +560,7 @@ describe("Baseball Sim Engine", async () => {
             let totalBases = 0
 
             for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-                const game = pitchEnvironmentService.buildStartedBaselineGame(
+                const game = baselineGameService.buildStartedBaselineGame(
                     clone(testPitchEnvironment),
                     `pitch-quality-change-report-${label}-${gameIndex}`
                 )
@@ -686,8 +687,6 @@ describe("Baseball Sim Engine", async () => {
         assert.ok(stronger.runsPerGame > baseline.runsPerGame - 0.5)
     })
 
-
-
     it("direct getHitQuality should match in-game contact quality distribution by contact type", () => {
         const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
 
@@ -743,7 +742,7 @@ describe("Baseball Sim Engine", async () => {
         const games = evaluationGames
 
         for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-            const simulatedGame = pitchEnvironmentService.buildStartedBaselineGame(
+            const simulatedGame = baselineGameService.buildStartedBaselineGame(
                 clone(testPitchEnvironment),
                 `game-contact-quality-distribution-${gameIndex}`
             )
@@ -853,7 +852,7 @@ describe("Baseball Sim Engine", async () => {
         let totalContactQuality = 0
 
         for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-            const game = pitchEnvironmentService.buildStartedBaselineGame(
+            const game = baselineGameService.buildStartedBaselineGame(
                 clone(testPitchEnvironment),
                 `disabled-meta-contact-report-${gameIndex}`
             )
@@ -1072,7 +1071,7 @@ describe("Baseball Sim Engine", async () => {
         }
 
         for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-            const game = pitchEnvironmentService.buildStartedBaselineGame(
+            const game = baselineGameService.buildStartedBaselineGame(
                 clone(testPitchEnvironment),
                 `default-batter-runner-out-report-${gameIndex}`
             )
@@ -1225,7 +1224,7 @@ describe("Baseball Sim Engine", async () => {
         }
 
         for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-            const game = pitchEnvironmentService.buildStartedBaselineGame(
+            const game = baselineGameService.buildStartedBaselineGame(
                 clone(testPitchEnvironment),
                 `default-runner-advancement-report-${gameIndex}`
             )
@@ -1447,7 +1446,7 @@ describe("Baseball Sim Engine", async () => {
         }
 
         for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-            const game = pitchEnvironmentService.buildStartedBaselineGame(
+            const game = baselineGameService.buildStartedBaselineGame(
                 clone(testPitchEnvironment),
                 `default-count-result-report-${gameIndex}`
             )
@@ -1552,118 +1551,6 @@ describe("Baseball Sim Engine", async () => {
 
         assert.ok(rows.length > 0)
     }) 
-
-    // it("disabled meta tuning should print sampled trajectory vs final logged contact", () => {
-    //     const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
-
-    //     testPitchEnvironment.pitchEnvironmentTuning = {
-    //         tuning: makeDisabledMetaTuning()
-    //     } as PitchEnvironmentTuning
-
-    //     const rng = seedrandom("disabled-meta-sampled-vs-final-contact")
-    //     const games = evaluationGames
-
-    //     const getSampledTrajectory = (hitQuality: any): string => {
-    //         const evBin = Math.floor(hitQuality.exitVelocity / 2) * 2
-    //         const laBin = Math.floor(hitQuality.launchAngle / 2) * 2
-
-    //         const matches = testPitchEnvironment.battedBall.xy.byTrajectoryEvLa.filter((row: any) =>
-    //             Number(row.evBin) === evBin &&
-    //             Number(row.laBin) === laBin
-    //         )
-
-    //         if (matches.length === 1) return matches[0].trajectory
-
-    //         const trajectoryCounts = matches.reduce((acc: any, row: any) => {
-    //             acc[row.trajectory] = (acc[row.trajectory] ?? 0) + Number(row.count ?? 0)
-    //             return acc
-    //         }, {})
-
-    //         const best = Object.entries(trajectoryCounts)
-    //             .sort((a: any, b: any) => b[1] - a[1])[0]
-
-    //         if (best) return best[0] as string
-
-    //         if (laBin < 0) return "groundBall"
-    //         if (laBin < 24) return "lineDrive"
-    //         return "flyBall"
-    //     }
-
-    //     const report = new Map<string, {
-    //         count: number
-    //         out: number
-    //         single: number
-    //         double: number
-    //         triple: number
-    //         hr: number
-    //     }>()
-
-    //     const bump = (key: string, result: PlayResult) => {
-    //         if (!report.has(key)) {
-    //             report.set(key, {
-    //                 count: 0,
-    //                 out: 0,
-    //                 single: 0,
-    //                 double: 0,
-    //                 triple: 0,
-    //                 hr: 0
-    //             })
-    //         }
-
-    //         const row = report.get(key)!
-    //         row.count++
-
-    //         if (result === PlayResult.OUT) row.out++
-    //         else if (result === PlayResult.SINGLE) row.single++
-    //         else if (result === PlayResult.DOUBLE) row.double++
-    //         else if (result === PlayResult.TRIPLE) row.triple++
-    //         else if (result === PlayResult.HR) row.hr++
-    //     }
-
-    //     for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-    //         const game = pitchEnvironmentService.buildStartedBaselineGame(
-    //             clone(testPitchEnvironment),
-    //             `disabled-meta-sampled-vs-final-contact-${gameIndex}`
-    //         )
-
-    //         while (!game.isComplete) {
-    //             simService.simPitch(game, rng)
-    //         }
-
-    //         for (const play of game.halfInnings.flatMap(halfInning => halfInning.plays)) {
-    //             const pitchWithContactQuality = play.pitchLog?.pitches?.find((pitch: any) => pitch.contactQuality)
-
-    //             if (!pitchWithContactQuality?.contactQuality) continue
-
-    //             const sampledTrajectory = getSampledTrajectory(pitchWithContactQuality.contactQuality)
-    //             const finalContact = play.contact
-
-    //             bump(`${sampledTrajectory} -> ${finalContact}`, play.result)
-    //         }
-    //     }
-
-    //     console.log("\n=== SAMPLED TRAJECTORY VS FINAL CONTACT ===")
-
-    //     Array.from(report.entries())
-    //         .sort((a, b) => b[1].count - a[1].count)
-    //         .forEach(([key, row]) => {
-    //             const hit = row.single + row.double + row.triple + row.hr
-    //             const bip = row.out + row.single + row.double + row.triple
-    //             const babip = bip > 0 ? (row.single + row.double + row.triple) / bip : 0
-    //             const hrRate = row.hr / row.count
-
-    //             console.log(`[${key}]`, {
-    //                 count: row.count,
-    //                 out: Number((row.out / row.count).toFixed(3)),
-    //                 hit: Number((hit / row.count).toFixed(3)),
-    //                 hr: Number(hrRate.toFixed(3)),
-    //                 babip: Number(babip.toFixed(3)),
-    //                 raw: row
-    //             })
-    //         })
-
-    //     assert.ok(report.size > 0)
-    // })
 
     it("manual high-offense full game should print available evaluation pipeline rates", () => {
         const evaluation = evaluateManualTuning("high-offense-debug", HIGH_OFFENSE_TUNING)
@@ -1851,8 +1738,6 @@ describe("Baseball Sim Engine", async () => {
         assert.strictEqual(boostedResult.distance, baseResult.distance)
     })
 
-
-
     it("pitch environment trajectory physics should keep ground balls out of line-drive launch angles", () => {
         const physics = pitchEnvironment.importReference.hitter.physics.byTrajectory
 
@@ -1936,8 +1821,6 @@ describe("Baseball Sim Engine", async () => {
         assert.ok(avgLaunchAngle < 5)
         assert.ok((tenToTwenty + twentyPlus) / sampleCount < 0.15)
     })
-
-
 
     it("defense tuning should print outcome sensitivity", async () => {
         const values = [-300, -200, -100, -50, 0, 50, 100, 200, 300]
@@ -2040,8 +1923,172 @@ describe("Baseball Sim Engine", async () => {
     })
 
 
-    
+    it("inning can end during runner events; stop further processing but keep events", async () => {
+        const game = baselineGameService.buildStartedBaselineGame(pitchEnvironment, "game-runner-events-inning-end")
+        const target = clone(game.pitchEnvironmentTarget)
 
+        const offense = clone(game.away)
+        const defense = clone(game.home)
+
+        const pitcher = defense.players.find((p: GamePlayer) => p._id === defense.currentPitcherId)
+        const fielder =
+            defense.players.find((p: GamePlayer) => p.currentPosition === Position.CENTER_FIELD) ??
+            defense.players.find((p: GamePlayer) => p.currentPosition === Position.RIGHT_FIELD) ??
+            defense.players.find((p: GamePlayer) => p.currentPosition === Position.LEFT_FIELD)
+
+        const hitter = offense.players.find((p: GamePlayer) => offense.lineupIds.includes(p._id))
+        const runner2B = offense.players.find((p: GamePlayer) => p._id !== hitter?._id)
+
+        assert.ok(pitcher)
+        assert.ok(fielder)
+        assert.ok(hitter)
+        assert.ok(runner2B)
+
+        const runnerResult: RunnerResult = {
+            first: undefined,
+            second: runner2B._id,
+            third: undefined,
+            out: [],
+            scored: []
+        }
+
+        const halfInningRunnerEvents: RunnerEvent[] = [
+            { runner: { _id: "fakeOut1" }, movement: { isOut: true, start: BaseResult.HOME, end: BaseResult.FIRST } } as RunnerEvent,
+            { runner: { _id: "fakeOut2" }, movement: { isOut: true, start: BaseResult.HOME, end: BaseResult.FIRST } } as RunnerEvent
+        ]
+
+        const defensiveCredits: any[] = []
+
+        const runnerService = (simService as any).runnerService
+        const originalChance = runnerService.getChanceRunnerSafe
+        const originalThrow = runnerService.gameRolls.getThrowResult
+
+        runnerService.getChanceRunnerSafe = () => 95
+        runnerService.gameRolls.getThrowResult = () => ({ roll: 100, result: ThrowResult.OUT })
+
+        let inPlayRunnerEvents: RunnerEvent[] = []
+
+        try {
+            inPlayRunnerEvents = runnerService.getRunnerEvents(
+                () => 0.5,
+                runnerResult,
+                halfInningRunnerEvents,
+                defensiveCredits,
+                target,
+                PlayResult.SINGLE,
+                Contact.LINE_DRIVE,
+                ShallowDeep.NORMAL,
+                hitter,
+                fielder,
+                undefined,
+                runner2B,
+                undefined,
+                offense,
+                defense,
+                pitcher,
+                0
+            )
+        } finally {
+            runnerService.getChanceRunnerSafe = originalChance
+            runnerService.gameRolls.getThrowResult = originalThrow
+        }
+
+        const outs =
+            halfInningRunnerEvents.filter(e => e?.movement?.isOut).length +
+            inPlayRunnerEvents.filter(e => e?.movement?.isOut).length
+
+        assert.equal(outs, 3)
+        assert.ok(inPlayRunnerEvents.length > 0)
+
+        const baseIds = [runnerResult.first, runnerResult.second, runnerResult.third].filter(Boolean)
+        assert.equal(new Set(baseIds).size, baseIds.length)
+    })
+
+    it("ground ball to infielder with runner on 3B and 2 outs must record batter out at 1B, no run", async () => {
+        const game = baselineGameService.buildStartedBaselineGame(pitchEnvironment, "game-groundout-runner-third")
+        const target = clone(game.pitchEnvironmentTarget)
+
+        const offense = clone(game.away)
+        const defense = clone(game.home)
+
+        const pitcher = defense.players.find((p: GamePlayer) => p._id === defense.currentPitcherId)
+        const infielder =
+            defense.players.find((p: GamePlayer) => p.currentPosition === Position.FIRST_BASE) ??
+            defense.players.find((p: GamePlayer) => p.currentPosition === Position.SECOND_BASE) ??
+            defense.players.find((p: GamePlayer) => p.currentPosition === Position.THIRD_BASE) ??
+            defense.players.find((p: GamePlayer) => p.currentPosition === Position.SHORTSTOP)
+
+        const hitter = offense.players.find((p: GamePlayer) => offense.lineupIds.includes(p._id))
+        const runner3B = offense.players.find((p: GamePlayer) => p._id !== hitter?._id)
+
+        assert.ok(pitcher)
+        assert.ok(infielder)
+        assert.ok(hitter)
+        assert.ok(runner3B)
+
+        const runnerResult: RunnerResult = {
+            first: undefined,
+            second: undefined,
+            third: runner3B._id,
+            out: [],
+            scored: []
+        }
+
+        const halfInningRunnerEvents: RunnerEvent[] = [
+            { runner: { _id: "out1" }, movement: { isOut: true } } as RunnerEvent,
+            { runner: { _id: "out2" }, movement: { isOut: true } } as RunnerEvent
+        ]
+
+        const defensiveCredits: any[] = []
+
+        const runnerService = (simService as any).runnerService
+        const originalChance = runnerService.getChanceRunnerSafe
+        const originalThrow = runnerService.gameRolls.getThrowResult
+
+        runnerService.getChanceRunnerSafe = () => 95
+        runnerService.gameRolls.getThrowResult = () => ({ roll: 100, result: ThrowResult.OUT })
+
+        let inPlayRunnerEvents: RunnerEvent[] = []
+
+        try {
+            inPlayRunnerEvents = runnerService.getRunnerEvents(
+                () => 0.5,
+                runnerResult,
+                halfInningRunnerEvents,
+                defensiveCredits,
+                target,
+                PlayResult.OUT,
+                Contact.GROUNDBALL,
+                ShallowDeep.NORMAL,
+                hitter,
+                infielder,
+                undefined,
+                undefined,
+                runner3B,
+                offense,
+                defense,
+                pitcher,
+                2
+            )
+        } finally {
+            runnerService.getChanceRunnerSafe = originalChance
+            runnerService.gameRolls.getThrowResult = originalThrow
+        }
+
+        const batterEvent = inPlayRunnerEvents.find(e => e?.runner?._id === hitter._id)
+
+        assert.ok(batterEvent)
+        assert.equal(batterEvent.movement?.isOut, true)
+
+        const outs =
+            halfInningRunnerEvents.filter(e => e?.movement?.isOut).length +
+            inPlayRunnerEvents.filter(e => e?.movement?.isOut).length
+
+        assert.equal(outs, 3)
+
+        const scored = inPlayRunnerEvents.some(e => e?.movement?.end === BaseResult.HOME && !e?.movement?.isOut)
+        assert.equal(scored, false)
+    })
 })
 
 const evaluateManualTuning = (name: string, tuning: PitchEnvironmentTuning["tuning"]) => {
@@ -2130,7 +2177,7 @@ const evaluateManualTuning = (name: string, tuning: PitchEnvironmentTuning["tuni
     }
 
     for (let gameIndex = 0; gameIndex < evaluationGames; gameIndex++) {
-        const game = pitchEnvironmentService.buildStartedBaselineGame(
+        const game = baselineGameService.buildStartedBaselineGame(
             clone(testPitchEnvironment),
             `manual-${name}-run-conversion-${gameIndex}`
         )

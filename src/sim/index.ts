@@ -1,5 +1,5 @@
 import { BaseResult, Contact, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchingRoleType, PitchType, PitchZone, PlayResult, Position, ShallowDeep, ThrowResult } from "./service/enums.js"
-import { InningEndingEvent, PitchEnvironmentTarget } from "./service/interfaces.js"
+import { InningEndingEvent, PitchEnvironmentTarget, RatingTuning } from "./service/interfaces.js"
 import { PitchEnvironmentService } from "../importer/service/pitch-environment-service.js"
 import { RollChartService } from "./service/roll-chart-service.js"
 import { GameInfo, GamePlayers, Matchup, SimRolls, SimService } from "./service/sim-service.js"
@@ -109,7 +109,7 @@ export type {
   PlayerSplitsStats,
   PlayerHittingSplitStats,
   PlayerPitchingSplitStats,
-  // PlayerImportBaseline,
   PlayerImportRaw,
   PitchEnvironmentTuning,
+  RatingTuning
 } from "./service/interfaces.js"

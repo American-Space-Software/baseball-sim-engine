@@ -57,5 +57,6 @@ declare class StatAccumulatorService {
     private emptyBehaviorByCountRaw;
     private incrementBehaviorByCount;
     private mapHandedness;
+    private chargePitcherRunsForPlay;
 }
 export { StatAccumulatorService };

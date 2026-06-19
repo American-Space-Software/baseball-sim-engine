@@ -352,43 +352,43 @@ class StatAccumulatorService {
             }
 
             if (batter && !(batter.hitting as any).outcomeByEvLa) {
-                ;(batter.hitting as any).outcomeByEvLa = []
+                (batter.hitting as any).outcomeByEvLa = []
             }
 
             if (batter && !(batter.hitting as any).xyByTrajectory) {
-                ;(batter.hitting as any).xyByTrajectory = []
+                (batter.hitting as any).xyByTrajectory = []
             }
 
             if (batter && !(batter.hitting as any).xyByTrajectoryEvLa) {
-                ;(batter.hitting as any).xyByTrajectoryEvLa = []
+                (batter.hitting as any).xyByTrajectoryEvLa = []
             }
 
             if (batter && !(batter.hitting as any).sprayByTrajectory) {
-                ;(batter.hitting as any).sprayByTrajectory = []
+                (batter.hitting as any).sprayByTrajectory = []
             }
 
             if (batter && !(batter.hitting as any).sprayByTrajectoryEvLa) {
-                ;(batter.hitting as any).sprayByTrajectoryEvLa = []
+                (batter.hitting as any).sprayByTrajectoryEvLa = []
             }
 
             if (pitcher && !(pitcher.pitching as any).outcomeAllowedByEvLa) {
-                ;(pitcher.pitching as any).outcomeAllowedByEvLa = []
+                (pitcher.pitching as any).outcomeAllowedByEvLa = []
             }
 
             if (pitcher && !(pitcher.pitching as any).xyAllowedByTrajectory) {
-                ;(pitcher.pitching as any).xyAllowedByTrajectory = []
+                (pitcher.pitching as any).xyAllowedByTrajectory = []
             }
 
             if (pitcher && !(pitcher.pitching as any).xyAllowedByTrajectoryEvLa) {
-                ;(pitcher.pitching as any).xyAllowedByTrajectoryEvLa = []
+                (pitcher.pitching as any).xyAllowedByTrajectoryEvLa = []
             }
 
             if (pitcher && !(pitcher.pitching as any).sprayAllowedByTrajectory) {
-                ;(pitcher.pitching as any).sprayAllowedByTrajectory = []
+                (pitcher.pitching as any).sprayAllowedByTrajectory = []
             }
 
             if (pitcher && !(pitcher.pitching as any).sprayAllowedByTrajectoryEvLa) {
-                ;(pitcher.pitching as any).sprayAllowedByTrajectoryEvLa = []
+                (pitcher.pitching as any).sprayAllowedByTrajectoryEvLa = []
             }
 
             this.markHittingGame(gamePk, batter)
@@ -496,8 +496,13 @@ class StatAccumulatorService {
                 }
             }
 
+            if (pitcherId && isPA) {
+                this.chargePitcherRunsForPlay(play, players, pitcherId, pitchingSplitKey, filterPlayerIds)
+            }
+
             let prePitchBalls = 0
             let prePitchStrikes = 0
+            let inPlayEvent: any | undefined
 
             for (const event of play?.playEvents ?? []) {
                 if (event?.isPitch !== true) continue
@@ -529,6 +534,10 @@ class StatAccumulatorService {
                 const trajectory = String(hitData?.trajectory ?? "")
                 const hardness = String(hitData?.hardness ?? "")
                 const location = String(hitData?.location ?? "")
+
+                if (isInPlay) {
+                    inPlayEvent = event
+                }
 
                 if (batter) {
                     batter.hitting.pitchesSeen++
@@ -670,13 +679,23 @@ class StatAccumulatorService {
                 }
             }
 
-            const inPlayEvent = this.getInPlayEvent(play)
             const hitData = inPlayEvent?.hitData ?? {}
             const hitTrajectory = String(hitData?.trajectory ?? "")
+            const hitLocation = String(hitData?.location ?? "")
+            const hitMappedPosition = this.SIMPLE_LOCATION_POSITIONS[hitLocation]
             const isGroundBallDoublePlayChance = hasDoublePlayOpportunity && hitTrajectory === "ground_ball"
             const isDoublePlayTurn = (eventType === "grounded_into_double_play" || eventType === "double_play") && outsOnPlay >= 2
 
             this.updateRunningAdvancementForPlay(players, play, eventType, hitTrajectory, Number(hitData?.coordinates?.coordY), Number(hitData?.totalDistance), filterPlayerIds)
+
+            if (hitMappedPosition) {
+                const alignedFielderId = defendingAlignment.get(hitMappedPosition)
+
+                if (alignedFielderId && (!filterPlayerIds || filterPlayerIds.has(alignedFielderId))) {
+                    const fielder = this.getOrCreate(players, alignedFielderId)
+                    this.incrementFieldedBall(fielder, hitMappedPosition, hitTrajectory || undefined)
+                }
+            }
 
             const fieldedBallCredits = (play?.runners ?? [])
                 .flatMap((runner: any) => runner?.credits ?? [])
@@ -765,10 +784,6 @@ class StatAccumulatorService {
                     if (creditType === "f_fielded_ball" && ["LF", "CF", "RF"].includes(posAbbr) && mappedPosition) {
                         defendingAlignment.set(mappedPosition, fielderId)
                         this.markFieldingPosition(gamePk, fielder, mappedPosition)
-                    }
-
-                    if (creditType === "f_fielded_ball") {
-                        this.incrementFieldedBall(fielder, mappedPosition, hitTrajectory || undefined)
                     }
 
                     if (
@@ -1134,6 +1149,8 @@ class StatAccumulatorService {
         return {
             battersFaced: 0,
             outs: 0,
+            runsAllowed: 0,
+            earnedRunsAllowed: 0,
             hitsAllowed: 0,
             doublesAllowed: 0,
             triplesAllowed: 0,
@@ -1455,6 +1472,9 @@ class StatAccumulatorService {
 
                 battersFaced: 0,
                 outs: 0,
+
+                runsAllowed: 0,
+                earnedRunsAllowed: 0,
 
                 hitsAllowed: 0,
                 doublesAllowed: 0,
@@ -1982,6 +2002,43 @@ class StatAccumulatorService {
         if (value === "R") return Handedness.R
         if (value === "S") return Handedness.S
         return Handedness.R
+    }
+
+
+    private chargePitcherRunsForPlay(play: any, players: Map<string, PlayerImportRaw>, pitcherId: string, pitchingSplitKey: "vsL" | "vsR", filterPlayerIds?: Set<string>): void {
+        for (const runner of play?.runners ?? []) {
+            const scored = runner?.movement?.end === "score" || runner?.details?.isScoringEvent === true
+
+            if (!scored) continue
+
+            const responsiblePitcherId = String(runner?.details?.responsiblePitcher?.id ?? pitcherId ?? "")
+
+            if (!responsiblePitcherId) continue
+            if (filterPlayerIds && !filterPlayerIds.has(responsiblePitcherId)) continue
+
+            const responsiblePitcher = this.getOrCreate(
+                players,
+                responsiblePitcherId,
+                runner?.details?.responsiblePitcher?.fullName,
+                undefined,
+                undefined,
+                "pitcher"
+            )
+
+            responsiblePitcher.pitching.runsAllowed++
+
+            if (responsiblePitcherId === pitcherId) {
+                responsiblePitcher.splits.pitching[pitchingSplitKey].runsAllowed++
+            }
+
+            if (runner?.details?.earned === true) {
+                responsiblePitcher.pitching.earnedRunsAllowed++
+
+                if (responsiblePitcherId === pitcherId) {
+                    responsiblePitcher.splits.pitching[pitchingSplitKey].earnedRunsAllowed++
+                }
+            }
+        }
     }
 }
 

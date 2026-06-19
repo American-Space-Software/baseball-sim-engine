@@ -1189,7 +1189,10 @@ class SimService {
             shallowDeep = y < 180 ? ShallowDeep.SHALLOW : y > 260 ? ShallowDeep.DEEP : ShallowDeep.NORMAL
         }
 
-        const fielderPlayer = command.defense.players.find(p => p.currentPosition == fielder)
+        const fielderPlayer =
+            fielder === Position.PITCHER
+                ? command.defense.players.find(p => p._id === command.defense.currentPitcherId)
+                : command.defense.players.find(p => p.currentPosition === fielder)
 
         if (!fielderPlayer) {
             throw new Error(`No fielder found at position ${fielder}`)
@@ -1214,7 +1217,7 @@ class SimService {
                 if (contact == Contact.GROUNDBALL) {
 
                     //Check for double play
-                    if (contact == Contact.GROUNDBALL && runnerEvents.filter( re => re?.movement?.isOut == true && !re.isCS).length > 2) {
+                    if (contact == Contact.GROUNDBALL && runnerEvents.filter(re => re?.movement?.isOut == true && !re.isCS).length >= 2) {
                         return OfficialPlayResult.GROUNDED_INTO_DP
                     }
 
@@ -1888,20 +1891,34 @@ class GameInfo {
 
         if (!startingPitcher) throw new Error("No valid starting pitcher.")
 
-        lineup.order.find( p => p.position == Position.PITCHER)._id = startingPitcher._id
+        const pitcherSpot = lineup.order.find(p => p.position == Position.PITCHER)
 
-        let pitcherGP = gamePlayer.find( gp => gp._id == startingPitcher._id)
+        if (!pitcherSpot) {
+            throw new Error("Lineup has no pitcher spot.")
+        }
 
+        pitcherSpot._id = startingPitcher._id
+
+        let pitcherGP = gamePlayer.find(gp => gp._id == startingPitcher._id)
+
+        if (!pitcherGP) {
+            throw new Error("Starting pitcher was not found in game players.")
+        }
+
+        for (let player of gamePlayer) {
+            player.currentPosition = undefined
+            player.lineupIndex = undefined
+        }
 
         let teamInfo:TeamInfo = Object.assign({
-            _id: team._id,        
+            _id: team._id,
 
             name: team.name,
             abbrev: team.abbrev,
 
             players: gamePlayer,
 
-            lineupIds: lineup.order.map( op => op._id ),
+            lineupIds: lineup.order.map(op => op._id),
             availablePitchers: availablePitchers,
 
             currentHitterIndex: 0,
@@ -1918,18 +1935,18 @@ class GameInfo {
 
         }, teamOptions)
 
+        lineup.order.forEach((spot, idx) => {
+            let player:GamePlayer|undefined = teamInfo.players?.find(p => p._id == spot._id)
 
-        teamInfo.lineupIds?.forEach( (id, idx) => {
-
-            let player:GamePlayer|undefined = teamInfo.players?.find( p => p._id == id)
-            //Set spot in lineup
-            if (player) player.lineupIndex = idx 
-
+            if (player) {
+                player.currentPosition = spot.position
+                player.lineupIndex = idx
+            }
         })
 
         return teamInfo
 
-    }    
+    }  
 
 
 }
