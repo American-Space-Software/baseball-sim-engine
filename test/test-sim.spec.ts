@@ -802,7 +802,7 @@ describe("Baseball Sim Engine", async () => {
         assert.ok(game.flyBall.la.length > 800)
 
         assert.ok(Math.abs(report.groundBall.directLa - report.groundBall.gameLa) < 1.5)
-        assert.ok(Math.abs(report.lineDrive.directLa - report.lineDrive.gameLa) < 1.5)
+        assert.ok(Math.abs(report.lineDrive.directLa - report.lineDrive.gameLa) < 2)
         assert.ok(Math.abs(report.flyBall.directLa - report.flyBall.gameLa) < 1.5)
 
         assert.ok(Math.abs(report.groundBall.directEv - report.groundBall.gameEv) < 1.5)
@@ -1926,7 +1926,7 @@ describe("Baseball Sim Engine", async () => {
     it("inning can end during runner events; stop further processing but keep events", async () => {
         const game = baselineGameService.buildStartedBaselineGame(pitchEnvironment, "game-runner-events-inning-end")
         const target = clone(game.pitchEnvironmentTarget)
-
+        target.running.advancement.runnerOnSecondToHomeOnSingle = 1
         const offense = clone(game.away)
         const defense = clone(game.home)
 

@@ -9,8 +9,8 @@ import { SubstitutionService } from "./substitution-service.js"
 const STANDARD_INNINGS = 9
 const AVG_PITCH_QUALITY = 50
 
-const MIN_CHANGE = -.5
-const MAX_CHANGE = .5
+const MIN_CHANGE = -.7
+const MAX_CHANGE = .7
 
 const PITCH_QUALITY_WEIGHTS = {
     velocity: 33.3,
@@ -20,6 +20,12 @@ const PITCH_QUALITY_WEIGHTS = {
 
 const DEFAULT_FULL_TEAM_DEFENSE_BONUS = 75
 const DEFAULT_FULL_FIELDER_DEFENSE_BONUS = 75
+
+const CONTACT_RATE_POINTS_PER_FULL_CONTACT_CHANGE = 40
+
+const ZONE_SWING_POINTS_PER_FULL_DISCIPLINE_CHANGE = 8
+const CHASE_SWING_POINTS_PER_FULL_DISCIPLINE_CHANGE = 20
+
 
 const STRIKE_ZONE_LEFT = -0.83
 const STRIKE_ZONE_RIGHT = 0.83
@@ -1491,12 +1497,12 @@ class SimRolls {
         if (inZone) {
             swingRate += pitchQualityChange * (swingTuning?.pitchQualityZoneSwingEffect ?? 0) * -1
 
-            swingRate += hitterChange.plateDisiplineChange * (swingTuning?.disciplineZoneSwingEffect ?? 0)
-
+            swingRate += hitterChange.plateDisiplineChange * ZONE_SWING_POINTS_PER_FULL_DISCIPLINE_CHANGE * (1 + (swingTuning?.disciplineZoneSwingEffect ?? 0))
+            
         } else {
             swingRate += pitchQualityChange * (swingTuning?.pitchQualityChaseSwingEffect ?? 0)
 
-            swingRate += hitterChange.plateDisiplineChange * (swingTuning?.disciplineChaseSwingEffect ?? 0) * -1
+            swingRate += hitterChange.plateDisiplineChange * CHASE_SWING_POINTS_PER_FULL_DISCIPLINE_CHANGE * (1 + (swingTuning?.disciplineChaseSwingEffect ?? 0)) * -1
         }
 
         swingRate = Math.max(0, Math.min(100, swingRate))
@@ -1508,9 +1514,8 @@ class SimRolls {
                 ? behavior.zoneContactPercent
                 : behavior.chaseContactPercent
 
-            swingContactRate += pitchQualityChange * (contactTuning?.pitchQualityContactEffect ?? 0) * -1
-
-            swingContactRate += hitterChange.contactChange * (contactTuning?.contactSkillEffect ?? 0) * -1
+            swingContactRate += pitchQualityChange * (1 + (contactTuning?.pitchQualityContactEffect ?? 0)) * -1
+            swingContactRate += hitterChange.contactChange * CONTACT_RATE_POINTS_PER_FULL_CONTACT_CHANGE * (1 + (contactTuning?.contactSkillEffect ?? 0))
 
             swingContactRate = Math.max(0, Math.min(100, swingContactRate))
 

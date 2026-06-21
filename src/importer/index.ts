@@ -406,7 +406,8 @@ class PitchEnvironmentTuner {
 
         await runDeterministicPass("lock-SO", "soPercent", 0.008, (next, currentResult) => {
             const so = this.tuningEvaluationService.metric(currentResult, "soPercent")
-            const step = clamp((so.target - so.actual) / 0.00025, -30, 30)
+            const step = clamp((so.target - so.actual) / 0.04, -0.25, 0.25)
+
             next.tuning!.contact.pitchQualityContactEffect = clamp(Number(next.tuning?.contact?.pitchQualityContactEffect ?? 0) + step, ctx.contactMin, ctx.contactMax)
             next.tuning!.contact.contactSkillEffect = clamp(Number(next.tuning?.contact?.contactSkillEffect ?? 0) + step, ctx.contactMin, ctx.contactMax)
         })
@@ -996,8 +997,8 @@ class PitchEnvironmentTuner {
             stealMax: 4,
             advancementMin: -0.99,
             advancementMax: 4,
-            contactMin: -250,
-            contactMax: 250,
+            contactMin: -0.95,
+            contactMax: 4,
             applyScore: (rawResult: any) => this.tuningEvaluationService.normalizeHitTypeRatesToAtBats(rawResult)
         }
     }
@@ -1053,10 +1054,10 @@ class PitchEnvironmentTuner {
         next.tuning!.contactQuality.tripleOutcomeScale = clamp(next.tuning!.contactQuality.tripleOutcomeScale, ctx.tripleMin, ctx.tripleMax)
         next.tuning!.contactQuality.homeRunOutcomeScale = clamp(next.tuning!.contactQuality.homeRunOutcomeScale, ctx.homeRunMin, ctx.homeRunMax)
 
-        next.tuning!.swing.pitchQualityZoneSwingEffect = clamp(next.tuning!.swing.pitchQualityZoneSwingEffect, -250, 250)
-        next.tuning!.swing.pitchQualityChaseSwingEffect = clamp(next.tuning!.swing.pitchQualityChaseSwingEffect, -250, 250)
-        next.tuning!.swing.disciplineZoneSwingEffect = clamp(next.tuning!.swing.disciplineZoneSwingEffect, -250, 250)
-        next.tuning!.swing.disciplineChaseSwingEffect = clamp(next.tuning!.swing.disciplineChaseSwingEffect, -250, 250)
+        next.tuning!.swing.pitchQualityZoneSwingEffect = clamp(next.tuning!.swing.pitchQualityZoneSwingEffect, -0.95, 4)
+        next.tuning!.swing.pitchQualityChaseSwingEffect = clamp(next.tuning!.swing.pitchQualityChaseSwingEffect, -0.95, 4)
+        next.tuning!.swing.disciplineZoneSwingEffect = clamp(next.tuning!.swing.disciplineZoneSwingEffect, -0.95, 4)
+        next.tuning!.swing.disciplineChaseSwingEffect = clamp(next.tuning!.swing.disciplineChaseSwingEffect, -0.95, 4)
         next.tuning!.swing.walkRateScale = clamp(next.tuning!.swing.walkRateScale, ctx.walkMin, ctx.walkMax)
 
         next.tuning!.contact.pitchQualityContactEffect = clamp(next.tuning!.contact.pitchQualityContactEffect, ctx.contactMin, ctx.contactMax)
@@ -1479,11 +1480,13 @@ class RatingTuner {
             if (scenario === "lock-so") {
                 add("soPercent", 0.008, 10)
                 add("bbPercent", 0.012, 1)
+                add("avg", 0.018, 1)
             }
 
             if (scenario === "lock-bb") {
                 add("bbPercent", 0.006, 10)
                 add("soPercent", 0.012, 1)
+                add("obp", 0.018, 1)
             }
 
             if (scenario === "avg-obp") {
@@ -1491,6 +1494,8 @@ class RatingTuner {
                 add("bbPercent", 0.008, 2)
                 add("avg", 0.012, 5)
                 add("obp", 0.014, 5)
+                add("babip", 0.014, 4)
+                add("singlePercent", 0.012, 2)
             }
 
             if (scenario === "slg-ops") {
@@ -1498,8 +1503,11 @@ class RatingTuner {
                 add("bbPercent", 0.010, 2)
                 add("avg", 0.018, 1)
                 add("obp", 0.018, 1)
-                add("slg", 0.025, 5)
-                add("ops", 0.030, 5)
+                add("slg", 0.025, 4)
+                add("ops", 0.030, 2)
+                add("doublePercent", 0.008, 4)
+                add("triplePercent", 0.003, 2)
+                add("homeRunPercent", 0.006, 5)
             }
         }
 
@@ -1507,17 +1515,25 @@ class RatingTuner {
             if (scenario === "lock-so") {
                 add("soPercent", 0.008, 10)
                 add("bbPercent", 0.012, 1)
+                add("avg", 0.018, 1)
             }
 
             if (scenario === "lock-bb") {
                 add("bbPercent", 0.006, 10)
                 add("soPercent", 0.012, 1)
+                add("obp", 0.018, 1)
             }
 
             if (scenario === "era-hr") {
                 add("soPercent", 0.010, 2)
                 add("bbPercent", 0.008, 2)
                 add("era", 0.45, 5)
+                add("avg", 0.018, 2)
+                add("obp", 0.020, 2)
+                add("slg", 0.035, 3)
+                add("babip", 0.018, 2)
+                add("doublePercent", 0.010, 2)
+                add("triplePercent", 0.003, 1)
                 add("homeRunPercent", 0.006, 5)
             }
         }
@@ -1597,12 +1613,23 @@ class RatingTuner {
             `hOBP=${f(diff.hitter?.obp)}`,
             `hSLG=${f(diff.hitter?.slg)}`,
             `hOPS=${f(diff.hitter?.ops)}`,
+            `hBABIP=${f(diff.hitter?.babip)}`,
+            `h1B=${f(diff.hitter?.singlePercent)}`,
+            `h2B=${f(diff.hitter?.doublePercent)}`,
+            `h3B=${f(diff.hitter?.triplePercent)}`,
+            `hHR=${f(diff.hitter?.homeRunPercent)}`,
             `hSO=${f(diff.hitter?.soPercent)}`,
             `hBB=${f(diff.hitter?.bbPercent)}`,
             `pERA=${f(diff.pitcher?.era)}`,
+            `pAVG=${f(diff.pitcher?.avg)}`,
+            `pOBP=${f(diff.pitcher?.obp)}`,
+            `pSLG=${f(diff.pitcher?.slg)}`,
+            `pBABIP=${f(diff.pitcher?.babip)}`,
+            `p2B=${f(diff.pitcher?.doublePercent)}`,
+            `p3B=${f(diff.pitcher?.triplePercent)}`,
+            `pHR=${f(diff.pitcher?.homeRunPercent)}`,
             `pSO=${f(diff.pitcher?.soPercent)}`,
             `pBB=${f(diff.pitcher?.bbPercent)}`,
-            `pHR=${f(diff.pitcher?.homeRunPercent)}`,
             `T[hCt=${candidate.hitting.contactScale} hDisc=${candidate.hitting.plateDisciplineScale} hGap=${candidate.hitting.gapPowerScale} hHR=${candidate.hitting.homerunPowerScale} hSplit=${candidate.hitting.splitScale} pPow=${candidate.pitching.powerScale} pCtrl=${candidate.pitching.controlScale} pMov=${candidate.pitching.movementScale} pSplit=${candidate.pitching.splitScale}]`
         )
     }

@@ -28,5 +28,6 @@ declare class RunnerService {
     validateRunners(firstId: string, secondId: string, thirdId: string): void;
     validateRunnerResult(runnerResult: RunnerResult): void;
     applyMinMaxToNumber(num: any, min: any, max: any): any;
+    private getRunnerEventForAdditionalMove;
 }
 export { RunnerService };

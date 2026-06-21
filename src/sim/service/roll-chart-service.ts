@@ -319,13 +319,10 @@ class RollChartService {
 
 
 
-    public buildHitterPowerRollInput(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterChange:HitterChange): PowerRollInput {
+    public buildHitterPowerRollInput(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange): PowerRollInput {
+        let input: PowerRollInput = JSON.parse(JSON.stringify(pitchEnvironmentTarget.battedBall.powerRollInput))
 
-        //Start with league average
-        let input:PowerRollInput = JSON.parse(JSON.stringify(pitchEnvironmentTarget.battedBall.powerRollInput))
-
-        const out = (current:number) => {
-
+        const out = (current: number) => {
             let result = PlayerChange.applyNegativeChange(current, this._getAverage([
                 hitterChange.contactChange,
                 hitterChange.hrPowerChange,
@@ -334,52 +331,42 @@ class RollChartService {
 
             if (result >= 0) return result
             return 0
-
         }
 
-        const singles = (current:number) => {
-
+        const singles = (current: number) => {
             let result = PlayerChange.applyChange(current, this._getAverage([
+                hitterChange.contactChange,
                 hitterChange.speedChange
             ]))
 
             if (result >= 0) return result
             return 0
-
         }
 
-        const doubles = (current:number) => {
+        const doubles = (current: number) => {
+            let result = PlayerChange.applyChange(current, hitterChange.gapPowerChange)
 
+            if (result >= 0) return result
+            return 0
+        }
+
+        const triples = (current: number) => {
             let result = PlayerChange.applyChange(current, this._getAverage([
                 hitterChange.speedChange,
-                hitterChange.gapPowerChange,
+                hitterChange.gapPowerChange
             ]))
 
             if (result >= 0) return result
             return 0
         }
 
-        const triples = (current:number) => {
-
+        const hr = (current: number) => {
             let result = PlayerChange.applyChange(current, this._getAverage([
-                hitterChange.speedChange,
-                hitterChange.gapPowerChange,
+                hitterChange.hrPowerChange
             ]))
 
             if (result >= 0) return result
             return 0
-
-        }
-
-        const hr = (current:number) => {
-
-            let result = PlayerChange.applyChange(current, this._getAverage([
-                hitterChange.hrPowerChange,
-            ]))
-
-            if (result >= 0) return result
-            return 0
-
         }
 
         let outTotal = Math.round(out(input.out))
@@ -388,19 +375,14 @@ class RollChartService {
         let triplesTotal = Math.round(triples(input.triples))
         let hrTotal = Math.round(hr(input.hr))
 
-
-        // Ensure totals add up to 1000
         let total = outTotal + singlesTotal + doublesTotal + triplesTotal + hrTotal
 
         if (total > 1000) {
-            // Reduce out if total is more than 1000
-            outTotal -= (total - 1000)
-        } else if (total < 100) {
-            // Increase out if total is less than 1000
-            outTotal += (1000 - total)
+            outTotal -= total - 1000
+        } else if (total < 1000) {
+            outTotal += 1000 - total
         }
 
-        // Ensure outTotal does not become negative after adjustment
         outTotal = Math.max(0, outTotal)
 
         return {
@@ -410,7 +392,6 @@ class RollChartService {
             triples: triplesTotal,
             hr: hrTotal
         }
-
     }
 
     public buildPitcherPowerRollInput(pitchEnvironmentTarget:PitchEnvironmentTarget, pitcherChange:PitcherChange): PowerRollInput {

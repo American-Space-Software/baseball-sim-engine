@@ -372,30 +372,34 @@ class RunnerService {
         }
     }
 
-    runnerToBaseWithThrow(command:RunnerThrowCommand) {
+    runnerToBaseWithThrow(command: RunnerThrowCommand) {
+            if (!command.runnerEvent) return
 
-        if (command.runnerEvent) {
+            const runnerEvent = this.getRunnerEventForAdditionalMove(command.runnerEvents, command.runnerEvent, command.start, command.pitchIndex)
+            const allEvents = command.allEvents === command.runnerEvents ? command.runnerEvents : command.allEvents.concat(command.runnerEvents.filter(re => !command.allEvents.includes(re)))
 
-            command.runnerEvent.movement.start = command.start
+            runnerEvent.movement.start = command.start
 
             if (this.getThrowCount(command.runnerEvents) < 1) {
-    
-                let throwTo:GamePlayer = command.defense.players.find( p => p.currentPosition == this.getPositionCoveringBase(command.throwFrom.currentPosition, command.end))
-                let throwRoll:ThrowRoll = this.gameRolls.getThrowResult(command.gameRNG, command.chanceRunnerSafe)
-    
+                const throwTo: GamePlayer = command.defense.players.find(p => p.currentPosition == this.getPositionCoveringBase(command.throwFrom.currentPosition, command.end))
+
+                if (!throwTo) {
+                    throw new Error(`No fielder covering base ${command.end}`)
+                }
+
+                const throwRoll: ThrowRoll = this.gameRolls.getThrowResult(command.gameRNG, command.chanceRunnerSafe)
+
                 if (throwTo._id != command.throwFrom._id) {
-                    command.runnerEvent.throw = {
+                    runnerEvent.throw = {
                         result: throwRoll.result,
-                        from: { _id: command.throwFrom._id, position: command.throwFrom.currentPosition},
-                        to: { _id: throwTo._id, position: throwTo.currentPosition},
+                        from: { _id: command.throwFrom._id, position: command.throwFrom.currentPosition },
+                        to: { _id: throwTo._id, position: throwTo.currentPosition }
                     }
                 }
 
                 if (throwRoll.result == ThrowResult.OUT) {
-                    
-                    command.runnerEvent.eventType = command.eventTypeOut
+                    runnerEvent.eventType = command.eventTypeOut
 
-                    //Credit the thrower
                     if (throwTo._id != command.throwFrom._id) {
                         command.defensiveCredits.push({
                             _id: command.throwFrom._id,
@@ -407,73 +411,61 @@ class RunnerService {
                         command.hitterEvent.isFC = command.isFieldersChoice
                     }
 
-                    this.runnerIsOut(command.runnerResult, command.allEvents, command.defensiveCredits, throwTo, command.runnerEvent, this.getTotalOuts(command.runnerEvents), command.end)
+                    this.runnerIsOut(command.runnerResult, allEvents, command.defensiveCredits, throwTo, runnerEvent, this.getTotalOuts(allEvents) + 1, command.end)
 
-                } else {
-
-                    //Runner is safe. Move runner to base.
-                    this.runnerToBase(command.runnerResult, command.runnerEvent, command.start, command.end, command.eventType, command.isForce)
-
-                    //Was there an error? Lowest rolls
-                    if (throwRoll.roll < 10) {
-
-                        command.runnerEvent.isError = true
-
-                        let roll = throwRoll.roll
-
-                        //Was it on the throw or on the catch?
-                        let armChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, getAverage([command.throwFrom.hittingRatings.arm, command.throwFrom.hittingRatings.defense]))
-                        let receivingChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, command.throwFrom.hittingRatings.defense)
-
-                        roll = throwRoll.roll + (throwRoll.roll * (armChange * PLAYER_CHANGE_SCALE)) - (throwRoll.roll * (receivingChange * PLAYER_CHANGE_SCALE))
-
-
-                        if (roll >= 5 && throwTo._id != command.throwFrom._id) {
-
-                            //Thrower's fault
-                            command.defensiveCredits.push({
-                                _id: command.throwFrom._id,
-                                type: DefenseCreditType.ERROR
-                            })
-
-                        } else {
-                            //Receiver's fault
-                            command.defensiveCredits.push({
-                                _id: throwTo._id,
-                                type: DefenseCreditType.ERROR
-                            })
-                        }
-
-                        //Move all runnners up
-                        let errorEvents:RunnerEvent[] = this.initRunnerEvents(command.pitcher, 
-                            undefined,
-                            command.offense.players.find( p => p._id == command.runnerResult.first), 
-                            command.offense.players.find( p => p._id == command.runnerResult.second), 
-                            command.offense.players.find( p => p._id == command.runnerResult.third), 
-                            command.pitchIndex
-                        )
-            
-                        for (let ev of errorEvents) {
-                            ev.isError = true
-                        }
-
-
-                        this.advanceRunnersOneBase(command.runnerResult, errorEvents, false)
-
-                        command.runnerEvents.push(...this.filterNonEvents(errorEvents, undefined))
-
-                    } 
-
-                    command.runnerEvent.eventType = command.eventType
+                    return
                 }
 
-            } else {
-                this.runnerToBase(command.runnerResult, command.runnerEvent, command.start, command.end, command.eventType, command.isForce)
+                this.runnerToBase(command.runnerResult, runnerEvent, command.start, command.end, command.eventType, command.isForce)
+
+                if (throwRoll.roll < 10) {
+                    runnerEvent.isError = true
+
+                    let roll = throwRoll.roll
+
+                    const armChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, getAverage([command.throwFrom.hittingRatings.arm, command.throwFrom.hittingRatings.defense]))
+                    const receivingChange = PlayerChange.getChange(command.pitchEnvironmentTarget.avgRating, command.throwFrom.hittingRatings.defense)
+
+                    roll = throwRoll.roll + (throwRoll.roll * (armChange * PLAYER_CHANGE_SCALE)) - (throwRoll.roll * (receivingChange * PLAYER_CHANGE_SCALE))
+
+                    if (roll >= 5 && throwTo._id != command.throwFrom._id) {
+                        command.defensiveCredits.push({
+                            _id: command.throwFrom._id,
+                            type: DefenseCreditType.ERROR
+                        })
+                    } else {
+                        command.defensiveCredits.push({
+                            _id: throwTo._id,
+                            type: DefenseCreditType.ERROR
+                        })
+                    }
+
+                    const errorEvents: RunnerEvent[] = this.initRunnerEvents(
+                        command.pitcher,
+                        undefined,
+                        command.offense.players.find(p => p._id == command.runnerResult.first),
+                        command.offense.players.find(p => p._id == command.runnerResult.second),
+                        command.offense.players.find(p => p._id == command.runnerResult.third),
+                        command.pitchIndex
+                    )
+
+                    for (const ev of errorEvents) {
+                        ev.isError = true
+                    }
+
+                    this.advanceRunnersOneBase(command.runnerResult, errorEvents, false)
+
+                    command.runnerEvents.push(...this.filterNonEvents(errorEvents, undefined))
+                }
+
+                runnerEvent.eventType = command.eventType
+
+                return
             }
 
-        }
-        
+            this.runnerToBase(command.runnerResult, runnerEvent, command.start, command.end, command.eventType, command.isForce)
     }
+
 
     advanceRunnersOneBase(runnerResult:RunnerResult, events:RunnerEvent[], isForce:boolean) {
 
@@ -1417,6 +1409,31 @@ class RunnerService {
 
         return num
     }     
+
+
+    private getRunnerEventForAdditionalMove(runnerEvents: RunnerEvent[], runnerEvent: RunnerEvent, start: BaseResult, pitchIndex: number): RunnerEvent {
+            if (!runnerEvent) return runnerEvent
+
+            if (runnerEvent.movement?.end == undefined) {
+                return runnerEvent
+            }
+
+            const nextEvent: RunnerEvent = {
+                pitchIndex,
+                pitcher: runnerEvent.pitcher,
+                runner: runnerEvent.runner,
+                movement: {
+                    start,
+                    isOut: false
+                },
+                isScoringEvent: false,
+                isUnearned: false
+            }
+
+            runnerEvents.push(nextEvent)
+
+            return nextEvent
+    }
 
 }
 

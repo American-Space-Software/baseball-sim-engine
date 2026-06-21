@@ -1047,13 +1047,20 @@ class PlayerRatingService {
         const hr = Number((total as any).homeRuns ?? (total as any).hr ?? 0)
         const singles = Math.max(0, hits - doubles - triples - hr)
         const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
+        const ballsInPlay = Math.max(0, ab - so - hr)
 
         return {
-            pa: 1000,
+            pa,
             avg: safeDiv(hits, ab),
             obp: safeDiv(hits + bb + hbp, pa),
             slg: safeDiv(totalBases, ab),
             ops: safeDiv(hits + bb + hbp, pa) + safeDiv(totalBases, ab),
+            babip: safeDiv(hits - hr, ballsInPlay),
+            singlePercent: safeDiv(singles, pa),
+            doublePercent: safeDiv(doubles, pa),
+            triplePercent: safeDiv(triples, pa),
+            homeRunPercent: safeDiv(hr, pa),
+            xbhPercent: safeDiv(doubles + triples + hr, pa),
             soPercent: safeDiv(so, pa),
             bbPercent: safeDiv(bb, pa)
         }
@@ -1063,16 +1070,33 @@ class PlayerRatingService {
         const bf = Number((total as any).battersFaced ?? 0)
         const outs = Number((total as any).outs ?? 0)
         const er = Number((total as any).er ?? (total as any).earnedRuns ?? 0)
-        const so = Number((total as any).so ?? 0)
+        const hits = Number((total as any).hits ?? 0)
         const bb = Number((total as any).bb ?? 0)
+        const hbp = Number((total as any).hbp ?? 0)
+        const so = Number((total as any).so ?? 0)
+        const doubles = Number((total as any).doubles ?? 0)
+        const triples = Number((total as any).triples ?? 0)
         const hr = Number((total as any).homeRuns ?? (total as any).hr ?? 0)
+        const singles = Math.max(0, hits - doubles - triples - hr)
+        const ab = Math.max(0, bf - bb - hbp)
+        const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
+        const ballsInPlay = Math.max(0, ab - so - hr)
 
         return {
-            battersFaced: 1000,
+            battersFaced: bf,
             era: safeDiv(er * 27, outs),
+            avg: safeDiv(hits, ab),
+            obp: safeDiv(hits + bb + hbp, bf),
+            slg: safeDiv(totalBases, ab),
+            ops: safeDiv(hits + bb + hbp, bf) + safeDiv(totalBases, ab),
+            babip: safeDiv(hits - hr, ballsInPlay),
+            singlePercent: safeDiv(singles, bf),
+            doublePercent: safeDiv(doubles, bf),
+            triplePercent: safeDiv(triples, bf),
+            homeRunPercent: safeDiv(hr, bf),
+            xbhPercent: safeDiv(doubles + triples + hr, bf),
             soPercent: safeDiv(so, bf),
-            bbPercent: safeDiv(bb, bf),
-            homeRunPercent: safeDiv(hr, bf)
+            bbPercent: safeDiv(bb, bf)
         }
     }
 
@@ -1089,13 +1113,20 @@ class PlayerRatingService {
         const hr = Number(h.homeRuns ?? 0)
         const singles = Math.max(0, hits - doubles - triples - hr)
         const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
+        const ballsInPlay = Math.max(0, ab - so - hr)
 
         return {
-            pa: 1000,
+            pa,
             avg: safeDiv(hits, ab),
             obp: safeDiv(hits + bb + hbp, pa),
             slg: safeDiv(totalBases, ab),
             ops: safeDiv(hits + bb + hbp, pa) + safeDiv(totalBases, ab),
+            babip: safeDiv(hits - hr, ballsInPlay),
+            singlePercent: safeDiv(singles, pa),
+            doublePercent: safeDiv(doubles, pa),
+            triplePercent: safeDiv(triples, pa),
+            homeRunPercent: safeDiv(hr, pa),
+            xbhPercent: safeDiv(doubles + triples + hr, pa),
             soPercent: safeDiv(so, pa),
             bbPercent: safeDiv(bb, pa)
         }
@@ -1103,30 +1134,36 @@ class PlayerRatingService {
 
     private getPitcherRatingTarget(playerImportRaw: PlayerImportRaw): any {
         const p = playerImportRaw.pitching
-
-        const requireNumber = (value: any, key: string): number => {
-            const number = Number(value)
-
-            if (!Number.isFinite(number)) {
-                throw new Error(`Missing finite pitcher rating target field ${key} for ${playerImportRaw.playerId} ${playerImportRaw.firstName} ${playerImportRaw.lastName}`)
-            }
-
-            return number
-        }
-
-        const bf = requireNumber(p.battersFaced, "pitching.battersFaced")
-        const outs = requireNumber(p.outs, "pitching.outs")
-        const earnedRunsAllowed = requireNumber(p.earnedRunsAllowed, "pitching.earnedRunsAllowed")
-        const so = requireNumber(p.so, "pitching.so")
-        const bb = requireNumber(p.bbAllowed, "pitching.bbAllowed")
-        const hr = requireNumber(p.homeRunsAllowed, "pitching.homeRunsAllowed")
+        const bf = Number(p.battersFaced ?? 0)
+        const outs = Number(p.outs ?? 0)
+        const er = Number(p.earnedRunsAllowed ?? 0)
+        const hits = Number(p.hitsAllowed ?? 0)
+        const bb = Number(p.bbAllowed ?? 0)
+        const hbp = Number(p.hbpAllowed ?? 0)
+        const so = Number(p.so ?? 0)
+        const doubles = Number(p.doublesAllowed ?? 0)
+        const triples = Number(p.triplesAllowed ?? 0)
+        const hr = Number(p.homeRunsAllowed ?? 0)
+        const singles = Math.max(0, hits - doubles - triples - hr)
+        const ab = Math.max(0, bf - bb - hbp)
+        const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
+        const ballsInPlay = Math.max(0, ab - so - hr)
 
         return {
-            battersFaced: 1000,
-            era: earnedRunsAllowed * 27 / outs,
-            soPercent: so / bf,
-            bbPercent: bb / bf,
-            homeRunPercent: hr / bf
+            battersFaced: bf,
+            era: safeDiv(er * 27, outs),
+            avg: safeDiv(hits, ab),
+            obp: safeDiv(hits + bb + hbp, bf),
+            slg: safeDiv(totalBases, ab),
+            ops: safeDiv(hits + bb + hbp, bf) + safeDiv(totalBases, ab),
+            babip: safeDiv(hits - hr, ballsInPlay),
+            singlePercent: safeDiv(singles, bf),
+            doublePercent: safeDiv(doubles, bf),
+            triplePercent: safeDiv(triples, bf),
+            homeRunPercent: safeDiv(hr, bf),
+            xbhPercent: safeDiv(doubles + triples + hr, bf),
+            soPercent: safeDiv(so, bf),
+            bbPercent: safeDiv(bb, bf)
         }
     }
 
@@ -1150,9 +1187,16 @@ class PlayerRatingService {
 
         return (
             sq(diff.era) * 250000 +
+            sq(diff.avg) * 30000000 +
+            sq(diff.obp) * 30000000 +
+            sq(diff.slg) * 25000000 +
+            sq(diff.babip) * 30000000 +
+            sq(diff.singlePercent) * 15000000 +
+            sq(diff.doublePercent) * 20000000 +
+            sq(diff.triplePercent) * 120000000 +
+            sq(diff.homeRunPercent) * 60000000 +
             sq(diff.soPercent) * 60000000 +
-            sq(diff.bbPercent) * 60000000 +
-            sq(diff.homeRunPercent) * 60000000
+            sq(diff.bbPercent) * 60000000
         )
     }
 
@@ -1165,8 +1209,13 @@ class PlayerRatingService {
         return (
             sq(diff.avg) * 100000000 +
             sq(diff.obp) * 90000000 +
-            sq(diff.slg) * 100000000 +
-            sq(diff.ops) * 120000000 +
+            sq(diff.slg) * 70000000 +
+            sq(diff.ops) * 40000000 +
+            sq(diff.babip) * 70000000 +
+            sq(diff.singlePercent) * 30000000 +
+            sq(diff.doublePercent) * 50000000 +
+            sq(diff.triplePercent) * 200000000 +
+            sq(diff.homeRunPercent) * 80000000 +
             sq(diff.soPercent) * 60000000 +
             sq(diff.bbPercent) * 60000000
         )
