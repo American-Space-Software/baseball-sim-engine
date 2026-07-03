@@ -49,6 +49,7 @@ interface RunnerThrowCommand {
     defense: TeamInfo;
     offense: TeamInfo;
     throwFrom: GamePlayer;
+    throwTo: GamePlayer;
     chanceRunnerSafe: number;
     isForce: boolean;
     isFieldersChoice: boolean;

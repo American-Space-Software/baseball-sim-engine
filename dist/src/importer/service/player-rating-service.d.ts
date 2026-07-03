@@ -9,10 +9,10 @@ declare class PlayerRatingService {
     constructor(simService: SimService, statService: StatService, baselineGameService: BaselineGameService);
     static createPlayerFromImportRaw(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw): PlayerFromStatsCommand;
     static buildHittingRatings(command: PlayerFromStatsCommand): HittingRatings;
+    private static getRunningRatings;
+    private static getHitterPowerOutcomeCount;
     private static applyHittingSplit;
     static buildPitchRatings(command: PlayerFromStatsCommand): PitchRatings;
-    private static getHitterObp;
-    private static getHitterSlg;
     private static sumDeltas;
     static createPlayerFromStatsCommand(command: PlayerFromStatsCommand): {
         hittingRatings: HittingRatings;
@@ -22,6 +22,7 @@ declare class PlayerRatingService {
     private static applyHittingSplitScale;
     private static applyPitchingSplitScale;
     private static scaleRating;
+    private static getPitcherPowerOutcomeCount;
     private static applyPitchingSplit;
     private static getHitterContactProfile;
     private static getPitcherContactProfile;
@@ -51,12 +52,20 @@ declare class PlayerRatingService {
         target: any;
         diff: any;
         score: number;
+        results: any[];
     };
     private evaluatePlayerRating;
     private evaluateHitterRating;
+    private getEvaluationHitterTargetHandedness;
     private evaluatePitcherRating;
     private simHitterForRatingEvaluation;
     private simPitcherForRatingEvaluation;
+    private createHitterEvaluationDiagnostic;
+    private createPitcherEvaluationDiagnostic;
+    private addPreGameHitterEvaluationDiagnostic;
+    private addPostGameHitterEvaluationDiagnostic;
+    private addPlayResultToHitterEvaluationDiagnostic;
+    private addContactTypeToHitterEvaluationDiagnostic;
     private buildPlayerFromImportRawAndRatings;
     private getPlayerEvaluationRole;
     private getHitterRatingActual;

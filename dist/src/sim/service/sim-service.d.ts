@@ -18,6 +18,7 @@ declare class SimService {
     private createPlay;
     private createSimPitchCommand;
     private simPitchRolls;
+    private getPitchQualityBoundedChange;
     private getPlateLocation;
     private getZoneFromPlateLocation;
     private getPitchAnomalyResult;
@@ -27,12 +28,14 @@ declare class SimService {
     private getExpectedBasesForPlayResult;
     private validateNextHitterIsNotOnBase;
     private applyDefenseToPlayResult;
+    private getBattedBallCatchProbability;
     private getFielderWeights;
     private weightedPickPosition;
     private getShallowDeepFromY;
     private pickFielderFromLocation;
     private getOfficialPlayResult;
     getUpcomingMatchup(game: Game): UpcomingMatchup;
+    private isHitterSafeAtFirstOnNonFcGrounder;
 }
 declare class Matchup {
     static getMatchupHandedness(hitter: GamePlayer, pitcher: GamePlayer): MatchupHandedness;
@@ -41,13 +44,20 @@ declare class SimRolls {
     private rollChartService;
     constructor(rollChartService: RollChartService);
     getIntentZone(rng: () => number): PitchZone;
-    getHitQuality(gameRNG: () => number, pitchEnvironmentTarget: PitchEnvironmentTarget, pitchQualityChange: number, guessPitch: boolean, contact: Contact, playResult?: PlayResult): ContactQuality;
-    getSwingResult(gameRNG: () => number, hitterChange: HitterChange, pitchEnvironmentTarget: PitchEnvironmentTarget, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult;
+    getHitQuality(gameRNG: () => number, pitchEnvironmentTarget: PitchEnvironmentTarget, pitchQualityChange: number, guessPitch: boolean, contact: Contact, playResult?: PlayResult, hitterChange?: HitterChange): ContactQuality;
+    getSwingResult(gameRNG: () => number, hitterChange: HitterChange, pitcherChange: PitcherChange, pitchEnvironmentTarget: PitchEnvironmentTarget, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult;
     isInZone(gameRNG: () => number, locationQuality: number, inZoneRate: number): boolean;
     getFielder(gameRNG: () => number, pitchEnvironmentTarget: PitchEnvironmentTarget, hitterHandedness: Handedness): Position;
     getShallowDeep(gameRNG: any, pitchEnvironmentTarget: PitchEnvironmentTarget): ShallowDeep;
     getThrowResult(gameRNG: () => number, overallSafeChance: number): ThrowRoll;
     getStealResult(gameRNG: () => number): number;
+    private getPlateOutcomeChange;
+    private getChaseSwingPointsPerFullDisciplineChange;
+    private getContactPointsPerFullContactChange;
+    private getRateStdDev;
+    private getPitcherPowerContactPointsPerFullPowerChange;
+    getFullRatingChange(): number;
+    private getRateRange;
 }
 declare class GamePlayers {
     constructor();
@@ -82,6 +92,7 @@ declare class PlayerChange {
     static getChange(a: number, b: number): number;
     static getPitcherChange(pitchRatings: PitchRatings, laRating: number, hits: Handedness): PitcherChange;
     static getHitterChange(hittingRatings: HittingRatings, laRating: number, throws: Handedness): HitterChange;
+    static getQualityOfContactChange(hitterChange: HitterChange): number;
     static getClampedChange(avgRating: number, rating: number): number;
     static applyChanges(base: number, changes: number[]): number;
     static applyChange(value: number, change: number): number;

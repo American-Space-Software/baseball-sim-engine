@@ -8,12 +8,11 @@ declare class RollChartService {
     sortRollChart(rollChart: RollChart): void;
     diffRollChart(average: RollChart, override: RollChart): RollChart;
     applyChartDiffs(hitterDiff: RollChart, pitcherDiff: RollChart, average: RollChart): RollChart;
-    incDec(index: number, by: number, array: number[]): number[];
     buildHitterPowerRollInput(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange): PowerRollInput;
     buildPitcherPowerRollInput(pitchEnvironmentTarget: PitchEnvironmentTarget, pitcherChange: PitcherChange): PowerRollInput;
-    updatePowerRollInput(input: PowerRollInput, field: string, value: number): void;
-    updateContactTypeInput(input: ContactTypeRollInput, field: string, value: number): void;
+    private normalizePowerRollInput;
     getMatchupPowerRollChart(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange, pitcherChange: PitcherChange): RollChart;
+    private buildMatchupPowerRollInput;
     getMatchupContactRollChart(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterContactProfile: ContactProfile, pitcherContactProfile: ContactProfile): RollChart;
     getFirstRollIndex(chart: RollChart, result: string): number;
     private _getAverage;

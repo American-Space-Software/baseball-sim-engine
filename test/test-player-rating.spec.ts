@@ -1,5 +1,7 @@
 import assert from "assert"
 import seedrandom from "seedrandom"
+import fs from "fs"
+import path from "path"
 
 import type {
     PitchEnvironmentTarget,
@@ -17,13 +19,37 @@ import { PitchEnvironmentService } from "../src/importer/service/pitch-environme
 import { PlayerRatingService } from "../src/importer/service/player-rating-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 import { DownloaderService } from "../src/importer/service/downloader-service.js"
-import { Handedness, simService } from "../src/sim/index.js"
+import { importRatingTuning } from "../src/importer/index.js"
+import { Contact, Handedness, PitchCall, PlayResult, simService } from "../src/sim/index.js"
 
 const season = 2025
 const baseDataDir = "data"
 const gamesPerPlayer = 150
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
+
+const readJson = async <T>(filePath: string): Promise<T> => {
+    return JSON.parse(await fs.promises.readFile(filePath, "utf8"))
+}
+
+const fileExists = async (filePath: string): Promise<boolean> => {
+    try {
+        await fs.promises.access(filePath, fs.constants.F_OK)
+        return true
+    } catch {
+        return false
+    }
+}
+
+const ensureRatingTuning = async (): Promise<RatingTuning> => {
+    const ratingTuningPath = path.join(baseDataDir, String(season), "_ratings_tuning.json")
+
+    if (!(await fileExists(ratingTuningPath))) {
+        throw new Error(`Missing rating tuning file: ${ratingTuningPath}. Run npm run import:ratings ${season} first.`)
+    }
+
+    return readJson<RatingTuning>(ratingTuningPath)
+}
 
 const createServices = () => {
     const rollChartService = new RollChartService()
@@ -44,8 +70,14 @@ const createServices = () => {
     }
 }
 
+const baselineGameService = new BaselineGameService(simService)
+const downloaderService = new DownloaderService(baseDataDir, 1000)
+const players = await downloaderService.buildSeasonPlayerImports(season, new Set([]))
+const services = createServices()
+const ratingTuning = await ensureRatingTuning()
+
 const createTuning = (mutate?: (tuning: RatingTuning) => void): RatingTuning => {
-    const tuning = clone(PlayerRatingService.seedRatingTuning())
+    const tuning = clone(ratingTuning)
 
     if (mutate) {
         mutate(tuning)
@@ -53,11 +85,6 @@ const createTuning = (mutate?: (tuning: RatingTuning) => void): RatingTuning => 
 
     return tuning
 }
-
-const baselineGameService = new BaselineGameService(simService)
-const downloaderService = new DownloaderService(baseDataDir, 1000)
-const players = await downloaderService.buildSeasonPlayerImports(season, new Set([]))
-const services = createServices()
 
 const pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(
     season,
@@ -88,222 +115,261 @@ type ElasticityDiagnosticSpec = {
 
 class RatingTestHarness {
 
-    static readonly ratingLevels = [30, 50, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170]
-    static readonly gamesPerRating = 150
-    static readonly samplesPerRating = 5
+    static readonly ratingLevels = [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170]
+    static readonly compactRatingLevels = [30, 70, 100, 130, 170]
+    static readonly plateAppearancesPerRating = 1250
+    static readonly fullContextGamesPerRating = 25
+    static readonly realPlayerGames = 150
 
-    static readonly specs: ElasticityDiagnosticSpec[] = [
-        {
-            label: "HITTER contact",
-            side: "hitter",
-            stat: "contact",
-            metrics: [
-                { metric: "avg", expected: "up", primary: true, compressionThreshold: 0.025, excessiveThreshold: 0.120 },
-                { metric: "babip", expected: "up", primary: true, compressionThreshold: 0.020, excessiveThreshold: 0.110 },
-                { metric: "soPercent", expected: "down", primary: true, compressionThreshold: 0.020, excessiveThreshold: 0.120 },
-                { metric: "obp", expected: "up", compressionThreshold: 0.020, excessiveThreshold: 0.120 },
-                { metric: "ops", expected: "up", compressionThreshold: 0.050, excessiveThreshold: 0.250 }
-            ]
-        },
-        {
-            label: "HITTER plateDiscipline",
-            side: "hitter",
-            stat: "plateDiscipline",
-            metrics: [
-                { metric: "bbPercent", expected: "up", primary: true, compressionThreshold: 0.020, excessiveThreshold: 0.120 },
-                { metric: "obp", expected: "up", primary: true, compressionThreshold: 0.020, excessiveThreshold: 0.120 },
-                { metric: "soPercent", expected: "down", compressionThreshold: 0.010, excessiveThreshold: 0.100 },
-                { metric: "ops", expected: "up", compressionThreshold: 0.030, excessiveThreshold: 0.220 }
-            ]
-        },
-        {
-            label: "HITTER gapPower",
-            side: "hitter",
-            stat: "gapPower",
-            metrics: [
-                { metric: "doublePercent", expected: "up", primary: true, compressionThreshold: 0.010, excessiveThreshold: 0.080 },
-                { metric: "xbhPercent", expected: "up", primary: true, compressionThreshold: 0.015, excessiveThreshold: 0.120 },
-                { metric: "slg", expected: "up", primary: true, compressionThreshold: 0.040, excessiveThreshold: 0.250 },
-                { metric: "ops", expected: "up", compressionThreshold: 0.040, excessiveThreshold: 0.250 },
-                { metric: "triplePercent", expected: "up", compressionThreshold: 0.001, excessiveThreshold: 0.030 }
-            ]
-        },
-        {
-            label: "HITTER homerunPower",
-            side: "hitter",
-            stat: "homerunPower",
-            metrics: [
-                { metric: "homeRunPercent", expected: "up", primary: true, compressionThreshold: 0.015, excessiveThreshold: 0.100 },
-                { metric: "slg", expected: "up", primary: true, compressionThreshold: 0.050, excessiveThreshold: 0.300 },
-                { metric: "ops", expected: "up", compressionThreshold: 0.050, excessiveThreshold: 0.300 },
-                { metric: "xbhPercent", expected: "up", compressionThreshold: 0.015, excessiveThreshold: 0.120 }
-            ]
-        },
-        {
-            label: "PITCHER power",
-            side: "pitcher",
-            stat: "power",
-            metrics: [
-                { metric: "soPercent", expected: "up", primary: true, compressionThreshold: 0.020, excessiveThreshold: 0.120 },
-                { metric: "era", expected: "down", compressionThreshold: 0.300, excessiveThreshold: 3.000 },
-                { metric: "avg", expected: "down", compressionThreshold: 0.015, excessiveThreshold: 0.100 },
-                { metric: "ops", expected: "down", compressionThreshold: 0.035, excessiveThreshold: 0.250 }
-            ]
-        },
-        {
-            label: "PITCHER control",
-            side: "pitcher",
-            stat: "control",
-            metrics: [
-                { metric: "bbPercent", expected: "down", primary: true, compressionThreshold: 0.020, excessiveThreshold: 0.120 },
-                { metric: "obp", expected: "down", primary: true, compressionThreshold: 0.020, excessiveThreshold: 0.120 },
-                { metric: "era", expected: "down", compressionThreshold: 0.250, excessiveThreshold: 3.000 },
-                { metric: "ops", expected: "down", compressionThreshold: 0.030, excessiveThreshold: 0.220 }
-            ]
-        },
-        {
-            label: "PITCHER movement",
-            side: "pitcher",
-            stat: "movement",
-            metrics: [
-                { metric: "homeRunPercent", expected: "down", primary: true, compressionThreshold: 0.010, excessiveThreshold: 0.080 },
-                { metric: "slg", expected: "down", primary: true, compressionThreshold: 0.040, excessiveThreshold: 0.250 },
-                { metric: "babip", expected: "down", compressionThreshold: 0.015, excessiveThreshold: 0.100 },
-                { metric: "avg", expected: "down", compressionThreshold: 0.015, excessiveThreshold: 0.100 },
-                { metric: "ops", expected: "down", compressionThreshold: 0.040, excessiveThreshold: 0.250 },
-                { metric: "era", expected: "down", compressionThreshold: 0.300, excessiveThreshold: 3.000 }
-            ]
+    static forceGamePlayerRunningRatings(gamePlayer: any, rating: number, lever: "speed" | "steals"): void {
+        if (!gamePlayer?.hittingRatings) {
+            throw new Error("Cannot force running ratings on invalid game player")
         }
-    ]
 
-    static average(values: number[]): number {
-        assert.ok(values.length > 0, "Cannot average empty values")
-        return values.reduce((sum, value) => sum + value, 0) / values.length
+        gamePlayer.hittingRatings.speed = 100
+        gamePlayer.hittingRatings.steals = 100
+        gamePlayer.hittingRatings[lever] = rating
     }
 
-    static round(value: any, places = 3): number {
+    static forceAllGameRunningRatings(game: any, rating: number, lever: "speed" | "steals"): void {
+        for (const player of this.getAllGamePlayers(game)) {
+            if (player?.hittingRatings) {
+                this.forceGamePlayerRunningRatings(player, rating, lever)
+            }
+        }
+    }
+
+    static forceAllGameArmRatings(game: any, rating: number): void {
+        for (const player of this.getAllGamePlayers(game)) {
+            if (player?.hittingRatings) {
+                player.hittingRatings.arm = rating
+            }
+        }
+    }
+
+    static getRunningFullContextRows(): any[] {
+        const importPlayer = this.createAverageHitterPlayer()
+        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const player = this.buildPlayerFromRatings(importPlayer, baseRatings, false)
+        const rows: any[] = []
+
+        for (const lever of ["speed", "steals"] as const) {
+            for (const rating of this.ratingLevels) {
+                const rng = seedrandom(`running-context:${lever}:${rating}`)
+                let total: any = {}
+
+                for (let gameIndex = 0; gameIndex < this.fullContextGamesPerRating; gameIndex++) {
+                    const game = baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `running-context-${lever}-${rating}-${gameIndex}`)
+
+                    this.forceAllGameRunningRatings(game, rating, lever)
+
+                    while (!game.isComplete) {
+                        simService.simPitch(game, rng)
+                    }
+
+                    simService.finishGame(game)
+
+                    total = this.addDelta(total, this.aggregateGameHitterResults(game))
+                }
+
+                rows.push(this.formatHitterRow(lever, rating, this.getHitterActual(total)))
+            }
+        }
+
+        return rows
+    }
+
+    static getArmFullContextRows(): any[] {
+        const importPlayer = this.createAverageHitterPlayer()
+        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const player = this.buildPlayerFromRatings(importPlayer, baseRatings, false)
+        const rows: any[] = []
+
+        for (const rating of this.ratingLevels) {
+            const rng = seedrandom(`arm-context:${rating}`)
+            let total: any = {}
+
+            for (let gameIndex = 0; gameIndex < this.fullContextGamesPerRating; gameIndex++) {
+                const game = baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `arm-context-${rating}-${gameIndex}`)
+
+                this.forceAllGameArmRatings(game, rating)
+
+                while (!game.isComplete) {
+                    simService.simPitch(game, rng)
+                }
+
+                simService.finishGame(game)
+
+                total = this.addDelta(total, this.aggregateGameHitterResults(game))
+            }
+
+            rows.push(this.formatHitterRow("arm", rating, this.getHitterActual(total)))
+        }
+
+        return rows
+    }
+
+    static getRunningArmRangeRows(): any[] {
+        const runnerService = new RunnerService(new SimRolls(new RollChartService()))
+        const rows: any[] = []
+
+        for (const rating of this.ratingLevels) {
+            rows.push({
+                lever: "speed",
+                rating,
+                advance75: runnerService.getChanceRunnerSafe(pitchEnvironment, 100, rating, 75),
+                advance95: runnerService.getChanceRunnerSafe(pitchEnvironment, 100, rating, 95),
+                steal75: runnerService.getStolenBaseSafe(pitchEnvironment, 100, rating, 100, 75)
+            })
+
+            rows.push({
+                lever: "steals",
+                rating,
+                steal75: runnerService.getStolenBaseSafe(pitchEnvironment, 100, 100, rating, 75)
+            })
+
+            rows.push({
+                lever: "arm",
+                rating,
+                advanceAllowed75: runnerService.getChanceRunnerSafe(pitchEnvironment, rating, 100, 75),
+                advanceAllowed95: runnerService.getChanceRunnerSafe(pitchEnvironment, rating, 100, 95),
+                stealAllowed75: runnerService.getStolenBaseSafe(pitchEnvironment, rating, 100, 100, 75)
+            })
+        }
+
+        return rows
+    }
+
+    static getRunningArmSummaryRows(rows: any[]): any[] {
+        const output: any[] = []
+
+        for (const lever of [...new Set(rows.map(row => row.lever))]) {
+            const leverRows = rows.filter(row => row.lever === lever)
+            const low = leverRows.find(row => row.rating === 30)
+            const avg = leverRows.find(row => row.rating === 100)
+            const high = leverRows.find(row => row.rating === 170)
+
+            assert.ok(low, `${lever} missing 30 row`)
+            assert.ok(avg, `${lever} missing 100 row`)
+            assert.ok(high, `${lever} missing 170 row`)
+
+            output.push({
+                lever,
+                metric: "RUN/RBI/SB/CS",
+                r30: `${low.runs}/${low.rbi}/${low.sb}/${low.cs}`,
+                r100: `${avg.runs}/${avg.rbi}/${avg.sb}/${avg.cs}`,
+                r170: `${high.runs}/${high.rbi}/${high.sb}/${high.cs}`
+            })
+
+            output.push({
+                lever,
+                metric: "AVG/OBP/SLG",
+                r30: `${low.avg}/${low.obp}/${low.slg}`,
+                r100: `${avg.avg}/${avg.obp}/${avg.slg}`,
+                r170: `${high.avg}/${high.obp}/${high.slg}`
+            })
+
+            output.push({
+                lever,
+                metric: "1B/2B/3B/HR",
+                r30: `${low.singles}/${low.doubles}/${low.triples}/${low.hr}`,
+                r100: `${avg.singles}/${avg.doubles}/${avg.triples}/${avg.hr}`,
+                r170: `${high.singles}/${high.doubles}/${high.triples}/${high.hr}`
+            })
+        }
+
+        return output
+    }
+
+    static getRunningArmCompactRows(rows: any[]): any[] {
+        const output: any[] = []
+
+        for (const lever of [...new Set(rows.map(row => row.lever))]) {
+            const leverRows = rows.filter(row => row.lever === lever)
+            output.push(...this.getCompactRows(leverRows, ["pa", "runs", "rbi", "sb", "cs", "avg", "obp", "slg"]))
+        }
+
+        return output
+    }
+
+    static getRealPlayerRunningFieldingRows(): any[] {
+        const names = [
+            "Aaron Judge",
+            "Shohei Ohtani",
+            "Paul Skenes"
+        ]
+
+        return names.map(name => {
+            const player: any = this.findPlayer(name)
+            const ratings = this.getRatings(player, createTuning())
+            const hittingRatings = ratings.hittingRatings
+
+            const pa = Number(player.hitting?.pa ?? 0)
+            const ab = Number(player.hitting?.ab ?? 0)
+            const powerOutcomeCount = Math.max(0, ab - Number(player.hitting?.so ?? 0))
+            const sbAttempts = Number(player.running?.sbAttempts ?? 0)
+            const sb = Number(player.running?.sb ?? 0)
+            const cs = Math.max(0, sbAttempts - sb)
+
+            const fielding: any = player.fielding ?? {}
+            const chances = Number(fielding.errors ?? 0) + Number(fielding.assists ?? 0) + Number(fielding.putouts ?? 0)
+            const inningsAtPosition = Object.values(fielding.inningsAtPosition ?? {})
+                .map(value => Number(value))
+                .filter(value => Number.isFinite(value) && value > 0)
+                .reduce((sum, value) => sum + value, 0)
+
+            return {
+                player: name,
+                primaryPosition: player.primaryPosition,
+                speed: hittingRatings.speed,
+                steals: hittingRatings.steals,
+                defense: hittingRatings.defense,
+                arm: hittingRatings.arm,
+                sbPerPA: this.round(this.safeDiv(sb, pa)),
+                sbAttemptPerPA: this.round(this.safeDiv(sbAttempts, pa)),
+                sbSuccess: this.round(this.safeDiv(sb, sb + cs)),
+                triplesPerBIP: this.round(this.safeDiv(Number(player.hitting?.triples ?? 0), powerOutcomeCount)),
+                fieldingPct: this.round(this.safeDiv(chances - Number(fielding.errors ?? 0), chances)),
+                chancesPerInn: this.round(this.safeDiv(chances, inningsAtPosition)),
+                assistsPerInn: this.round(this.safeDiv(Number(fielding.assists ?? 0), inningsAtPosition)),
+                putoutsPerInn: this.round(this.safeDiv(Number(fielding.putouts ?? 0), inningsAtPosition)),
+                ofAssistPerInn: this.round(this.safeDiv(Number(fielding.outfieldAssists ?? 0), inningsAtPosition))
+            }
+        })
+    }
+
+    static round(value: any, places = 4): number {
         const n = Number(value)
         assert.ok(Number.isFinite(n), `Cannot round non-finite value: ${value}`)
         const factor = Math.pow(10, places)
         return Math.round(n * factor) / factor
     }
 
-    static assertAtLeast(actual: number, expected: number, label: string): void {
-        assert.ok(actual >= expected, `${label} expected >= ${expected}, got ${actual}`)
+    static maybeRound(value: any, places = 4): number | undefined {
+        const n = Number(value)
+        return Number.isFinite(n) ? this.round(n, places) : undefined
     }
 
-    static assertGreater(actual: number, expected: number, label: string): void {
-        assert.ok(actual > expected, `${label} expected > ${expected}, got ${actual}`)
+    static safeDiv(numerator: number, denominator: number): number {
+        return denominator !== 0 ? numerator / denominator : 0
     }
 
-    static splitWidth(a: number, b: number): number {
-        return Math.abs(Number(a) - Number(b))
-    }
-
-    static assertFiniteNumbers(value: any, path = "value"): void {
-        if (typeof value === "number") {
-            assert.ok(Number.isFinite(value), `${path} is not finite: ${value}`)
-            return
-        }
-
-        if (Array.isArray(value)) {
-            value.forEach((item, index) => this.assertFiniteNumbers(item, `${path}[${index}]`))
-            return
-        }
-
-        if (value && typeof value === "object") {
-            for (const key of Object.keys(value)) {
-                this.assertFiniteNumbers(value[key], `${path}.${key}`)
-            }
-        }
+    static printTable(title: string, rows: any[]): void {
+        console.log("")
+        console.log(title)
+        console.table(rows)
     }
 
     static findPlayer(name: string): PlayerImportRaw {
         const player = [...players.values()].find(player => `${player.firstName} ${player.lastName}` === name)
-
         assert.ok(player, `Player not found: ${name}`)
-
         return player
     }
 
     static getRatings(player: PlayerImportRaw, ratingTuning: RatingTuning): { hittingRatings: any, pitchRatings: any } {
         const command = PlayerRatingService.createPlayerFromImportRaw(pitchEnvironment, player)
-
         Object.assign(command, { ratingTuning })
-
         return PlayerRatingService.createPlayerFromStatsCommand(command)
-    }
-
-    static printPlayerDiagnostic(name: string, player: PlayerImportRaw): void {
-        const ratings = this.getRatings(player, createTuning())
-
-        console.log("")
-        console.log("============================================================")
-        console.log(`[PLAYER RATING REPORT] ${name}`)
-        console.log("============================================================")
-
-        console.log("[PLAYER IMPORT]", {
-            playerId: player.playerId,
-            name: `${player.firstName} ${player.lastName}`,
-            primaryPosition: player.primaryPosition,
-            bats: player.bats,
-            throws: player.throws,
-            age: player.age,
-            pa: player.hitting?.pa,
-            battersFaced: player.pitching?.battersFaced,
-            outs: player.pitching?.outs,
-            runs: player.hitting?.runs,
-            runsAllowed: player.pitching?.runsAllowed,
-            er: player.hitting?.er,
-            earnedRuns: player.hitting?.earnedRuns,
-            earnedRunsAllowed: player.pitching?.earnedRunsAllowed
-        })
-
-        console.log("[GENERATED RATINGS]", {
-            hitting: ratings.hittingRatings,
-            pitching: ratings.pitchRatings
-        })
-
-        const result = services.playerRatingService.evaluatePlayerRatings(
-            pitchEnvironment,
-            createTuning(),
-            [player],
-            seedrandom(`player-rating-diagnostic:${name}`),
-            gamesPerPlayer
-        )
-
-        console.log("[SIM SUMMARY]", {
-            gamesPerPlayer,
-            playerCount: result.actual.playerCount,
-            hitterCount: result.actual.hitterCount,
-            pitcherCount: result.actual.pitcherCount,
-            twoWayCount: result.actual.twoWayCount,
-            hitterScore: this.round(result.actual.hitterScore, 3),
-            pitcherScore: this.round(result.actual.pitcherScore, 3),
-            score: this.round(result.score, 3)
-        })
-
-        if (result.actual.hitterCount > 0) {
-            console.log("[HITTER SIM VS REAL]", {
-                count: result.actual.hitterCount,
-                avg: { actual: this.round(result.actual.hitter.avg), target: this.round(result.target.hitter.avg), diff: this.round(result.diff.hitter.avg) },
-                obp: { actual: this.round(result.actual.hitter.obp), target: this.round(result.target.hitter.obp), diff: this.round(result.diff.hitter.obp) },
-                slg: { actual: this.round(result.actual.hitter.slg), target: this.round(result.target.hitter.slg), diff: this.round(result.diff.hitter.slg) },
-                ops: { actual: this.round(result.actual.hitter.ops), target: this.round(result.target.hitter.ops), diff: this.round(result.diff.hitter.ops) },
-                soPercent: { actual: this.round(result.actual.hitter.soPercent), target: this.round(result.target.hitter.soPercent), diff: this.round(result.diff.hitter.soPercent) },
-                bbPercent: { actual: this.round(result.actual.hitter.bbPercent), target: this.round(result.target.hitter.bbPercent), diff: this.round(result.diff.hitter.bbPercent) }
-            })
-        }
-
-        if (result.actual.pitcherCount > 0) {
-            console.log("[PITCHER SIM VS REAL]", {
-                count: result.actual.pitcherCount,
-                era: { actual: this.round(result.actual.pitcher.era), target: this.round(result.target.pitcher.era), diff: this.round(result.diff.pitcher.era) },
-                soPercent: { actual: this.round(result.actual.pitcher.soPercent), target: this.round(result.target.pitcher.soPercent), diff: this.round(result.diff.pitcher.soPercent) },
-                bbPercent: { actual: this.round(result.actual.pitcher.bbPercent), target: this.round(result.target.pitcher.bbPercent), diff: this.round(result.diff.pitcher.bbPercent) },
-                homeRunPercent: { actual: this.round(result.actual.pitcher.homeRunPercent), target: this.round(result.target.pitcher.homeRunPercent), diff: this.round(result.diff.pitcher.homeRunPercent) }
-            })
-        }
     }
 
     static createAverageHitterPlayer(): PlayerImportRaw {
@@ -312,15 +378,11 @@ class RatingTestHarness {
 
         assert.ok(hitterReference, "Missing pitchEnvironment.importReference.hitter")
 
-        player.playerId = "average-hitter-elasticity"
+        player.playerId = "average-hitter-rating-test"
         player.firstName = "Average"
         player.lastName = "Hitter"
         player.hitting = clone(hitterReference)
-        player.pitching = {
-            ...clone(player.pitching),
-            battersFaced: 0,
-            outs: 0
-        }
+        player.pitching = { ...clone(player.pitching), battersFaced: 0, outs: 0 }
 
         return player
     }
@@ -331,17 +393,93 @@ class RatingTestHarness {
 
         assert.ok(pitcherReference, "Missing pitchEnvironment.importReference.pitcher")
 
-        player.playerId = "average-pitcher-elasticity"
+        player.playerId = "average-pitcher-rating-test"
         player.firstName = "Average"
         player.lastName = "Pitcher"
-        player.hitting = {
-            ...clone(player.hitting),
-            pa: 0,
-            ab: 0
-        }
+        player.hitting = { ...clone(player.hitting), pa: 0, ab: 0 }
         player.pitching = clone(pitcherReference)
 
         return player
+    }
+
+    static buildPlayerFromRatings(playerImportRaw: PlayerImportRaw, ratings: { hittingRatings: any, pitchRatings: any }, forcePitcher = false): Player {
+        const isStarter = Number(playerImportRaw.pitching?.starts ?? 0) > 0
+
+        return {
+            _id: playerImportRaw.playerId,
+            firstName: playerImportRaw.firstName,
+            lastName: playerImportRaw.lastName,
+            get fullName() { return `${this.firstName} ${this.lastName}` },
+            get displayName() { return this.fullName },
+            primaryPosition: forcePitcher ? "P" : playerImportRaw.primaryPosition === "P" ? "1B" : playerImportRaw.primaryPosition,
+            secondaryPositions: playerImportRaw.secondaryPositions ?? [],
+            zodiacSign: "Aries",
+            throws: playerImportRaw.throws,
+            hits: playerImportRaw.bats,
+            isRetired: false,
+            stamina: forcePitcher ? 1 : 0,
+            maxPitchCount: forcePitcher ? (isStarter ? 100 : 30) : 0,
+            overallRating: 100,
+            hittingRatings: clone(ratings.hittingRatings),
+            pitchRatings: clone(ratings.pitchRatings),
+            age: playerImportRaw.age
+        } as Player
+    }
+
+    static findGamePlayer(game: any, playerId: string): any {
+        return game.away.players.find((player: any) => player._id === playerId) ?? game.home.players.find((player: any) => player._id === playerId)
+    }
+
+    static getPlayerTeam(game: any, playerId: string): any {
+        return game.away.players.find((player: any) => player._id === playerId) ? game.away : game.home
+    }
+
+    static getOpponentTeam(game: any, playerId: string): any {
+        return this.getPlayerTeam(game, playerId) === game.away ? game.home : game.away
+    }
+
+    static forceOpponentDefense(game: any, hitterPlayerId: string, defenseRating: number): void {
+        const defense = this.getOpponentTeam(game, hitterPlayerId)
+
+        for (const player of defense.players) {
+            if (player.hittingRatings) {
+                player.hittingRatings.defense = defenseRating
+            }
+        }
+    }
+
+    static getAllGamePlayers(game: any): any[] {
+        return [...(game.away?.players ?? []), ...(game.home?.players ?? [])]
+    }
+
+    static forceAllGameHitterRatings(game: any, rating: number, stat: HitterElasticityStat): void {
+        for (const player of this.getAllGamePlayers(game)) {
+            if (player?.hittingRatings?.vsR && player?.hittingRatings?.vsL) {
+                this.forceGamePlayerHitterRatings(player, rating, stat)
+            }
+        }
+    }
+
+    static forceAllGameDefenseRatings(game: any, rating: number): void {
+        for (const player of this.getAllGamePlayers(game)) {
+            if (player?.hittingRatings) {
+                player.hittingRatings.defense = rating
+            }
+        }
+    }
+
+    static aggregateGameHitterResults(game: any): any {
+        let total: any = {}
+
+        for (const player of this.getAllGamePlayers(game)) {
+            const snapshot = this.getHitResultSnapshot(player)
+
+            if (snapshot.pa > 0) {
+                total = this.addDelta(total, snapshot)
+            }
+        }
+
+        return total
     }
 
     static forceHitterRatings(baseRatings: any, rating: number, stat: HitterElasticityStat): any {
@@ -377,121 +515,80 @@ class RatingTestHarness {
         return ratings
     }
 
-    static buildPlayerFromRatings(playerImportRaw: PlayerImportRaw, ratings: { hittingRatings: any, pitchRatings: any }, forcePitcher = false): Player {
-        const isPitcher = forcePitcher
-        const isStarter = Number(playerImportRaw.pitching?.starts ?? 0) > 0
+    static forceGamePlayerHitterRatings(gamePlayer: any, rating: number, stat: HitterElasticityStat): void {
+        if (!gamePlayer?.hittingRatings?.vsR || !gamePlayer?.hittingRatings?.vsL) {
+            throw new Error("Cannot force hitter ratings on invalid game player")
+        }
+
+        for (const key of ["contact", "plateDiscipline", "gapPower", "homerunPower"] as const) {
+            gamePlayer.hittingRatings.vsR[key] = 100
+            gamePlayer.hittingRatings.vsL[key] = 100
+        }
+
+        gamePlayer.hittingRatings.vsR[stat] = rating
+        gamePlayer.hittingRatings.vsL[stat] = rating
+
+        gamePlayer.hitterChange = {
+            vsL: PlayerChange.getHitterChange(gamePlayer.hittingRatings, pitchEnvironment.avgRating, Handedness.L),
+            vsR: PlayerChange.getHitterChange(gamePlayer.hittingRatings, pitchEnvironment.avgRating, Handedness.R)
+        }
+    }
+
+    static getHitResultSnapshot(gamePlayer: any): any {
+        const hitResult = gamePlayer?.hitResult ?? {}
 
         return {
-            _id: playerImportRaw.playerId,
-            firstName: playerImportRaw.firstName,
-            lastName: playerImportRaw.lastName,
-            get fullName() { return `${this.firstName} ${this.lastName}` },
-            get displayName() { return this.fullName },
-            primaryPosition: isPitcher ? "P" : playerImportRaw.primaryPosition,
-            secondaryPositions: playerImportRaw.secondaryPositions ?? [],
-            zodiacSign: "Aries",
-            throws: playerImportRaw.throws,
-            hits: playerImportRaw.bats,
-            isRetired: false,
-            stamina: isPitcher ? 1 : 0,
-            maxPitchCount: isPitcher ? (isStarter ? 100 : 30) : 0,
-            overallRating: 100,
-            hittingRatings: clone(ratings.hittingRatings),
-            pitchRatings: clone(ratings.pitchRatings),
-            age: playerImportRaw.age
-        } as Player
+            pa: Number(hitResult.pa ?? 0),
+            atBats: Number(hitResult.atBats ?? hitResult.ab ?? 0),
+            hits: Number(hitResult.hits ?? 0),
+            bb: Number(hitResult.bb ?? 0),
+            so: Number(hitResult.so ?? 0),
+            hbp: Number(hitResult.hbp ?? 0),
+            doubles: Number(hitResult.doubles ?? 0),
+            triples: Number(hitResult.triples ?? 0),
+            homeRuns: Number(hitResult.homeRuns ?? hitResult.hr ?? 0),
+            runs: Number(hitResult.runs ?? 0),
+            rbi: Number(hitResult.rbi ?? hitResult.runsBattedIn ?? 0),
+            stolenBases: Number(hitResult.stolenBases ?? hitResult.sb ?? 0),
+            caughtStealing: Number(hitResult.caughtStealing ?? hitResult.cs ?? 0)
+        }
     }
 
-    static findGamePlayer(game: any, playerId: string): any {
-        return game.away.players.find((player: any) => player._id === playerId) ?? game.home.players.find((player: any) => player._id === playerId)
+    static getPitchResultSnapshot(gamePlayer: any): any {
+        const pitchResult = gamePlayer?.pitchResult ?? {}
+
+        return {
+            battersFaced: Number(pitchResult.battersFaced ?? 0),
+            outs: Number(pitchResult.outs ?? 0),
+            er: Number(pitchResult.er ?? pitchResult.earnedRuns ?? 0),
+            hits: Number(pitchResult.hits ?? 0),
+            bb: Number(pitchResult.bb ?? 0),
+            so: Number(pitchResult.so ?? 0),
+            hbp: Number(pitchResult.hbp ?? 0),
+            doubles: Number(pitchResult.doubles ?? 0),
+            triples: Number(pitchResult.triples ?? 0),
+            homeRuns: Number(pitchResult.homeRuns ?? pitchResult.hr ?? 0)
+        }
     }
 
-    static assertForcedRatingSurvived(gamePlayer: any, ratings: any, side: ElasticitySide, stat: ElasticityStat): void {
-        assert.ok(gamePlayer, "Forced player was not found in game")
+    static addDelta(total: any, delta: any): any {
+        const output = clone(total ?? {})
 
-        if (side === "hitter") {
-            const hitterStat = stat as HitterElasticityStat
-            assert.equal(gamePlayer.hittingRatings.vsR[hitterStat], ratings.hittingRatings.vsR[hitterStat], `GamePlayer vsR ${hitterStat} was not preserved`)
-            assert.equal(gamePlayer.hittingRatings.vsL[hitterStat], ratings.hittingRatings.vsL[hitterStat], `GamePlayer vsL ${hitterStat} was not preserved`)
-            assert.equal(gamePlayer.hitterChange.vsR.contactChange, PlayerChange.getHitterChange(gamePlayer.hittingRatings, pitchEnvironment.avgRating, Handedness.R).contactChange)
-            assert.equal(gamePlayer.hitterChange.vsL.contactChange, PlayerChange.getHitterChange(gamePlayer.hittingRatings, pitchEnvironment.avgRating, Handedness.L).contactChange)
-            return
+        for (const key of Object.keys(delta)) {
+            output[key] = Number(output[key] ?? 0) + Number(delta[key] ?? 0)
         }
 
-        const pitcherStat = stat as PitcherElasticityStat
+        return output
+    }
 
-        if (pitcherStat === "power") {
-            assert.equal(gamePlayer.pitchRatings.power, ratings.pitchRatings.power, "GamePlayer pitcher power was not preserved")
-        } else {
-            assert.equal(gamePlayer.pitchRatings.vsR[pitcherStat], ratings.pitchRatings.vsR[pitcherStat], `GamePlayer vsR ${pitcherStat} was not preserved`)
-            assert.equal(gamePlayer.pitchRatings.vsL[pitcherStat], ratings.pitchRatings.vsL[pitcherStat], `GamePlayer vsL ${pitcherStat} was not preserved`)
+    static getDelta(before: any, after: any): any {
+        const output: any = {}
+
+        for (const key of Object.keys(after)) {
+            output[key] = Number(after[key] ?? 0) - Number(before[key] ?? 0)
         }
 
-        assert.equal(gamePlayer.pitcherChange.vsR.controlChange, PlayerChange.getPitcherChange(gamePlayer.pitchRatings, pitchEnvironment.avgRating, Handedness.R).controlChange)
-        assert.equal(gamePlayer.pitcherChange.vsL.controlChange, PlayerChange.getPitcherChange(gamePlayer.pitchRatings, pitchEnvironment.avgRating, Handedness.L).controlChange)
-    }
-
-    static evaluateForcedRatings(playerImportRaw: PlayerImportRaw, forcedRatings: any, seed: string, games: number, side: ElasticitySide, stat: ElasticityStat): any {
-        const player = this.buildPlayerFromRatings(playerImportRaw, forcedRatings, side === "pitcher")
-        const rng = seedrandom(seed)
-
-        return side === "hitter"
-            ? this.simForcedHitter(player, forcedRatings, rng, games, stat)
-            : this.simForcedPitcher(player, forcedRatings, rng, games, stat)
-    }
-
-    static simForcedHitter(player: Player, forcedRatings: any, rng: () => number, games: number, stat: ElasticityStat): any {
-        let total: any = {}
-
-        for (let i = 0; i < games; i++) {
-            const game = baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `elasticity-hitter-${player._id}-${i}`)
-
-            const gamePlayerBefore = this.findGamePlayer(game, player._id)
-            this.assertForcedRatingSurvived(gamePlayerBefore, forcedRatings, "hitter", stat)
-
-            while (!game.isComplete) {
-                simService.simPitch(game, rng)
-            }
-
-            simService.finishGame(game)
-
-            const gamePlayerAfter = this.findGamePlayer(game, player._id)
-
-            if (gamePlayerAfter?.hitResult) {
-                total = baselineGameService.mergeHitResults(total, gamePlayerAfter.hitResult)
-            }
-        }
-
-        return this.getHitterActual(total)
-    }
-
-    static simForcedPitcher(player: Player, forcedRatings: any, rng: () => number, games: number, stat: ElasticityStat): any {
-        let total: any = {}
-
-        for (let i = 0; i < games; i++) {
-            const game = baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `elasticity-pitcher-${player._id}-${i}`)
-
-            const gamePlayerBefore = this.findGamePlayer(game, player._id)
-            this.assertForcedRatingSurvived(gamePlayerBefore, forcedRatings, "pitcher", stat)
-
-            while (!game.isComplete) {
-                simService.simPitch(game, rng)
-            }
-
-            simService.finishGame(game)
-
-            const gamePlayerAfter = this.findGamePlayer(game, player._id)
-
-            if (gamePlayerAfter?.pitchResult) {
-                total = baselineGameService.mergePitchResults(total, gamePlayerAfter.pitchResult)
-            }
-        }
-
-        return this.getPitcherActual(total)
-    }
-
-    static safeDiv(numerator: number, denominator: number): number {
-        return denominator !== 0 ? numerator / denominator : 0
+        return output
     }
 
     static getHitterActual(total: any): any {
@@ -504,12 +601,28 @@ class RatingTestHarness {
         const doubles = Number(total.doubles ?? 0)
         const triples = Number(total.triples ?? 0)
         const hr = Number(total.homeRuns ?? total.hr ?? 0)
+        const runs = Number(total.runs ?? 0)
+        const rbi = Number(total.rbi ?? 0)
+        const stolenBases = Number(total.stolenBases ?? 0)
+        const caughtStealing = Number(total.caughtStealing ?? 0)
         const singles = Math.max(0, hits - doubles - triples - hr)
         const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
         const ballsInPlay = Math.max(0, ab - so - hr)
 
         return {
             pa,
+            ab,
+            hits,
+            singles,
+            doubles,
+            triples,
+            homeRuns: hr,
+            bb,
+            so,
+            runs,
+            rbi,
+            stolenBases,
+            caughtStealing,
             avg: this.safeDiv(hits, ab),
             obp: this.safeDiv(hits + bb + hbp, pa),
             slg: this.safeDiv(totalBases, ab),
@@ -521,7 +634,11 @@ class RatingTestHarness {
             homeRunPercent: this.safeDiv(hr, pa),
             xbhPercent: this.safeDiv(doubles + triples + hr, pa),
             soPercent: this.safeDiv(so, pa),
-            bbPercent: this.safeDiv(bb, pa)
+            bbPercent: this.safeDiv(bb, pa),
+            runsPerPA: this.safeDiv(runs, pa),
+            rbiPerPA: this.safeDiv(rbi, pa),
+            stolenBasePercent: this.safeDiv(stolenBases, pa),
+            caughtStealingPercent: this.safeDiv(caughtStealing, pa)
         }
     }
 
@@ -531,8 +648,8 @@ class RatingTestHarness {
         const er = Number(total.er ?? total.earnedRuns ?? 0)
         const hits = Number(total.hits ?? 0)
         const bb = Number(total.bb ?? 0)
-        const hbp = Number(total.hbp ?? 0)
         const so = Number(total.so ?? 0)
+        const hbp = Number(total.hbp ?? 0)
         const doubles = Number(total.doubles ?? 0)
         const triples = Number(total.triples ?? 0)
         const hr = Number(total.homeRuns ?? total.hr ?? 0)
@@ -543,6 +660,15 @@ class RatingTestHarness {
 
         return {
             battersFaced: bf,
+            outs,
+            er,
+            hits,
+            singles,
+            doubles,
+            triples,
+            homeRuns: hr,
+            bb,
+            so,
             era: this.safeDiv(er * 27, outs),
             avg: this.safeDiv(hits, ab),
             obp: this.safeDiv(hits + bb + hbp, bf),
@@ -559,560 +685,749 @@ class RatingTestHarness {
         }
     }
 
-    static makeRow(rating: number, actual: any): any {
+    static formatHitterRow(lever: string, rating: number, actual: any): any {
         return {
+            lever,
             rating,
-            avg: actual.avg,
-            obp: actual.obp,
-            slg: actual.slg,
-            ops: actual.ops,
-            babip: actual.babip,
-            singlePercent: actual.singlePercent,
-            doublePercent: actual.doublePercent,
-            triplePercent: actual.triplePercent,
-            homeRunPercent: actual.homeRunPercent,
-            xbhPercent: actual.xbhPercent,
-            soPercent: actual.soPercent,
-            bbPercent: actual.bbPercent,
-            era: actual.era
+            pa: actual.pa,
+            avg: this.round(actual.avg),
+            obp: this.round(actual.obp),
+            slg: this.round(actual.slg),
+            ops: this.round(actual.ops),
+            bb: this.round(actual.bbPercent),
+            so: this.round(actual.soPercent),
+            babip: this.round(actual.babip),
+            singles: this.round(actual.singlePercent),
+            doubles: this.round(actual.doublePercent),
+            triples: this.round(actual.triplePercent),
+            hr: this.round(actual.homeRunPercent),
+            xbh: this.round(actual.xbhPercent),
+            runs: this.round(actual.runsPerPA),
+            rbi: this.round(actual.rbiPerPA),
+            sb: this.round(actual.stolenBasePercent),
+            cs: this.round(actual.caughtStealingPercent)
         }
     }
 
-    static averageRows(rows: any[]): any {
-        const output: any = {}
+    static formatPitcherRow(lever: string, rating: number, actual: any): any {
+        return {
+            lever,
+            rating,
+            bf: actual.battersFaced,
+            era: this.round(actual.era),
+            avg: this.round(actual.avg),
+            obp: this.round(actual.obp),
+            slg: this.round(actual.slg),
+            ops: this.round(actual.ops),
+            bb: this.round(actual.bbPercent),
+            so: this.round(actual.soPercent),
+            babip: this.round(actual.babip),
+            singles: this.round(actual.singlePercent),
+            doubles: this.round(actual.doublePercent),
+            triples: this.round(actual.triplePercent),
+            hr: this.round(actual.homeRunPercent),
+            xbh: this.round(actual.xbhPercent)
+        }
+    }
 
-        assert.ok(rows.length > 0, "Cannot average empty rows")
+    static getHitterSummaryRows(rows: any[]): any[] {
+        const output: any[] = []
 
-        for (const key of Object.keys(rows[0])) {
-            if (key === "rating") {
-                output.rating = rows[0].rating
-            } else {
-                const values = rows.map(row => Number(row[key])).filter(value => Number.isFinite(value))
-                output[key] = values.length > 0 ? this.average(values) : NaN
-            }
+        for (const lever of [...new Set(rows.map(row => row.lever))]) {
+            const leverRows = rows.filter(row => row.lever === lever)
+            const low = leverRows.find(row => row.rating === 30)
+            const avg = leverRows.find(row => row.rating === 100)
+            const high = leverRows.find(row => row.rating === 170)
+
+            assert.ok(low, `${lever} missing 30 row`)
+            assert.ok(avg, `${lever} missing 100 row`)
+            assert.ok(high, `${lever} missing 170 row`)
+
+            output.push({ lever, metric: "AVG/OBP/SLG", r30: `${low.avg}/${low.obp}/${low.slg}`, r100: `${avg.avg}/${avg.obp}/${avg.slg}`, r170: `${high.avg}/${high.obp}/${high.slg}` })
+            output.push({ lever, metric: "BB/SO/BABIP", r30: `${low.bb}/${low.so}/${low.babip}`, r100: `${avg.bb}/${avg.so}/${avg.babip}`, r170: `${high.bb}/${high.so}/${high.babip}` })
+            output.push({ lever, metric: "1B/2B/HR/XBH", r30: `${low.singles}/${low.doubles}/${low.hr}/${low.xbh}`, r100: `${avg.singles}/${avg.doubles}/${avg.hr}/${avg.xbh}`, r170: `${high.singles}/${high.doubles}/${high.hr}/${high.xbh}` })
+            output.push({ lever, metric: "RUN/RBI/SB/CS", r30: `${low.runs}/${low.rbi}/${low.sb}/${low.cs}`, r100: `${avg.runs}/${avg.rbi}/${avg.sb}/${avg.cs}`, r170: `${high.runs}/${high.rbi}/${high.sb}/${high.cs}` })
         }
 
         return output
     }
 
-    static runSpec(spec: ElasticityDiagnosticSpec): string[] {
-        const importPlayer =
-            spec.side === "hitter"
-                ? this.createAverageHitterPlayer()
-                : this.createAveragePitcherPlayer()
+    static getPitcherSummaryRows(rows: any[]): any[] {
+        const output: any[] = []
 
+        for (const lever of [...new Set(rows.map(row => row.lever))]) {
+            const leverRows = rows.filter(row => row.lever === lever)
+            const low = leverRows.find(row => row.rating === 30)
+            const avg = leverRows.find(row => row.rating === 100)
+            const high = leverRows.find(row => row.rating === 170)
+
+            assert.ok(low, `${lever} missing 30 row`)
+            assert.ok(avg, `${lever} missing 100 row`)
+            assert.ok(high, `${lever} missing 170 row`)
+
+            output.push({ lever, metric: "ERA/AVG/OBP", r30: `${low.era}/${low.avg}/${low.obp}`, r100: `${avg.era}/${avg.avg}/${avg.obp}`, r170: `${high.era}/${high.avg}/${high.obp}` })
+            output.push({ lever, metric: "SLG/BB/SO", r30: `${low.slg}/${low.bb}/${low.so}`, r100: `${avg.slg}/${avg.bb}/${avg.so}`, r170: `${high.slg}/${high.bb}/${high.so}` })
+            output.push({ lever, metric: "1B/2B/HR/XBH", r30: `${low.singles}/${low.doubles}/${low.hr}/${low.xbh}`, r100: `${avg.singles}/${avg.doubles}/${avg.hr}/${avg.xbh}`, r170: `${high.singles}/${high.doubles}/${high.hr}/${high.xbh}` })
+        }
+
+        return output
+    }
+
+    static getCompactRows(rows: any[], columns: string[]): any[] {
+        return rows
+            .filter(row => this.compactRatingLevels.includes(row.rating))
+            .map(row => {
+                const output: any = {
+                    lever: row.lever,
+                    rating: row.rating
+                }
+
+                for (const column of columns) {
+                    output[column] = row[column]
+                }
+
+                return output
+            })
+    }
+
+    static getCompactHitterRows(rows: any[]): any[] {
+        const output: any[] = []
+
+        for (const lever of [...new Set(rows.map(row => row.lever))]) {
+            const leverRows = rows.filter(row => row.lever === lever)
+
+            if (lever === "contact") output.push(...this.getCompactRows(leverRows, ["pa", "avg", "obp", "slg", "babip", "so"]))
+            else if (lever === "plateDiscipline") output.push(...this.getCompactRows(leverRows, ["pa", "obp", "bb", "so", "avg"]))
+            else if (lever === "gapPower") output.push(...this.getCompactRows(leverRows, ["pa", "doubles", "triples", "hr", "xbh", "slg"]))
+            else if (lever === "homerunPower") output.push(...this.getCompactRows(leverRows, ["pa", "hr", "slg", "ops", "runs", "rbi"]))
+            else output.push(...this.getCompactRows(leverRows, ["pa", "avg", "obp", "slg", "babip"]))
+        }
+
+        return output
+    }
+
+    static getCompactPitcherRows(rows: any[]): any[] {
+        const output: any[] = []
+
+        for (const lever of [...new Set(rows.map(row => row.lever))]) {
+            const leverRows = rows.filter(row => row.lever === lever)
+
+            if (lever === "power") output.push(...this.getCompactRows(leverRows, ["bf", "era", "avg", "so", "bb", "babip"]))
+            else if (lever === "control") output.push(...this.getCompactRows(leverRows, ["bf", "era", "obp", "bb", "so", "avg"]))
+            else if (lever === "movement") output.push(...this.getCompactRows(leverRows, ["bf", "era", "slg", "hr", "doubles", "xbh"]))
+            else output.push(...this.getCompactRows(leverRows, ["bf", "era", "avg", "obp", "slg"]))
+        }
+
+        return output
+    }
+
+    static toPowerChartRates(input: any): any {
+        const out = Number(input.out ?? 0)
+        const singles = Number(input.singles ?? 0)
+        const doubles = Number(input.doubles ?? 0)
+        const triples = Number(input.triples ?? 0)
+        const hr = Number(input.hr ?? 0)
+        const total = out + singles + doubles + triples + hr
+        const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
+
+        return {
+            out: this.round(this.safeDiv(out, total)),
+            hit: this.round(this.safeDiv(singles + doubles + triples + hr, total)),
+            singles: this.round(this.safeDiv(singles, total)),
+            doubles: this.round(this.safeDiv(doubles, total)),
+            triples: this.round(this.safeDiv(triples, total)),
+            hr: this.round(this.safeDiv(hr, total)),
+            xbh: this.round(this.safeDiv(doubles + triples + hr, total)),
+            tb: this.round(this.safeDiv(totalBases, total))
+        }
+    }
+
+    static getPowerChartRatesForLever(side: ElasticitySide, stat: ElasticityStat, rating: number): any {
+        const rollChartService = new RollChartService()
+
+        if (side === "hitter") {
+            const hitter = this.createAverageHitterPlayer()
+            const baseRatings = this.getRatings(hitter, createTuning())
+            const ratings = this.forceHitterRatings(baseRatings, rating, stat as HitterElasticityStat)
+            const change = PlayerChange.getHitterChange(ratings.hittingRatings, pitchEnvironment.avgRating, Handedness.R)
+            return this.toPowerChartRates(rollChartService.buildHitterPowerRollInput(pitchEnvironment, change))
+        }
+
+        const pitcher = this.createAveragePitcherPlayer()
+        const baseRatings = this.getRatings(pitcher, createTuning())
+        const ratings = this.forcePitcherRatings(baseRatings, rating, stat as PitcherElasticityStat)
+        const change = PlayerChange.getPitcherChange(ratings.pitchRatings, pitchEnvironment.avgRating, Handedness.R)
+        return this.toPowerChartRates(rollChartService.buildPitcherPowerRollInput(pitchEnvironment, change))
+    }
+
+    static getUnderlyingPowerChartElasticityRows(): any[] {
+        const specs = [
+            { side: "hitter" as const, lever: "contact", primary: "out", secondary: "singles" },
+            { side: "hitter" as const, lever: "gapPower", primary: "doubles", secondary: "triples" },
+            { side: "hitter" as const, lever: "homerunPower", primary: "hr", secondary: "tb" },
+            { side: "pitcher" as const, lever: "power", primary: "out", secondary: "hit" },
+            { side: "pitcher" as const, lever: "control", primary: "out", secondary: "hit" },
+            { side: "pitcher" as const, lever: "movement", primary: "hr", secondary: "xbh" }
+        ]
+
+        return specs.map(spec => {
+            const low = this.getPowerChartRatesForLever(spec.side, spec.lever as ElasticityStat, 30)
+            const avg = this.getPowerChartRatesForLever(spec.side, spec.lever as ElasticityStat, 100)
+            const high = this.getPowerChartRatesForLever(spec.side, spec.lever as ElasticityStat, 170)
+
+            return {
+                side: spec.side,
+                lever: spec.lever,
+                primary: spec.primary,
+                p30: low[spec.primary],
+                p100: avg[spec.primary],
+                p170: high[spec.primary],
+                pDelta: this.round(high[spec.primary] - low[spec.primary]),
+                secondary: spec.secondary,
+                s30: low[spec.secondary],
+                s100: avg[spec.secondary],
+                s170: high[spec.secondary],
+                sDelta: this.round(high[spec.secondary] - low[spec.secondary])
+            }
+        })
+    }
+
+    static assertUnderlyingChanges(): void {
+        const rows = this.getUnderlyingChangeRows()
+
+        for (const row of rows) {
+            const expected = this.round((row.rating / 100) - 1)
+
+            if (row.side === "hitter") {
+                if (row.lever === "contact") assert.strictEqual(row.contact, expected)
+                if (row.lever === "plateDiscipline") assert.strictEqual(row.discipline, expected)
+                if (row.lever === "gapPower") assert.strictEqual(row.gap, expected)
+                if (row.lever === "homerunPower") assert.strictEqual(row.hr, expected)
+            }
+
+            if (row.side === "pitcher") {
+                if (row.lever === "power") assert.strictEqual(row.power, expected)
+                if (row.lever === "control") assert.strictEqual(row.control, expected)
+                if (row.lever === "movement") assert.strictEqual(row.movement, expected)
+            }
+        }
+    }
+
+    static getUnderlyingChangeRows(): any[] {
+        const hitter = this.createAverageHitterPlayer()
+        const hitterBase = this.getRatings(hitter, createTuning())
+        const pitcher = this.createAveragePitcherPlayer()
+        const pitcherBase = this.getRatings(pitcher, createTuning())
+        const rows: any[] = []
+
+        for (const rating of this.ratingLevels) {
+            for (const stat of ["contact", "plateDiscipline", "gapPower", "homerunPower"] as const) {
+                const ratings = this.forceHitterRatings(hitterBase, rating, stat)
+                const change = PlayerChange.getHitterChange(ratings.hittingRatings, pitchEnvironment.avgRating, Handedness.R)
+
+                rows.push({
+                    side: "hitter",
+                    lever: stat,
+                    rating,
+                    contact: this.maybeRound(change.contactChange),
+                    discipline: this.maybeRound(change.plateDisiplineChange),
+                    gap: this.maybeRound(change.gapPowerChange),
+                    hr: this.maybeRound(change.hrPowerChange)
+                })
+            }
+
+            for (const stat of ["power", "control", "movement"] as const) {
+                const ratings = this.forcePitcherRatings(pitcherBase, rating, stat)
+                const change = PlayerChange.getPitcherChange(ratings.pitchRatings, pitchEnvironment.avgRating, Handedness.R)
+
+                rows.push({
+                    side: "pitcher",
+                    lever: stat,
+                    rating,
+                    power: this.maybeRound(change.powerChange),
+                    control: this.maybeRound(change.controlChange),
+                    movement: this.maybeRound(change.movementChange)
+                })
+            }
+        }
+
+        return rows
+    }
+
+    static simHitterPlateAppearances(playerImportRaw: PlayerImportRaw, ratings: any, seed: string, targetPa = this.plateAppearancesPerRating, prepareGame?: (game: any, playerId: string) => void): any {
+        const player = this.buildPlayerFromRatings(playerImportRaw, ratings, false)
+        const rng = seedrandom(seed)
+        let total: any = {}
+        let gameIndex = 0
+
+        while (Number(total.pa ?? 0) < targetPa) {
+            const game = baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `pa-sweep-${player._id}-${gameIndex}`)
+
+            if (prepareGame) {
+                prepareGame(game, player._id)
+            }
+
+            let previous = this.getHitResultSnapshot(this.findGamePlayer(game, player._id))
+
+            while (!game.isComplete && Number(total.pa ?? 0) < targetPa) {
+                simService.simPitch(game, rng)
+
+                const current = this.getHitResultSnapshot(this.findGamePlayer(game, player._id))
+
+                if (current.pa > previous.pa) {
+                    total = this.addDelta(total, this.getDelta(previous, current))
+                }
+
+                previous = current
+            }
+
+            gameIndex++
+        }
+
+        return this.getHitterActual(total)
+    }
+
+    static simPitcherPlateAppearances(playerImportRaw: PlayerImportRaw, ratings: any, seed: string, targetPa = this.plateAppearancesPerRating): any {
+        const player = this.buildPlayerFromRatings(playerImportRaw, ratings, true)
+        const rng = seedrandom(seed)
+        let total: any = {}
+        let gameIndex = 0
+
+        while (Number(total.battersFaced ?? 0) < targetPa) {
+            const game = baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `pitcher-pa-sweep-${player._id}-${gameIndex}`)
+            let previous = this.getPitchResultSnapshot(this.findGamePlayer(game, player._id))
+
+            while (!game.isComplete && Number(total.battersFaced ?? 0) < targetPa) {
+                simService.simPitch(game, rng)
+
+                const current = this.getPitchResultSnapshot(this.findGamePlayer(game, player._id))
+
+                if (current.battersFaced > previous.battersFaced) {
+                    total = this.addDelta(total, this.getDelta(previous, current))
+                }
+
+                previous = current
+            }
+
+            gameIndex++
+        }
+
+        return this.getPitcherActual(total)
+    }
+
+    static simTeamHitterFullContextGames(stat: HitterElasticityStat, rating: number, seed: string, games = this.fullContextGamesPerRating): any {
+        const importPlayer = this.createAverageHitterPlayer()
+        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const player = this.buildPlayerFromRatings(importPlayer, baseRatings, false)
+        const rng = seedrandom(seed)
+        let total: any = {}
+
+        for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+            const game = baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `team-hitter-context-${stat}-${rating}-${gameIndex}`)
+
+            this.forceAllGameHitterRatings(game, rating, stat)
+
+            while (!game.isComplete) {
+                simService.simPitch(game, rng)
+            }
+
+            simService.finishGame(game)
+
+            total = this.addDelta(total, this.aggregateGameHitterResults(game))
+        }
+
+        return this.getHitterActual(total)
+    }
+
+    static simSingleAnchorHitterFullContextGames(stat: HitterElasticityStat, rating: number, seed: string, games = this.fullContextGamesPerRating): any {
+        return this.simTeamHitterFullContextGames(stat, rating, seed, games)
+    }
+
+    static getSingleLeverHitterPaRows(stat: HitterElasticityStat): any[] {
+        const importPlayer = this.createAverageHitterPlayer()
         const baseRatings = this.getRatings(importPlayer, createTuning())
         const rows: any[] = []
 
         for (const rating of this.ratingLevels) {
-            const sampleRows: any[] = []
-
-            for (let sample = 0; sample < this.samplesPerRating; sample++) {
-                const forcedRatings =
-                    spec.side === "hitter"
-                        ? this.forceHitterRatings(baseRatings, rating, spec.stat as HitterElasticityStat)
-                        : this.forcePitcherRatings(baseRatings, rating, spec.stat as PitcherElasticityStat)
-
-                const actual = this.evaluateForcedRatings(
-                    importPlayer,
-                    forcedRatings,
-                    `${spec.side}:${spec.stat}:sample:${sample}`,
-                    this.gamesPerRating,
-                    spec.side,
-                    spec.stat
-                )
-
-                sampleRows.push(this.makeRow(rating, actual))
-            }
-
-            rows.push(this.averageRows(sampleRows))
+            const ratings = this.forceHitterRatings(baseRatings, rating, stat)
+            const actual = this.simHitterPlateAppearances(importPlayer, ratings, `hitter-pa:${stat}:${rating}`)
+            rows.push(this.formatHitterRow(stat, rating, actual))
         }
 
-        return this.printDiagnostic(spec, rows)
+        return rows
     }
 
-    static printDiagnostic(spec: ElasticityDiagnosticSpec, rows: any[]): string[] {
-        const flags: string[] = []
-        const metricNames = spec.metrics.map(metric => metric.metric)
+    static getSingleLeverPitcherPaRows(stat: PitcherElasticityStat): any[] {
+        const importPlayer = this.createAveragePitcherPlayer()
+        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const rows: any[] = []
 
-        console.log("")
-        console.log("============================================================")
-        console.log(`[RATING ELASTICITY] ${spec.label}`)
-        console.log("============================================================")
-
-        for (const row of rows) {
-            console.log(`${row.rating}: ${metricNames.map(metric => `${metric}=${this.round(row[metric], 4)}`).join(" ")}`)
+        for (const rating of this.ratingLevels) {
+            const ratings = this.forcePitcherRatings(baseRatings, rating, stat)
+            const actual = this.simPitcherPlateAppearances(importPlayer, ratings, `pitcher-pa:${stat}:${rating}`)
+            rows.push(this.formatPitcherRow(stat, rating, actual))
         }
 
-        console.log("")
-        console.log(`[RATING ELASTICITY ADJACENT DELTAS] ${spec.label}`)
-
-        for (let i = 1; i < rows.length; i++) {
-            const previous = rows[i - 1]
-            const current = rows[i]
-
-            console.log(
-                `${previous.rating}->${current.rating}: ${metricNames
-                    .map(metric => `${metric}=${this.round(Number(current[metric]) - Number(previous[metric]), 4)}`)
-                    .join(" ")}`
-            )
-        }
-
-        console.log("")
-        console.log(`[RATING ELASTICITY WIDE DELTAS] ${spec.label}`)
-
-        const low = rows.find(row => row.rating === 70)
-        const averageRating = rows.find(row => row.rating === 100)
-        const elite = rows.find(row => row.rating === 150)
-        const superElite = rows.find(row => row.rating === 170)
-
-        assert.ok(low, `${spec.label} missing 70 row`)
-        assert.ok(averageRating, `${spec.label} missing 100 row`)
-        assert.ok(elite, `${spec.label} missing 150 row`)
-        assert.ok(superElite, `${spec.label} missing 170 row`)
-
-        for (const metricSpec of spec.metrics) {
-            const lowValue = Number(low[metricSpec.metric])
-            const averageValue = Number(averageRating[metricSpec.metric])
-            const eliteValue = Number(elite[metricSpec.metric])
-            const superEliteValue = Number(superElite[metricSpec.metric])
-
-            assert.ok(Number.isFinite(lowValue), `${spec.label} ${metricSpec.metric} low value is not finite`)
-            assert.ok(Number.isFinite(averageValue), `${spec.label} ${metricSpec.metric} average value is not finite`)
-            assert.ok(Number.isFinite(eliteValue), `${spec.label} ${metricSpec.metric} elite value is not finite`)
-            assert.ok(Number.isFinite(superEliteValue), `${spec.label} ${metricSpec.metric} super elite value is not finite`)
-
-            const lowToSuperElite = this.signedDelta(lowValue, superEliteValue, metricSpec.expected)
-
-            console.log(
-                `${metricSpec.metric}: ` +
-                `70->100=${this.round(this.signedDelta(lowValue, averageValue, metricSpec.expected), 4)} ` +
-                `100->150=${this.round(this.signedDelta(averageValue, eliteValue, metricSpec.expected), 4)} ` +
-                `100->170=${this.round(this.signedDelta(averageValue, superEliteValue, metricSpec.expected), 4)} ` +
-                `70->170=${this.round(lowToSuperElite, 4)}`
-            )
-
-            if (metricSpec.primary && lowToSuperElite <= 0) {
-                flags.push(`${spec.label} ${metricSpec.metric} has wrong wide direction from 70->170: ${this.round(lowToSuperElite, 4)}`)
-            }
-
-            if (metricSpec.primary && metricSpec.compressionThreshold !== undefined && lowToSuperElite > 0 && lowToSuperElite < metricSpec.compressionThreshold) {
-                flags.push(`${spec.label} ${metricSpec.metric} may be compressed from 70->170: ${this.round(lowToSuperElite, 4)} < ${metricSpec.compressionThreshold}`)
-            }
-
-            if (metricSpec.primary && metricSpec.excessiveThreshold !== undefined && lowToSuperElite > metricSpec.excessiveThreshold) {
-                flags.push(`${spec.label} ${metricSpec.metric} may be too sensitive from 70->170: ${this.round(lowToSuperElite, 4)} > ${metricSpec.excessiveThreshold}`)
-            }
-        }
-
-        if (flags.length > 0) {
-            console.log("")
-            console.log(`[RATING ELASTICITY DIAGNOSTIC FLAGS] ${spec.label}`)
-            for (const flag of flags) console.log(flag)
-        }
-
-        return flags
+        return rows
     }
 
-    static signedDelta(low: number, high: number, expected: ElasticityDirection): number {
-        const delta = high - low
-        return expected === "up" ? delta : -delta
+    static getSingleLeverTeamHitterContextRows(stat: HitterElasticityStat): any[] {
+        const rows: any[] = []
+
+        for (const rating of this.ratingLevels) {
+            const actual = this.simTeamHitterFullContextGames(stat, rating, `team-hitter-context:${stat}:${rating}`)
+            rows.push(this.formatHitterRow(stat, rating, actual))
+        }
+
+        return rows
+    }
+
+    static getSingleLeverAnchorContextRows(stat: HitterElasticityStat): any[] {
+        return this.getSingleLeverTeamHitterContextRows(stat)
+    }
+
+    static getDefenseFullContextRows(): any[] {
+        const importPlayer = this.createAverageHitterPlayer()
+        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const player = this.buildPlayerFromRatings(importPlayer, baseRatings, false)
+        const rows: any[] = []
+
+        for (const rating of this.ratingLevels) {
+            const rng = seedrandom(`team-defense-context:${rating}`)
+            let total: any = {}
+
+            for (let gameIndex = 0; gameIndex < this.fullContextGamesPerRating; gameIndex++) {
+                const game = baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `team-defense-context-${rating}-${gameIndex}`)
+
+                this.forceAllGameDefenseRatings(game, rating)
+
+                while (!game.isComplete) {
+                    simService.simPitch(game, rng)
+                }
+
+                simService.finishGame(game)
+
+                total = this.addDelta(total, this.aggregateGameHitterResults(game))
+            }
+
+            rows.push(this.formatHitterRow("teamDefense", rating, this.getHitterActual(total)))
+        }
+
+        return rows
+    }
+
+    static getRunningArmRows(): any[] {
+        const runnerService = new RunnerService(new SimRolls(new RollChartService()))
+        const rows: any[] = []
+
+        for (const rating of this.ratingLevels) {
+            rows.push({ lever: "speed", rating, advance75: runnerService.getChanceRunnerSafe(pitchEnvironment, 100, rating, 75), advance95: runnerService.getChanceRunnerSafe(pitchEnvironment, 100, rating, 95), steal75: runnerService.getStolenBaseSafe(pitchEnvironment, 100, rating, 100, 75) })
+            rows.push({ lever: "steals", rating, steal75: runnerService.getStolenBaseSafe(pitchEnvironment, 100, 100, rating, 75) })
+            rows.push({ lever: "arm", rating, advanceAllowed75: runnerService.getChanceRunnerSafe(pitchEnvironment, rating, 100, 75), advanceAllowed95: runnerService.getChanceRunnerSafe(pitchEnvironment, rating, 100, 95), stealAllowed75: runnerService.getStolenBaseSafe(pitchEnvironment, rating, 100, 100, 75) })
+        }
+
+        return rows
+    }
+
+    static getAllHitterPaRows(): any[] {
+        return [
+            ...this.getSingleLeverHitterPaRows("contact"),
+            ...this.getSingleLeverHitterPaRows("plateDiscipline"),
+            ...this.getSingleLeverHitterPaRows("gapPower"),
+            ...this.getSingleLeverHitterPaRows("homerunPower")
+        ]
+    }
+
+    static getAllPitcherPaRows(): any[] {
+        return [
+            ...this.getSingleLeverPitcherPaRows("power"),
+            ...this.getSingleLeverPitcherPaRows("control"),
+            ...this.getSingleLeverPitcherPaRows("movement")
+        ]
+    }
+
+    static getAllAnchorContextRows(): any[] {
+        return [
+            ...this.getSingleLeverTeamHitterContextRows("contact"),
+            ...this.getSingleLeverTeamHitterContextRows("plateDiscipline"),
+            ...this.getSingleLeverTeamHitterContextRows("gapPower"),
+            ...this.getSingleLeverTeamHitterContextRows("homerunPower")
+        ]
+    }
+
+    static getElasticityRows(rows: any[], specs: { lever: string, metric: string, expected: ElasticityDirection }[]): any[] {
+        return specs.map(spec => {
+            const leverRows = rows.filter(row => row.lever === spec.lever)
+            const low = leverRows.find(row => row.rating === 30)
+            const avg = leverRows.find(row => row.rating === 100)
+            const high = leverRows.find(row => row.rating === 170)
+
+            assert.ok(low, `${spec.lever} missing 30 row`)
+            assert.ok(avg, `${spec.lever} missing 100 row`)
+            assert.ok(high, `${spec.lever} missing 170 row`)
+
+            const lowValue = Number(low[spec.metric])
+            const avgValue = Number(avg[spec.metric])
+            const highValue = Number(high[spec.metric])
+            const delta = highValue - lowValue
+            const expectedOk = spec.expected === "up" ? delta > 0 : delta < 0
+
+            return {
+                lever: spec.lever,
+                metric: spec.metric,
+                expected: spec.expected,
+                r30: this.round(lowValue),
+                r100: this.round(avgValue),
+                r170: this.round(highValue),
+                delta: this.round(delta),
+                status: expectedOk ? "OK" : "CHECK"
+            }
+        })
+    }
+
+    static getHitterElasticityRows(rows: any[]): any[] {
+        return this.getElasticityRows(rows, [
+            { lever: "contact", metric: "avg", expected: "up" },
+            { lever: "contact", metric: "babip", expected: "up" },
+            { lever: "contact", metric: "so", expected: "down" },
+            { lever: "plateDiscipline", metric: "obp", expected: "up" },
+            { lever: "plateDiscipline", metric: "bb", expected: "up" },
+            { lever: "plateDiscipline", metric: "so", expected: "down" },
+            { lever: "gapPower", metric: "doubles", expected: "up" },
+            { lever: "gapPower", metric: "xbh", expected: "up" },
+            { lever: "homerunPower", metric: "hr", expected: "up" },
+            { lever: "homerunPower", metric: "slg", expected: "up" }
+        ])
+    }
+
+    static getPitcherElasticityRows(rows: any[]): any[] {
+        return this.getElasticityRows(rows, [
+            { lever: "power", metric: "so", expected: "up" },
+            { lever: "power", metric: "avg", expected: "down" },
+            { lever: "control", metric: "bb", expected: "down" },
+            { lever: "control", metric: "obp", expected: "down" },
+            { lever: "movement", metric: "hr", expected: "down" },
+            { lever: "movement", metric: "slg", expected: "down" }
+        ])
+    }
+
+    static formatHitterRatingsForTable(ratings: any): any {
+        return {
+            contactR: ratings.hittingRatings?.vsR?.contact,
+            contactL: ratings.hittingRatings?.vsL?.contact,
+            discR: ratings.hittingRatings?.vsR?.plateDiscipline,
+            discL: ratings.hittingRatings?.vsL?.plateDiscipline,
+            gapR: ratings.hittingRatings?.vsR?.gapPower,
+            gapL: ratings.hittingRatings?.vsL?.gapPower,
+            hrR: ratings.hittingRatings?.vsR?.homerunPower,
+            hrL: ratings.hittingRatings?.vsL?.homerunPower,
+            speed: ratings.hittingRatings?.speed,
+            steals: ratings.hittingRatings?.steals,
+            defense: ratings.hittingRatings?.defense,
+            arm: ratings.hittingRatings?.arm
+        }
+    }
+
+    static formatPitcherRatingsForTable(ratings: any): any {
+        return {
+            power: ratings.pitchRatings?.power,
+            controlR: ratings.pitchRatings?.vsR?.control,
+            controlL: ratings.pitchRatings?.vsL?.control,
+            movementR: ratings.pitchRatings?.vsR?.movement,
+            movementL: ratings.pitchRatings?.vsL?.movement
+        }
+    }
+
+    static formatActualForTable(actual: any): any {
+        return {
+            avg: this.maybeRound(actual.avg),
+            obp: this.maybeRound(actual.obp),
+            slg: this.maybeRound(actual.slg),
+            ops: this.maybeRound(actual.ops),
+            bb: this.maybeRound(actual.bbPercent),
+            so: this.maybeRound(actual.soPercent),
+            babip: this.maybeRound(actual.babip),
+            singles: this.maybeRound(actual.singlePercent),
+            doubles: this.maybeRound(actual.doublePercent),
+            triples: this.maybeRound(actual.triplePercent),
+            hr: this.maybeRound(actual.homeRunPercent),
+            xbh: this.maybeRound(actual.xbhPercent),
+            sb: this.maybeRound(actual.stolenBasePercent),
+            cs: this.maybeRound(actual.caughtStealingPercent),
+            sbCount: this.maybeRound(actual.stolenBases, 0),
+            csCount: this.maybeRound(actual.caughtStealing, 0),
+            era: this.maybeRound(actual.era)
+        }
+    }
+
+    static formatDiffForTable(actual: any, target: any): any {
+        return {
+            avg: this.maybeRound(Number(actual.avg) - Number(target.avg)),
+            obp: this.maybeRound(Number(actual.obp) - Number(target.obp)),
+            slg: this.maybeRound(Number(actual.slg) - Number(target.slg)),
+            ops: this.maybeRound(Number(actual.ops) - Number(target.ops)),
+            bb: this.maybeRound(Number(actual.bbPercent) - Number(target.bbPercent)),
+            so: this.maybeRound(Number(actual.soPercent) - Number(target.soPercent)),
+            babip: this.maybeRound(Number(actual.babip) - Number(target.babip)),
+            singles: this.maybeRound(Number(actual.singlePercent) - Number(target.singlePercent)),
+            doubles: this.maybeRound(Number(actual.doublePercent) - Number(target.doublePercent)),
+            triples: this.maybeRound(Number(actual.triplePercent) - Number(target.triplePercent)),
+            hr: this.maybeRound(Number(actual.homeRunPercent) - Number(target.homeRunPercent)),
+            xbh: this.maybeRound(Number(actual.xbhPercent) - Number(target.xbhPercent)),
+            sb: this.maybeRound(Number(actual.stolenBasePercent) - Number(target.stolenBasePercent)),
+            cs: this.maybeRound(Number(actual.caughtStealingPercent) - Number(target.caughtStealingPercent)),
+            sbCount: this.maybeRound(Number(actual.stolenBases) - Number(target.stolenBases), 0),
+            csCount: this.maybeRound(Number(actual.caughtStealing) - Number(target.caughtStealing), 0),
+            era: this.maybeRound(Number(actual.era) - Number(target.era))
+        }
+    }
+
+    static getRealPlayerDiagnostic(name: string): any {
+        const player = this.findPlayer(name)
+        const ratings = this.getRatings(player, createTuning())
+        const result = services.playerRatingService.evaluatePlayerRatings(
+            pitchEnvironment,
+            createTuning(),
+            [player],
+            seedrandom(`real-player-diagnostic:${name}`),
+            this.realPlayerGames
+        )
+
+        return {
+            name,
+            player,
+            ratings,
+            hitter: result.actual.hitterCount > 0 ? { actual: result.actual.hitter, target: result.target.hitter } : undefined,
+            pitcher: result.actual.pitcherCount > 0 ? { actual: result.actual.pitcher, target: result.target.pitcher } : undefined
+        }
     }
 
 }
 
 
-describe("Player Rating Real Player Diagnostics", () => {
 
-    it("should calculate pitch environment target from the full imported season", () => {
-        assert.ok(players.size > 100, `Expected full season player import. players=${players.size}`)
-        assert.ok(pitchEnvironment)
-        assert.ok(pitchEnvironment.outcome)
-        assert.ok(pitchEnvironment.pitch)
-        assert.ok(pitchEnvironment.swing)
-        assert.ok(pitchEnvironment.battedBall)
+describe("Player Rating Diagnostics", function () {
+
+
+    it("should print running, defense, steals, speed, and arm diagnostics", function () {
+        const defenseRows = RatingTestHarness.getDefenseFullContextRows()
+        const runningRows = RatingTestHarness.getRunningFullContextRows()
+        const armRows = RatingTestHarness.getArmFullContextRows()
+        const runningArmRows = [...runningRows, ...armRows]
+        const rangeRows = RatingTestHarness.getRunningArmRangeRows()
+        const generatedRows = RatingTestHarness.getRealPlayerRunningFieldingRows()
+
+        RatingTestHarness.printTable("[GENERATED RUNNING/FIELDING RATINGS]", generatedRows)
+
+        RatingTestHarness.printTable("[RUNNING/ARM FULL-CONTEXT SUMMARY]", RatingTestHarness.getRunningArmSummaryRows(runningArmRows))
+        RatingTestHarness.printTable("[RUNNING/ARM FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getRunningArmCompactRows(runningArmRows))
+
+        RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT SUMMARY]", RatingTestHarness.getHitterSummaryRows(defenseRows))
+        RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(defenseRows))
+
+        RatingTestHarness.printTable("[RUNNING/ARM DIRECT RANGE TABLE]", rangeRows)
+
+        assert.ok(generatedRows.length > 0)
+        assert.ok(runningRows.length > 0)
+        assert.ok(armRows.length > 0)
+        assert.ok(defenseRows.length > 0)
+        assert.ok(rangeRows.length > 0)
     })
 
-    it("should print Aaron Judge ratings and 150-game simulated results vs real stats", function () {
 
-        RatingTestHarness.printPlayerDiagnostic("Aaron Judge", RatingTestHarness.findPlayer("Aaron Judge"))
+    it("should validate underlying rating plumbing and print compact roll-chart elasticity", function () {
+        RatingTestHarness.assertUnderlyingChanges()
+
+        const powerChartRows = RatingTestHarness.getUnderlyingPowerChartElasticityRows()
+
+        RatingTestHarness.printTable("[UNDERLYING POWER CHART ELASTICITY]", powerChartRows)
+
+        assert.ok(powerChartRows.length > 0)
     })
 
-    it("should print Paul Skenes ratings and 150-game simulated results vs real stats", function () {
+    it("should print isolated hitter PA elasticity diagnostics", function () {
+        const rows = RatingTestHarness.getAllHitterPaRows()
 
-        RatingTestHarness.printPlayerDiagnostic("Paul Skenes", RatingTestHarness.findPlayer("Paul Skenes"))
+        RatingTestHarness.printTable("[ISOLATED HITTER PA ELASTICITY]", RatingTestHarness.getHitterElasticityRows(rows))
+        RatingTestHarness.printTable("[ISOLATED HITTER PA SUMMARY]", RatingTestHarness.getHitterSummaryRows(rows))
+        RatingTestHarness.printTable("[ISOLATED HITTER PA COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(rows))
+
+        assert.ok(rows.length > 0)
     })
 
-    it("should print Shohei Ohtani ratings and 150-game simulated results vs real stats", function () {
+    it("should print isolated pitcher PA elasticity diagnostics", function () {
+        const rows = RatingTestHarness.getAllPitcherPaRows()
 
-        RatingTestHarness.printPlayerDiagnostic("Shohei Ohtani", RatingTestHarness.findPlayer("Shohei Ohtani"))
+        RatingTestHarness.printTable("[ISOLATED PITCHER PA ELASTICITY]", RatingTestHarness.getPitcherElasticityRows(rows))
+        RatingTestHarness.printTable("[ISOLATED PITCHER PA SUMMARY]", RatingTestHarness.getPitcherSummaryRows(rows))
+        RatingTestHarness.printTable("[ISOLATED PITCHER PA COMPACT DETAIL]", RatingTestHarness.getCompactPitcherRows(rows))
+
+        assert.ok(rows.length > 0)
     })
-    
+
+    it("should print single-anchor hitter full-context game diagnostics", function () {
+        const rows = RatingTestHarness.getAllAnchorContextRows()
+
+        RatingTestHarness.printTable("[SINGLE-ANCHOR HITTER FULL-CONTEXT SUMMARY]", RatingTestHarness.getHitterSummaryRows(rows))
+        RatingTestHarness.printTable("[SINGLE-ANCHOR HITTER FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(rows))
+
+        assert.ok(rows.length > 0)
+    })
+
+    it("should print running and defense diagnostics", function () {
+        const defenseRows = RatingTestHarness.getDefenseFullContextRows()
+        const runningArmRows = RatingTestHarness.getRunningArmRows()
+
+        RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT SUMMARY]", RatingTestHarness.getHitterSummaryRows(defenseRows))
+        RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(defenseRows))
+        RatingTestHarness.printTable("[RUNNING/ARM RANGES]", runningArmRows)
+
+        assert.ok(defenseRows.length > 0)
+        assert.ok(runningArmRows.length > 0)
+    })
+
+    it("should compare generated real player builds against real life", function () {
+        const judge = RatingTestHarness.getRealPlayerDiagnostic("Aaron Judge")
+        const ohtani = RatingTestHarness.getRealPlayerDiagnostic("Shohei Ohtani")
+        const skenes = RatingTestHarness.getRealPlayerDiagnostic("Paul Skenes")
+
+        assert.ok(judge.hitter, "Missing Judge hitter diagnostic")
+        assert.ok(ohtani.hitter, "Missing Ohtani hitter diagnostic")
+        assert.ok(ohtani.pitcher, "Missing Ohtani pitcher diagnostic")
+        assert.ok(skenes.pitcher, "Missing Skenes pitcher diagnostic")
+
+        RatingTestHarness.printTable("[REAL PLAYER HITTER RATINGS]", [
+            { player: "Aaron Judge", ...RatingTestHarness.formatHitterRatingsForTable(judge.ratings) },
+            { player: "Shohei Ohtani", ...RatingTestHarness.formatHitterRatingsForTable(ohtani.ratings) }
+        ])
+
+        RatingTestHarness.printTable("[REAL PLAYER PITCHER RATINGS]", [
+            { player: "Shohei Ohtani", ...RatingTestHarness.formatPitcherRatingsForTable(ohtani.ratings) },
+            { player: "Paul Skenes", ...RatingTestHarness.formatPitcherRatingsForTable(skenes.ratings) }
+        ])
+
+        RatingTestHarness.printTable("[REAL PLAYER HITTER SIM VS REAL]", [
+            { player: "Aaron Judge", row: "SIM", ...RatingTestHarness.formatActualForTable(judge.hitter.actual) },
+            { player: "Aaron Judge", row: "REAL", ...RatingTestHarness.formatActualForTable(judge.hitter.target) },
+            { player: "Aaron Judge", row: "DIFF", ...RatingTestHarness.formatDiffForTable(judge.hitter.actual, judge.hitter.target) },
+
+            { player: "Shohei Ohtani H", row: "SIM", ...RatingTestHarness.formatActualForTable(ohtani.hitter.actual) },
+            { player: "Shohei Ohtani H", row: "REAL", ...RatingTestHarness.formatActualForTable(ohtani.hitter.target) },
+            { player: "Shohei Ohtani H", row: "DIFF", ...RatingTestHarness.formatDiffForTable(ohtani.hitter.actual, ohtani.hitter.target) }
+        ])
+
+        RatingTestHarness.printTable("[REAL PLAYER PITCHER SIM VS REAL]", [
+            { player: "Shohei Ohtani P", row: "SIM", ...RatingTestHarness.formatActualForTable(ohtani.pitcher.actual) },
+            { player: "Shohei Ohtani P", row: "REAL", ...RatingTestHarness.formatActualForTable(ohtani.pitcher.target) },
+            { player: "Shohei Ohtani P", row: "DIFF", ...RatingTestHarness.formatDiffForTable(ohtani.pitcher.actual, ohtani.pitcher.target) },
+
+            { player: "Paul Skenes", row: "SIM", ...RatingTestHarness.formatActualForTable(skenes.pitcher.actual) },
+            { player: "Paul Skenes", row: "REAL", ...RatingTestHarness.formatActualForTable(skenes.pitcher.target) },
+            { player: "Paul Skenes", row: "DIFF", ...RatingTestHarness.formatDiffForTable(skenes.pitcher.actual, skenes.pitcher.target) }
+        ])
+    })
+
+
+
 
 })
-
-describe("Player Rating Basic Generation", () => {
-
-    it("should generate deterministic ratings for the same real hitter input", () => {
-        const player = RatingTestHarness.findPlayer("Aaron Judge")
-
-        const first = RatingTestHarness.getRatings(player, createTuning())
-        const second = RatingTestHarness.getRatings(player, createTuning())
-
-        assert.deepEqual(first, second)
-    })
-
-    it("should generate complete finite ratings for Aaron Judge", () => {
-        const ratings = RatingTestHarness.getRatings(RatingTestHarness.findPlayer("Aaron Judge"), createTuning())
-
-        RatingTestHarness.assertFiniteNumbers(ratings.hittingRatings, "hittingRatings")
-        RatingTestHarness.assertFiniteNumbers(ratings.pitchRatings, "pitchRatings")
-    })
-
-    it("should generate complete finite ratings for Paul Skenes", () => {
-        const ratings = RatingTestHarness.getRatings(RatingTestHarness.findPlayer("Paul Skenes"), createTuning())
-
-        RatingTestHarness.assertFiniteNumbers(ratings.hittingRatings, "hittingRatings")
-        RatingTestHarness.assertFiniteNumbers(ratings.pitchRatings, "pitchRatings")
-    })
-
-    it("should generate at least three pitch types for Paul Skenes", () => {
-        const ratings = RatingTestHarness.getRatings(RatingTestHarness.findPlayer("Paul Skenes"), createTuning())
-
-        assert.ok(Array.isArray(ratings.pitchRatings.pitches))
-        RatingTestHarness.assertAtLeast(ratings.pitchRatings.pitches.length, 3, "pitch count")
-    })
-
-    it("should generate two-way finite ratings for Shohei Ohtani", () => {
-        const ratings = RatingTestHarness.getRatings(RatingTestHarness.findPlayer("Shohei Ohtani"), createTuning())
-
-        RatingTestHarness.assertFiniteNumbers(ratings.hittingRatings, "hittingRatings")
-        RatingTestHarness.assertFiniteNumbers(ratings.pitchRatings, "pitchRatings")
-        assert.ok(Array.isArray(ratings.pitchRatings.pitches))
-        RatingTestHarness.assertAtLeast(ratings.pitchRatings.pitches.length, 3, "pitch count")
-    })
-
-})
-
-describe("Player Rating Tuning Direction", () => {
-
-    it("should keep ratings unchanged when all rating tuning scales are zero", () => {
-        const player = RatingTestHarness.findPlayer("Shohei Ohtani")
-
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const zero = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.hitting.contactScale = 0
-            tuning.hitting.plateDisciplineScale = 0
-            tuning.hitting.gapPowerScale = 0
-            tuning.hitting.homerunPowerScale = 0
-            tuning.hitting.splitScale = 0
-            tuning.pitching.powerScale = 0
-            tuning.pitching.controlScale = 0
-            tuning.pitching.movementScale = 0
-            tuning.pitching.splitScale = 0
-            tuning.running.speedScale = 0
-            tuning.running.stealsScale = 0
-            tuning.fielding.defenseScale = 0
-            tuning.fielding.armScale = 0
-        }))
-
-        assert.deepEqual(zero, baseline)
-    })
-
-    it("should tune hitter contact upward when hitting contactScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Aaron Judge")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.hitting.contactScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.hittingRatings.vsR.contact, baseline.hittingRatings.vsR.contact, "vsR contact")
-        RatingTestHarness.assertGreater(tuned.hittingRatings.vsL.contact, baseline.hittingRatings.vsL.contact, "vsL contact")
-    })
-
-    it("should tune hitter plate discipline upward when hitting plateDisciplineScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Aaron Judge")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.hitting.plateDisciplineScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.hittingRatings.vsR.plateDiscipline, baseline.hittingRatings.vsR.plateDiscipline, "vsR plateDiscipline")
-        RatingTestHarness.assertGreater(tuned.hittingRatings.vsL.plateDiscipline, baseline.hittingRatings.vsL.plateDiscipline, "vsL plateDiscipline")
-    })
-
-    it("should tune hitter gap power upward when hitting gapPowerScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Aaron Judge")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.hitting.gapPowerScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.hittingRatings.vsR.gapPower, baseline.hittingRatings.vsR.gapPower, "vsR gapPower")
-        RatingTestHarness.assertGreater(tuned.hittingRatings.vsL.gapPower, baseline.hittingRatings.vsL.gapPower, "vsL gapPower")
-    })
-
-    it("should tune hitter home run power upward when hitting homerunPowerScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Aaron Judge")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.hitting.homerunPowerScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.hittingRatings.vsR.homerunPower, baseline.hittingRatings.vsR.homerunPower, "vsR homerunPower")
-        RatingTestHarness.assertGreater(tuned.hittingRatings.vsL.homerunPower, baseline.hittingRatings.vsL.homerunPower, "vsL homerunPower")
-    })
-
-    it("should tune hitter split wider when hitting splitScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Aaron Judge")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.hitting.splitScale = 0.25
-        }))
-
-        RatingTestHarness.assertAtLeast(
-            RatingTestHarness.splitWidth(tuned.hittingRatings.vsR.contact, tuned.hittingRatings.vsL.contact),
-            RatingTestHarness.splitWidth(baseline.hittingRatings.vsR.contact, baseline.hittingRatings.vsL.contact),
-            "contact split"
-        )
-
-        RatingTestHarness.assertAtLeast(
-            RatingTestHarness.splitWidth(tuned.hittingRatings.vsR.homerunPower, tuned.hittingRatings.vsL.homerunPower),
-            RatingTestHarness.splitWidth(baseline.hittingRatings.vsR.homerunPower, baseline.hittingRatings.vsL.homerunPower),
-            "home run power split"
-        )
-    })
-
-    it("should tune pitcher power upward when pitching powerScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Paul Skenes")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.pitching.powerScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.pitchRatings.power, baseline.pitchRatings.power, "pitcher power")
-    })
-
-    it("should tune pitcher control upward when pitching controlScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Paul Skenes")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.pitching.controlScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.pitchRatings.vsR.control, baseline.pitchRatings.vsR.control, "vsR control")
-        RatingTestHarness.assertGreater(tuned.pitchRatings.vsL.control, baseline.pitchRatings.vsL.control, "vsL control")
-    })
-
-    it("should tune pitcher movement upward when pitching movementScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Paul Skenes")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.pitching.movementScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.pitchRatings.vsR.movement, baseline.pitchRatings.vsR.movement, "vsR movement")
-        RatingTestHarness.assertGreater(tuned.pitchRatings.vsL.movement, baseline.pitchRatings.vsL.movement, "vsL movement")
-    })
-
-    it("should tune pitcher split wider when pitching splitScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Shohei Ohtani")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.pitching.splitScale = 0.25
-        }))
-
-        RatingTestHarness.assertAtLeast(
-            RatingTestHarness.splitWidth(tuned.pitchRatings.vsR.control, tuned.pitchRatings.vsL.control),
-            RatingTestHarness.splitWidth(baseline.pitchRatings.vsR.control, baseline.pitchRatings.vsL.control),
-            "control split"
-        )
-
-        RatingTestHarness.assertAtLeast(
-            RatingTestHarness.splitWidth(tuned.pitchRatings.vsR.movement, tuned.pitchRatings.vsL.movement),
-            RatingTestHarness.splitWidth(baseline.pitchRatings.vsR.movement, baseline.pitchRatings.vsL.movement),
-            "movement split"
-        )
-    })
-
-    it("should tune speed upward when running speedScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Shohei Ohtani")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.running.speedScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.hittingRatings.speed, baseline.hittingRatings.speed, "speed")
-    })
-
-    it("should tune steals upward when running stealsScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Shohei Ohtani")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.running.stealsScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.hittingRatings.steals, baseline.hittingRatings.steals, "steals")
-    })
-
-    it("should tune defense upward when fielding defenseScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Aaron Judge")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.fielding.defenseScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.hittingRatings.defense, baseline.hittingRatings.defense, "defense")
-    })
-
-    it("should tune arm upward when fielding armScale increases", () => {
-        const player = RatingTestHarness.findPlayer("Aaron Judge")
-        const baseline = RatingTestHarness.getRatings(player, createTuning())
-        const tuned = RatingTestHarness.getRatings(player, createTuning(tuning => {
-            tuning.fielding.armScale = 0.25
-        }))
-
-        RatingTestHarness.assertGreater(tuned.hittingRatings.arm, baseline.hittingRatings.arm, "arm")
-    })
-
-})
-
-describe("Player Rating Gameplay Plumbing", () => {
-    it("hitter gap power directly changes doubles in hitter power roll input", () => {
-        const rollChartService = new RollChartService()
-        const base = pitchEnvironment.battedBall.powerRollInput
-
-        const low = rollChartService.buildHitterPowerRollInput(pitchEnvironment, {
-            plateDisiplineChange: 0,
-            contactChange: 0,
-            gapPowerChange: -0.7,
-            hrPowerChange: 0,
-            speedChange: 0,
-            stealsChange: 0,
-            defenseChange: 0,
-            armChange: 0
-        } as any)
-
-        const average = rollChartService.buildHitterPowerRollInput(pitchEnvironment, {
-            plateDisiplineChange: 0,
-            contactChange: 0,
-            gapPowerChange: 0,
-            hrPowerChange: 0,
-            speedChange: 0,
-            stealsChange: 0,
-            defenseChange: 0,
-            armChange: 0
-        } as any)
-
-        const high = rollChartService.buildHitterPowerRollInput(pitchEnvironment, {
-            plateDisiplineChange: 0,
-            contactChange: 0,
-            gapPowerChange: 0.7,
-            hrPowerChange: 0,
-            speedChange: 0,
-            stealsChange: 0,
-            defenseChange: 0,
-            armChange: 0
-        } as any)
-
-        assert.strictEqual(average.doubles, base.doubles)
-
-        assert.ok(low.doubles < average.doubles, `Expected low gap power doubles below average. low=${low.doubles} average=${average.doubles}`)
-        assert.ok(high.doubles > average.doubles, `Expected high gap power doubles above average. high=${high.doubles} average=${average.doubles}`)
-
-        assert.ok(high.doubles - low.doubles >= Math.max(2, Math.round(base.doubles * 0.75)), `Expected meaningful doubles spread. low=${low.doubles} high=${high.doubles} base=${base.doubles}`)
-
-        assert.strictEqual(low.out + low.singles + low.doubles + low.triples + low.hr, 1000)
-        assert.strictEqual(average.out + average.singles + average.doubles + average.triples + average.hr, 1000)
-        assert.strictEqual(high.out + high.singles + high.doubles + high.triples + high.hr, 1000)
-    })
-
-    it("hitter gap power and speed both contribute to triples in hitter power roll input", () => {
-        const rollChartService = new RollChartService()
-        const base = pitchEnvironment.battedBall.powerRollInput
-
-        const lowGapLowSpeed = rollChartService.buildHitterPowerRollInput(pitchEnvironment, {
-            plateDisiplineChange: 0,
-            contactChange: 0,
-            gapPowerChange: -0.7,
-            hrPowerChange: 0,
-            speedChange: -0.7,
-            stealsChange: 0,
-            defenseChange: 0,
-            armChange: 0
-        } as any)
-
-        const average = rollChartService.buildHitterPowerRollInput(pitchEnvironment, {
-            plateDisiplineChange: 0,
-            contactChange: 0,
-            gapPowerChange: 0,
-            hrPowerChange: 0,
-            speedChange: 0,
-            stealsChange: 0,
-            defenseChange: 0,
-            armChange: 0
-        } as any)
-
-        const highGapHighSpeed = rollChartService.buildHitterPowerRollInput(pitchEnvironment, {
-            plateDisiplineChange: 0,
-            contactChange: 0,
-            gapPowerChange: 0.7,
-            hrPowerChange: 0,
-            speedChange: 0.7,
-            stealsChange: 0,
-            defenseChange: 0,
-            armChange: 0
-        } as any)
-
-        assert.strictEqual(average.triples, base.triples)
-
-        assert.ok(lowGapLowSpeed.triples <= average.triples, `Expected low gap/speed triples not above average. low=${lowGapLowSpeed.triples} average=${average.triples}`)
-        assert.ok(highGapHighSpeed.triples >= average.triples, `Expected high gap/speed triples not below average. high=${highGapHighSpeed.triples} average=${average.triples}`)
-
-        if (base.triples >= 2) {
-            assert.ok(highGapHighSpeed.triples > lowGapLowSpeed.triples, `Expected meaningful triples spread. low=${lowGapLowSpeed.triples} high=${highGapHighSpeed.triples} base=${base.triples}`)
-        }
-
-        assert.strictEqual(lowGapLowSpeed.out + lowGapLowSpeed.singles + lowGapLowSpeed.doubles + lowGapLowSpeed.triples + lowGapLowSpeed.hr, 1000)
-        assert.strictEqual(average.out + average.singles + average.doubles + average.triples + average.hr, 1000)
-        assert.strictEqual(highGapHighSpeed.out + highGapHighSpeed.singles + highGapHighSpeed.doubles + highGapHighSpeed.triples + highGapHighSpeed.hr, 1000)
-    })
-})
-
-
-describe("Player Rating Elasticity Diagnostics", () => {
-
-    it("should print hitter rating elasticity by stat", function () {
-
-        const flags = RatingTestHarness.specs
-            .filter(spec => spec.side === "hitter")
-            .flatMap(spec => RatingTestHarness.runSpec(spec))
-
-        if (flags.length > 0) {
-            console.log("")
-            console.log("[HITTER ELASTICITY SUMMARY FLAGS]")
-            for (const flag of flags) console.log(flag)
-        }
-
-        assert.ok(true)
-    })
-
-    it("should print pitcher rating elasticity by stat", function () {
-
-        const flags = RatingTestHarness.specs
-            .filter(spec => spec.side === "pitcher")
-            .flatMap(spec => RatingTestHarness.runSpec(spec))
-
-        if (flags.length > 0) {
-            console.log("")
-            console.log("[PITCHER ELASTICITY SUMMARY FLAGS]")
-            for (const flag of flags) console.log(flag)
-        }
-
-        assert.ok(true)
-    })
-
-})
-
-
-

@@ -151,6 +151,11 @@ async function importRatingTuning(season: number, baseDataDir: string, options?:
         ? await readJson(existingRatingTuningPath)
         : undefined
 
+    if (existingRatingTuning && !options?.forceRatingTuning) {
+        log("RATING TUNING READ", existingRatingTuningPath)
+        return existingRatingTuning
+    }
+
     const tuningSupportService = new TuningSupportService(baseDataDir)
     const tuningEvaluationService = new TuningEvaluationService()
     const { pitchEnvironmentService, downloader } = tuningSupportService.createServices()
@@ -211,13 +216,22 @@ async function importPlayerRatings(season: number, baseDataDir: string, ratingTu
         ? await readJson(pitchEnvironmentTargetPath)
         : PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
 
-    const finalRatingTuning: RatingTuning = ratingTuning ?? await readJson(ratingTuningPath)
+    const finalRatingTuning: RatingTuning = ratingTuning
+        ?? (await fileExists(ratingTuningPath)
+            ? await readJson(ratingTuningPath)
+            : PlayerRatingService.seedRatingTuning())
+
+    if (!ratingTuning && !(await fileExists(ratingTuningPath))) {
+        log("RATING TUNING MISSING", ratingTuningPath, "using seed rating tuning")
+    }
 
     const playerRatings = Array.from(players.values()).map(playerImportRaw => {
         const command = PlayerRatingService.createPlayerFromImportRaw(
             pitchEnvironment,
             playerImportRaw
         )
+
+        Object.assign(command as any, { ratingTuning: finalRatingTuning })
 
         const ratings = PlayerRatingService.createPlayerFromStatsCommand(command)
 
@@ -1785,7 +1799,23 @@ class TuningEvaluationService {
     }
 
     public finalSelectionPenalty(result: any): number {
-        return this.createPenaltyBreakdown(result).reduce((sum, row) => sum + row.penalty, 0)
+        const basePenalty = this.createPenaltyBreakdown(result).reduce((sum, row) => sum + Number(row.penalty ?? 0), 0)
+        const toleranceFailures = this.getToleranceReport(result).filter(row => !row.ok)
+
+        const toleranceFailurePenalty = toleranceFailures.reduce((sum, row) => {
+            const tolerance = Math.max(Number(row.tolerance ?? 0), 0.000001)
+            const miss = Math.abs(Number(row.diff ?? 0)) / tolerance
+            const weight =
+                row.key === "teamSBAttemptsPerGame" ? 1.5 :
+                row.key === "teamSBPerGame" ? 1.5 :
+                row.key === "bbPercent" ? 1.25 :
+                row.key === "teamRunsPerGame" ? 1.25 :
+                1
+
+            return sum + (miss * miss * weight * 100000)
+        }, 0)
+
+        return basePenalty + toleranceFailurePenalty
     }
 
     public createPenaltyBreakdown(result: any): any[] {
@@ -1810,20 +1840,20 @@ class TuningEvaluationService {
         }
 
         return [
-            term("teamRunsPerGame", 0.12, 3500),
-            term("ops", 0.02, 650),
-            term("obp", 0.014, 300),
-            term("avg", 0.012, 300),
-            term("babip", 0.012, 450),
-            term("singlePercent", 0.008, 300),
-            term("bbPercent", 0.004, 350),
-            term("soPercent", 0.006, 250),
-            term("homeRunPercent", 0.0035, 450),
-            term("slg", 0.025, 100),
-            term("doublePercent", 0.008, 75),
-            term("triplePercent", 0.0015, 900),
-            term("teamSBAttemptsPerGame", 0.06, 350),
-            term("teamSBPerGame", 0.07, 250)
+            term("teamRunsPerGame", 0.18, 6),
+            term("ops", 0.03, 5),
+            term("obp", 0.018, 4),
+            term("slg", 0.025, 4),
+            term("avg", 0.018, 3),
+            term("babip", 0.018, 3),
+            term("bbPercent", 0.01, 5),
+            term("soPercent", 0.012, 4),
+            term("singlePercent", 0.014, 2),
+            term("doublePercent", 0.008, 3),
+            term("triplePercent", 0.003, 2),
+            term("homeRunPercent", 0.006, 4),
+            term("teamSBAttemptsPerGame", 0.12, 5),
+            term("teamSBPerGame", 0.12, 4)
         ]
     }
 
@@ -1846,11 +1876,19 @@ class TuningEvaluationService {
             { key: "homeRunPercent", actual: actual.homeRunPercent, target: target.homeRunPercent, tolerance: 0.006 },
             { key: "teamSBAttemptsPerGame", actual: actual.teamSBAttemptsPerGame, target: target.teamSBAttemptsPerGame, tolerance: 0.12 },
             { key: "teamSBPerGame", actual: actual.teamSBPerGame, target: target.teamSBPerGame, tolerance: 0.12 }
-        ].map(row => ({
-            ...row,
-            diff: Number(row.actual ?? 0) - Number(row.target ?? 0),
-            ok: Math.abs(Number(row.actual ?? 0) - Number(row.target ?? 0)) <= row.tolerance
-        }))
+        ].map(row => {
+            const actualValue = Number(row.actual ?? 0)
+            const targetValue = Number(row.target ?? 0)
+            const diff = actualValue - targetValue
+
+            return {
+                ...row,
+                actual: actualValue,
+                target: targetValue,
+                diff,
+                ok: Math.abs(diff) <= row.tolerance
+            }
+        })
     }
 
     public isCloseEnough(result: any): boolean {

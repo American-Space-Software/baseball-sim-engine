@@ -229,354 +229,239 @@ class RollChartService {
     }
 
     public applyChartDiffs(hitterDiff: RollChart, pitcherDiff: RollChart, average: RollChart): RollChart {
+        for (let i = 0; i < average.entries.size; i++) {
+            let hitterValue = hitterDiff.entries.get(i)
+            let pitcherValue = pitcherDiff.entries.get(i)
 
-        for (let i = 0; i < hitterDiff.entries.size; i++) {
-
-            let chart1Value = hitterDiff.entries.get(i)
-            let chart2Value = pitcherDiff.entries.get(i)
-
-            if (chart1Value && !chart2Value) {
-                average.entries.set(i, chart1Value)
+            if (hitterValue && !pitcherValue) {
+                average.entries.set(i, hitterValue)
             }
 
-            if (chart2Value && !chart1Value) {
-                average.entries.set(i, chart2Value)
+            if (pitcherValue && !hitterValue) {
+                average.entries.set(i, pitcherValue)
             }
         }
 
         return average
-
     }
-
-
-
-    //Modified from: https://stackoverflow.com/a/71534164
-    incDec(index: number, by: number, array: number[]) : number[] {
-
-        let originalTotal = array.reduce((acc, num) => acc + num, 0)
-
-
-        //Clone and refer to averages because we need the original distribution to decide how to allocate excess.
-        let averageArray = JSON.parse(JSON.stringify(array))
-
-        /*
-        Return a new array with the targeted number modified by >by<.
-        */
-        const newArr = array.map((num, idx) => idx == index ? num + by : num)
-
-
-        let changePercentArray = newArr.map((num, idx) => {
-            if (idx == index) return Big(0)
-            return Big((averageArray[idx] + (averageArray[index] / (newArr.length - 1))) / 100)
-        })
-
-
-        // Return a new array that has the modified numbers.
-        let updatedArray = newArr.map((num, idx) => {
-
-            if (idx == index) {
-                return Big(num)
-            } else {
-                return Big(num).minus(Big(by).times(changePercentArray[idx]))
-            }
-
-        })
-
-        //Get ceil'd values
-        updatedArray = updatedArray.map(b => Math.ceil(b.toPrecision(5)))
-
-        //Check if there were rounding issues
-        let total = updatedArray.reduce((acc, num) => acc + num, 0)
-        let diff = originalTotal - total
-
-        //Apply 1 to each field except the one we're changing until it hits zero
-        while (Math.abs(diff) > 0) {
-            for (let currentIndex = 0; currentIndex < array.length; currentIndex++) {
-                if (currentIndex == index) continue
-
-                if (diff > 0) {
-                    updatedArray[currentIndex]++
-                    diff--
-                } else {
-                    updatedArray[currentIndex]--
-                    diff++
-                }
-
-                if (diff == 0) break
-            }
-        }
-
-        let newTotal = updatedArray.reduce((acc, num) => acc + num, 0)
-        if (newTotal != originalTotal) {
-            throw new Error(`Problem with incDec ${newTotal}`)
-        }
-
-        return updatedArray
-    }
-
-
-
-
-
 
     public buildHitterPowerRollInput(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange): PowerRollInput {
-        let input: PowerRollInput = JSON.parse(JSON.stringify(pitchEnvironmentTarget.battedBall.powerRollInput))
+        const base = pitchEnvironmentTarget.battedBall.powerRollInput
 
-        const out = (current: number) => {
-            let result = PlayerChange.applyNegativeChange(current, this._getAverage([
-                hitterChange.contactChange,
-                hitterChange.hrPowerChange,
-                hitterChange.speedChange
-            ]))
+        const total = Math.max(1, base.out + base.singles + base.doubles + base.triples + base.hr)
+        const hitTotal = Math.max(1, base.singles + base.doubles + base.triples + base.hr)
+        const hitShare = hitTotal / total
 
-            if (result >= 0) return result
-            return 0
+        const outSingleTotal = Math.max(1, base.out + base.singles)
+        const contactSingleShare = base.singles / outSingleTotal
+        const contactSingleChange = hitterChange.contactChange * contactSingleShare * hitShare * hitShare
+
+        let out = Math.max(0, Math.round(PlayerChange.applyNegativeChange(base.out, contactSingleChange)))
+        let singles = Math.max(0, Math.round(PlayerChange.applyChange(base.singles, contactSingleChange)))
+        let doubles = Math.max(0, Math.round(base.doubles))
+        let triples = Math.max(0, Math.round(base.triples))
+        let hr = Math.max(0, Math.round(base.hr))
+
+        const gapPowerChange = Number(hitterChange.gapPowerChange)
+        const hrPowerChange = Number(hitterChange.hrPowerChange)
+
+        if (!Number.isFinite(gapPowerChange)) throw new Error(`Invalid hitter gap power change ${hitterChange.gapPowerChange}.`)
+        if (!Number.isFinite(hrPowerChange)) throw new Error(`Invalid hitter home run power change ${hitterChange.hrPowerChange}.`)
+
+        const move = (from: "out" | "singles" | "doubles" | "triples" | "hr", to: "out" | "singles" | "doubles" | "triples" | "hr", amount: number): void => {
+            const rounded = Math.max(0, Math.round(amount))
+            if (rounded <= 0) return
+
+            const available =
+                from === "out" ? out :
+                from === "singles" ? singles :
+                from === "doubles" ? doubles :
+                from === "triples" ? triples :
+                hr
+
+            const actual = Math.min(available, rounded)
+            if (actual <= 0) return
+
+            if (from === "out") out -= actual
+            if (from === "singles") singles -= actual
+            if (from === "doubles") doubles -= actual
+            if (from === "triples") triples -= actual
+            if (from === "hr") hr -= actual
+
+            if (to === "out") out += actual
+            if (to === "singles") singles += actual
+            if (to === "doubles") doubles += actual
+            if (to === "triples") triples += actual
+            if (to === "hr") hr += actual
         }
 
-        const singles = (current: number) => {
-            let result = PlayerChange.applyChange(current, this._getAverage([
-                hitterChange.contactChange,
-                hitterChange.speedChange
-            ]))
-
-            if (result >= 0) return result
-            return 0
+        if (gapPowerChange > 0) {
+            move("singles", "doubles", (base.doubles + base.triples) * gapPowerChange)
+            move("doubles", "triples", base.triples * gapPowerChange)
+        } else if (gapPowerChange < 0) {
+            move("triples", "doubles", base.triples * Math.abs(gapPowerChange))
+            move("doubles", "singles", (base.doubles + base.triples) * Math.abs(gapPowerChange))
         }
 
-        const doubles = (current: number) => {
-            let result = PlayerChange.applyChange(current, hitterChange.gapPowerChange)
+        if (hrPowerChange > 0) {
+            const maxRating = 170
+            const maxHrCount = 100
+            const maxHrPowerChange = PlayerChange.getChange(pitchEnvironmentTarget.avgRating, maxRating)
+            const hrPowerScale = maxHrPowerChange > 0 ? Math.max(1, (maxHrCount - base.hr) / (base.hr * maxHrPowerChange)) : 1
 
-            if (result >= 0) return result
-            return 0
+            move("singles", "hr", base.hr * hrPowerChange * hrPowerScale)
+        } else if (hrPowerChange < 0) {
+            const minRating = 30
+            const minHrCount = 8
+            const minHrPowerChange = Math.abs(PlayerChange.getChange(pitchEnvironmentTarget.avgRating, minRating))
+            const hrPowerScale = minHrPowerChange > 0 ? Math.max(1, (base.hr - minHrCount) / (base.hr * minHrPowerChange)) : 1
+
+            move("hr", "singles", base.hr * Math.abs(hrPowerChange) * hrPowerScale)
         }
 
-        const triples = (current: number) => {
-            let result = PlayerChange.applyChange(current, this._getAverage([
-                hitterChange.speedChange,
-                hitterChange.gapPowerChange
-            ]))
-
-            if (result >= 0) return result
-            return 0
-        }
-
-        const hr = (current: number) => {
-            let result = PlayerChange.applyChange(current, this._getAverage([
-                hitterChange.hrPowerChange
-            ]))
-
-            if (result >= 0) return result
-            return 0
-        }
-
-        let outTotal = Math.round(out(input.out))
-        let singlesTotal = Math.round(singles(input.singles))
-        let doublesTotal = Math.round(doubles(input.doubles))
-        let triplesTotal = Math.round(triples(input.triples))
-        let hrTotal = Math.round(hr(input.hr))
-
-        let total = outTotal + singlesTotal + doublesTotal + triplesTotal + hrTotal
-
-        if (total > 1000) {
-            outTotal -= total - 1000
-        } else if (total < 1000) {
-            outTotal += 1000 - total
-        }
-
-        outTotal = Math.max(0, outTotal)
-
-        return {
-            out: outTotal,
-            singles: singlesTotal,
-            doubles: doublesTotal,
-            triples: triplesTotal,
-            hr: hrTotal
-        }
+        return this.normalizePowerRollInput({
+            out,
+            singles,
+            doubles,
+            triples,
+            hr
+        })
     }
 
-    public buildPitcherPowerRollInput(pitchEnvironmentTarget:PitchEnvironmentTarget, pitcherChange:PitcherChange): PowerRollInput {
+    public buildPitcherPowerRollInput(pitchEnvironmentTarget: PitchEnvironmentTarget, pitcherChange: PitcherChange): PowerRollInput {
+        const base = pitchEnvironmentTarget.battedBall.powerRollInput
 
-        let input:PowerRollInput = JSON.parse(JSON.stringify(pitchEnvironmentTarget.battedBall.powerRollInput))
+        const powerChange = Number(pitcherChange.powerChange)
+        const controlChange = Number(pitcherChange.controlChange)
+        const movementChange = Number(pitcherChange.movementChange)
 
-        const out = (current:number) => {
-
-            let result = PlayerChange.applyChange(current, this._getAverage([
-                pitcherChange.powerChange,
-                pitcherChange.movementChange,
-                pitcherChange.controlChange
-            ]))
-
-            if (result >= 0) return result
-            return 0
+        if (!Number.isFinite(powerChange)) {
+            throw new Error(`Invalid pitcher power change ${pitcherChange.powerChange}.`)
         }
 
-        const singles = (current:number) => {
-
-            let result = PlayerChange.applyNegativeChange(current, this._getAverage([
-                pitcherChange.powerChange,
-                pitcherChange.movementChange,
-                pitcherChange.controlChange
-            ]))
-
-            if (result >= 0) return result
-            return 0
-
+        if (!Number.isFinite(controlChange)) {
+            throw new Error(`Invalid pitcher control change ${pitcherChange.controlChange}.`)
         }
 
-        const doubles = (current:number) => {
-
-            let result = PlayerChange.applyNegativeChange(current, this._getAverage([
-                pitcherChange.powerChange,
-                pitcherChange.movementChange,
-                pitcherChange.controlChange
-            ]))
-
-            if (result >= 0) return result
-            return 0
-
+        if (!Number.isFinite(movementChange)) {
+            throw new Error(`Invalid pitcher movement change ${pitcherChange.movementChange}.`)
         }
 
-        const triples = (current:number) => {
+        const outSingleTotal = Math.max(1, base.out + base.singles)
+        const contactSingleShare = base.singles / outSingleTotal
 
-            let result = PlayerChange.applyNegativeChange(current, this._getAverage([
-                pitcherChange.powerChange,
-                pitcherChange.movementChange,
-                pitcherChange.controlChange
-            ]))
+        const outSingleChange = this._getAverage([
+            powerChange,
+            controlChange,
+            controlChange
+        ]) * contactSingleShare
 
-            if (result >= 0) return result
-            return 0
+        let out = Math.max(0, Math.round(PlayerChange.applyChange(base.out, outSingleChange)))
+        let singles = Math.max(0, Math.round(PlayerChange.applyNegativeChange(base.singles, outSingleChange)))
+        let doubles = Math.max(0, Math.round(base.doubles))
+        let triples = Math.max(0, Math.round(base.triples))
+        let hr = Math.max(0, Math.round(base.hr))
 
+        const move = (from: "singles" | "doubles" | "triples" | "hr", to: "singles" | "doubles" | "triples" | "hr", amount: number): void => {
+            const rounded = Math.max(0, Math.round(amount))
+
+            if (rounded <= 0) return
+
+            const available =
+                from === "singles" ? singles :
+                from === "doubles" ? doubles :
+                from === "triples" ? triples :
+                hr
+
+            const actual = Math.min(available, rounded)
+
+            if (actual <= 0) return
+
+            if (from === "singles") singles -= actual
+            if (from === "doubles") doubles -= actual
+            if (from === "triples") triples -= actual
+            if (from === "hr") hr -= actual
+
+            if (to === "singles") singles += actual
+            if (to === "doubles") doubles += actual
+            if (to === "triples") triples += actual
+            if (to === "hr") hr += actual
         }
 
-        const hr = (current:number) => {
-
-            let result = PlayerChange.applyNegativeChange(current, this._getAverage([
-                pitcherChange.powerChange,
-                pitcherChange.movementChange,
-                pitcherChange.controlChange
-            ]))
-
-            if (result >= 0) return result
-            return 0
-
+        if (movementChange > 0) {
+            move("hr", "singles", base.hr * movementChange)
+            move("doubles", "singles", base.doubles * movementChange)
+            move("triples", "singles", base.triples * this._getAverage([movementChange, Math.max(0, powerChange)]))
+        } else if (movementChange < 0) {
+            move("singles", "hr", base.hr * Math.abs(movementChange))
+            move("singles", "doubles", base.doubles * Math.abs(movementChange))
+            move("singles", "triples", base.triples * Math.abs(movementChange))
         }
 
-
-        let outTotal = Math.round(out(input.out))
-        let singlesTotal = Math.round(singles(input.singles))
-        let doublesTotal = Math.round(doubles(input.doubles))
-        let triplesTotal = Math.round(triples(input.triples))
-        let hrTotal = Math.round(hr(input.hr))
-
-
-        // Ensure totals add up to 1000
-        let total = outTotal + singlesTotal + doublesTotal + triplesTotal + hrTotal
-
-        if (total > 1000) {
-            // Reduce out if total is more than 100
-            outTotal -= (total - 1000)
-        } else if (total < 1000) {
-            // Increase out if total is less than 100
-            outTotal += (1000 - total)
-        }
-
-        // Ensure outTotal does not become negative after adjustment
-        outTotal = Math.max(0, outTotal)
-
-        return {
-            out: outTotal,
-            singles: singlesTotal,
-            doubles: doublesTotal,
-            triples: triplesTotal,
-            hr: hrTotal
-        }
-
+        return this.normalizePowerRollInput({
+            out,
+            singles,
+            doubles,
+            triples,
+            hr
+        })
     }
 
-    updatePowerRollInput(input: PowerRollInput, field: string, value: number) {
+    private normalizePowerRollInput(input: PowerRollInput): PowerRollInput {
+        const total = input.out + input.singles + input.doubles + input.triples + input.hr
 
-        let inputArray: number[] = []
-
-        inputArray.push(input.out)
-        inputArray.push(input.singles)
-        inputArray.push(input.doubles)
-        inputArray.push(input.triples)
-        inputArray.push(input.hr)
-
-        let index:number
-
-        switch(field) {
-            case "out":
-                index = 0
-                break
-            case "singles":
-                index = 1
-                break
-            case "doubles":
-                index = 2
-                break            
-            case "triples":
-                index = 3
-                break
-            case "hr":
-                index = 4
-                break
+        if (total <= 0) {
+            throw new Error("Power roll input total must be greater than zero.")
         }
 
-        let result = this.incDec(index, value - input[field], inputArray)
-
-        input.out = result[0]
-        input.singles = result[1]
-        input.doubles = result[2]
-        input.triples = result[3]
-        input.hr = result[4]
-
-    }
-
-    updateContactTypeInput(input: ContactTypeRollInput, field: string, value: number) {
-
-        let inputArray: number[] = []
-
-        inputArray.push(input.flyBall)
-        inputArray.push(input.groundball)
-        inputArray.push(input.lineDrive)
-
-        let index:number 
-
-        switch(field) {
-            case "flyBall":
-                index = 0
-                break
-            case "groundball":
-                index = 1
-                break
-            case "lineDrive":
-                index = 2
-                break            
+        let normalized: PowerRollInput = {
+            out: Math.max(0, Math.round((input.out / total) * 1000)),
+            singles: Math.max(0, Math.round((input.singles / total) * 1000)),
+            doubles: Math.max(0, Math.round((input.doubles / total) * 1000)),
+            triples: Math.max(0, Math.round((input.triples / total) * 1000)),
+            hr: Math.max(0, Math.round((input.hr / total) * 1000))
         }
 
+        let diff = 1000 - (normalized.out + normalized.singles + normalized.doubles + normalized.triples + normalized.hr)
 
-        let result = this.incDec(index, value - input[field], inputArray)
+        while (diff !== 0) {
+            if (diff > 0) {
+                normalized.out++
+                diff--
+            } else {
+                const fields: (keyof PowerRollInput)[] = ["out", "singles", "doubles", "triples", "hr"]
+                const field = fields.sort((a, b) => normalized[b] - normalized[a])[0]
 
-        input.flyBall = result[0]
-        input.groundball = result[1]
-        input.lineDrive = result[2]
+                if (normalized[field] <= 0) {
+                    throw new Error("Could not normalize power roll input.")
+                }
 
+                normalized[field]--
+                diff++
+            }
+        }
+
+        return normalized
     }
 
-    getMatchupPowerRollChart(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterChange:HitterChange, pitcherChange:PitcherChange) : RollChart {
+    getMatchupPowerRollChart(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange, pitcherChange: PitcherChange): RollChart {
+        const matchupInput = this.buildMatchupPowerRollInput(pitchEnvironmentTarget, hitterChange, pitcherChange)
 
-        let leagueAvgChart: RollChart = this.getPowerRollChart(pitchEnvironmentTarget.battedBall.powerRollInput)
+        return this.getPowerRollChart(matchupInput)
+    }
 
-        let hitter:RollChart = this.getPowerRollChart(this.buildHitterPowerRollInput(pitchEnvironmentTarget, hitterChange))
-        let pitcher:RollChart = this.getPowerRollChart(this.buildPitcherPowerRollInput(pitchEnvironmentTarget, pitcherChange))
+    private buildMatchupPowerRollInput(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange, pitcherChange: PitcherChange): PowerRollInput {
+        const base = pitchEnvironmentTarget.battedBall.powerRollInput
+        const hitter = this.buildHitterPowerRollInput(pitchEnvironmentTarget, hitterChange)
+        const pitcher = this.buildPitcherPowerRollInput(pitchEnvironmentTarget, pitcherChange)
 
-        let hitterDiffChart: RollChart = this.diffRollChart(leagueAvgChart, hitter)
-        let pitcherDiffChart: RollChart = this.diffRollChart(leagueAvgChart, pitcher)
-
-        return this.applyChartDiffs(hitterDiffChart, pitcherDiffChart, leagueAvgChart)
-
+        return this.normalizePowerRollInput({
+            out: Math.max(0, base.out + (hitter.out - base.out) + (pitcher.out - base.out)),
+            singles: Math.max(0, base.singles + (hitter.singles - base.singles) + (pitcher.singles - base.singles)),
+            doubles: Math.max(0, base.doubles + (hitter.doubles - base.doubles) + (pitcher.doubles - base.doubles)),
+            triples: Math.max(0, base.triples + (hitter.triples - base.triples) + (pitcher.triples - base.triples)),
+            hr: Math.max(0, base.hr + (hitter.hr - base.hr) + (pitcher.hr - base.hr))
+        })
     }
 
     getMatchupContactRollChart(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterContactProfile:ContactProfile, pitcherContactProfile:ContactProfile): RollChart {

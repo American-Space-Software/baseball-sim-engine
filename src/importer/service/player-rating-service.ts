@@ -5,7 +5,7 @@ import { clamp, getAverage, safeDiv } from "../util.js"
 
 import { v4 as uuidv4 } from 'uuid'
 import { BaselineGameService } from "./baseline-game-service.js"
-import { SimService } from "../../sim/service/sim-service.js"
+import { GameInfo, SimService } from "../../sim/service/sim-service.js"
 import { StatService } from "../../sim/service/stat-service.js"
 
 
@@ -77,39 +77,51 @@ class PlayerRatingService {
         const hitter = command.hitter
         const vsR = command.splits.hitting.vsR
         const vsL = command.splits.hitting.vsL
-
         const leagueHitter = env.importReference.hitter
-        const leagueRunning = env.importReference.running
 
         const leagueAvg = env.outcome.avg
-        const leagueObp = env.outcome.obp
-        const leagueSlg = env.outcome.slg
-        const leagueOps = env.outcome.ops
         const leagueBBRate = env.outcome.bbPercent
-        const leagueGapRate = env.outcome.doublePercent + env.outcome.triplePercent
-        const leagueHRRate = env.outcome.homeRunPercent
+        const leagueSORate = env.outcome.soPercent
         const leagueEV = leagueHitter.physics.exitVelocity.avg
 
         const avg = safeDiv(hitter.hits, hitter.ab, leagueAvg)
-        const obp = this.getHitterObp(hitter, leagueObp)
-        const slg = this.getHitterSlg(hitter, leagueSlg)
-        const ops = obp + slg
         const bbRate = safeDiv(hitter.bb, hitter.pa, leagueBBRate)
-        const gapRate = safeDiv(hitter.doubles + hitter.triples, hitter.pa, leagueGapRate)
-        const hrRate = safeDiv(hitter.homeRuns, hitter.pa, leagueHRRate)
+        const soRate = safeDiv(hitter.so, hitter.pa, leagueSORate)
         const ev = hitter.exitVelocity?.avgExitVelo ?? leagueEV
-
-        const zoneContactRate = safeDiv(hitter.inZoneContact, hitter.swingAtStrikes, env.swing.inZoneContactPercent / 100)
         const chaseSwingRate = safeDiv(hitter.swingAtBalls, hitter.pitchesSeen - hitter.inZonePitches, env.swing.swingAtBallsPercent / 100)
+        const babip = safeDiv(hitter.hits - hitter.homeRuns, hitter.ab - hitter.so - hitter.homeRuns, env.outcome.babip)
+
+        const playerPowerOutcomeCount = this.getHitterPowerOutcomeCount(hitter)
+        const leaguePowerOutcomeCount = this.getHitterPowerOutcomeCount(leagueHitter)
+
+        const playerGap = Number(hitter.doubles ?? 0) + Number(hitter.triples ?? 0)
+        const leagueGap = Number(leagueHitter.doubles ?? 0) + Number(leagueHitter.triples ?? 0)
+        const playerHR = Number(hitter.homeRuns ?? 0)
+        const leagueHR = Number(leagueHitter.homeRuns ?? 0)
+
+        const playerXBH = playerGap + playerHR
+        const leagueXBH = leagueGap + leagueHR
+
+        const gapRate = safeDiv(playerGap, playerPowerOutcomeCount, safeDiv(leagueGap, leaguePowerOutcomeCount, env.outcome.doublePercent + env.outcome.triplePercent))
+        const leagueGapRate = safeDiv(leagueGap, leaguePowerOutcomeCount, env.outcome.doublePercent + env.outcome.triplePercent)
+
+        const hrRate = safeDiv(playerHR, playerPowerOutcomeCount, safeDiv(leagueHR, leaguePowerOutcomeCount, env.outcome.homeRunPercent))
+        const leagueHRRate = safeDiv(leagueHR, leaguePowerOutcomeCount, env.outcome.homeRunPercent)
+
+        const xbhRate = safeDiv(playerXBH, playerPowerOutcomeCount, safeDiv(leagueXBH, leaguePowerOutcomeCount, env.outcome.doublePercent + env.outcome.triplePercent + env.outcome.homeRunPercent))
+        const leagueXBHRate = safeDiv(leagueXBH, leaguePowerOutcomeCount, env.outcome.doublePercent + env.outcome.triplePercent + env.outcome.homeRunPercent)
+
+        const hrShareOfXBH = safeDiv(playerHR, playerXBH, safeDiv(leagueHR, leagueXBH))
+        const leagueHRShareOfXBH = safeDiv(leagueHR, leagueXBH)
+
+        const gapShareOfXBH = safeDiv(playerGap, playerXBH, safeDiv(leagueGap, leagueXBH))
+        const leagueGapShareOfXBH = safeDiv(leagueGap, leagueXBH)
 
         const contact = this.rating(env, avgRating + this.sumDeltas([
             this.getHigherIsBetterDelta(avg, leagueAvg, avgRating),
+            this.getHigherIsBetterDelta(babip, env.outcome.babip, avgRating),
             this.averageDeltas([
-                this.getHigherIsBetterDelta(obp, leagueObp, avgRating),
-                this.getHigherIsBetterDelta(slg, leagueSlg, avgRating),
-                this.getHigherIsBetterDelta(ops, leagueOps, avgRating),
-                this.getHigherIsBetterDelta(ev, leagueEV, avgRating),
-                this.getHigherIsBetterDelta(zoneContactRate, env.swing.inZoneContactPercent / 100, avgRating)
+                this.getLowerIsBetterDelta(soRate, leagueSORate, avgRating * 0.5)
             ])
         ]))
 
@@ -119,33 +131,18 @@ class PlayerRatingService {
         ]))
 
         const gapPower = this.rating(env, avgRating + this.sumDeltas([
-            this.getHigherIsBetterDelta(gapRate, leagueGapRate, avgRating),
-            this.averageDeltas([
-                this.getHigherIsBetterDelta(slg, leagueSlg, avgRating),
-                this.getHigherIsBetterDelta(ops, leagueOps, avgRating),
-                this.getHigherIsBetterDelta(ev, leagueEV, avgRating)
-            ])
+            this.getHigherIsBetterDelta(gapRate, leagueGapRate, avgRating * 0.6),
+            this.getHigherIsBetterDelta(xbhRate, leagueXBHRate, avgRating * 0.35),
+            this.getHigherIsBetterDelta(gapShareOfXBH, leagueGapShareOfXBH, avgRating * 0.45)
         ]))
 
         const homerunPower = this.rating(env, avgRating + this.sumDeltas([
-            this.getHigherIsBetterDelta(hrRate, leagueHRRate, avgRating),
-            this.averageDeltas([
-                this.getHigherIsBetterDelta(slg, leagueSlg, avgRating),
-                this.getHigherIsBetterDelta(ops, leagueOps, avgRating),
-                this.getHigherIsBetterDelta(ev, leagueEV, avgRating)
-            ])
+            this.getHigherIsBetterDelta(hrRate, leagueHRRate, avgRating * 1.25),
+            this.getHigherIsBetterDelta(hrShareOfXBH, leagueHRShareOfXBH, avgRating * 0.75),
+            this.getHigherIsBetterDelta(ev, leagueEV, avgRating * 0.15)
         ]))
 
-        const speed = this.rating(env, avgRating + this.averageDeltas([
-            this.getHigherIsBetterDelta(safeDiv(command.running.sbAttempts ?? 0, hitter.pa), safeDiv(leagueRunning.sbAttempts, leagueHitter.pa), avgRating),
-            this.getHigherIsBetterDelta(safeDiv(command.running.sb ?? 0, command.running.sbAttempts ?? 0), safeDiv(leagueRunning.sb, leagueRunning.sbAttempts), avgRating)
-        ]))
-
-        const steals = this.rating(env, avgRating + this.averageDeltas([
-            this.getHigherIsBetterDelta(safeDiv(command.running.sb ?? 0, hitter.pa), safeDiv(leagueRunning.sb, leagueHitter.pa), avgRating),
-            this.getHigherIsBetterDelta(safeDiv(command.running.sb ?? 0, command.running.sbAttempts ?? 0), safeDiv(leagueRunning.sb, leagueRunning.sbAttempts), avgRating)
-        ]))
-
+        const { speed, steals } = this.getRunningRatings(env, command)
         const { defense, arm } = this.getFieldingRatings(env, command)
 
         return {
@@ -169,6 +166,61 @@ class PlayerRatingService {
         }
     }
 
+    private static getRunningRatings(env: PitchEnvironmentTarget, command: PlayerFromStatsCommand): { speed: number, steals: number } {
+        const avgRating = env.avgRating
+        const hitter = command.hitter
+        const running = command.running
+        const leagueHitter = env.importReference.hitter
+        const leagueRunning = env.importReference.running
+
+        const playerPA = Number(hitter.pa ?? 0)
+        const leaguePA = Number(leagueHitter.pa ?? 0)
+
+        const playerPowerOutcomeCount = this.getHitterPowerOutcomeCount(hitter)
+        const leaguePowerOutcomeCount = this.getHitterPowerOutcomeCount(leagueHitter)
+
+        const playerSbAttempts = Number(running.sbAttempts ?? 0)
+        const playerSb = Number(running.sb ?? 0)
+        const playerCs = Math.max(0, playerSbAttempts - playerSb)
+
+        const leagueSbAttempts = Number(leagueRunning.sbAttempts ?? 0)
+        const leagueSb = Number(leagueRunning.sb ?? 0)
+        const leagueCs = Math.max(0, leagueSbAttempts - leagueSb)
+
+        const playerTriplesRate = safeDiv(Number(hitter.triples ?? 0), playerPowerOutcomeCount)
+        const leagueTriplesRate = safeDiv(Number(leagueHitter.triples ?? 0), leaguePowerOutcomeCount)
+
+        const playerAttemptRate = safeDiv(playerSbAttempts, playerPA)
+        const leagueAttemptRate = safeDiv(leagueSbAttempts, leaguePA)
+
+        const playerStealRate = safeDiv(playerSb, playerPA)
+        const leagueStealRate = safeDiv(leagueSb, leaguePA)
+
+        const playerSuccessRate = safeDiv(playerSb, playerSb + playerCs)
+        const leagueSuccessRate = safeDiv(leagueSb, leagueSb + leagueCs)
+
+        const speed = this.rating(env, avgRating + this.averageDeltas([
+            this.getHigherIsBetterDelta(playerTriplesRate, leagueTriplesRate, avgRating),
+            this.getHigherIsBetterDelta(playerAttemptRate, leagueAttemptRate, avgRating * 0.5),
+            this.getHigherIsBetterDelta(playerSuccessRate, leagueSuccessRate, avgRating * 0.35)
+        ]))
+
+        const steals = this.rating(env, avgRating + this.averageDeltas([
+            this.getHigherIsBetterDelta(playerStealRate, leagueStealRate, avgRating),
+            this.getHigherIsBetterDelta(playerAttemptRate, leagueAttemptRate, avgRating),
+            this.getHigherIsBetterDelta(playerSuccessRate, leagueSuccessRate, avgRating * 0.75)
+        ]))
+
+        return {
+            speed,
+            steals
+        }
+    }
+
+    private static getHitterPowerOutcomeCount(hitter: any): number {
+        return Math.max(0, Number(hitter.ab ?? 0) - Number(hitter.so ?? 0))
+    }
+
     private static applyHittingSplit(env: PitchEnvironmentTarget, baseRating: number, split: any, overall: any, ratingType: "plateDiscipline" | "contact" | "gapPower" | "homerunPower"): number {
         if (!split || split.pa <= 0 || overall.pa <= 0) return baseRating
 
@@ -178,23 +230,38 @@ class PlayerRatingService {
         const splitAvg = safeDiv(split.hits, split.ab, safeDiv(overall.hits, overall.ab))
         const overallAvg = safeDiv(overall.hits, overall.ab)
 
-        const splitObp = this.getHitterObp(split, this.getHitterObp(overall))
-        const overallObp = this.getHitterObp(overall)
-
-        const splitSlg = this.getHitterSlg(split, this.getHitterSlg(overall))
-        const overallSlg = this.getHitterSlg(overall)
-
-        const splitOps = splitObp + splitSlg
-        const overallOps = overallObp + overallSlg
-
         const splitBB = safeDiv(split.bb, split.pa, safeDiv(overall.bb, overall.pa))
         const overallBB = safeDiv(overall.bb, overall.pa)
 
-        const splitGap = safeDiv(split.doubles + split.triples, split.pa, safeDiv(overall.doubles + overall.triples, overall.pa))
-        const overallGap = safeDiv(overall.doubles + overall.triples, overall.pa)
+        const splitSO = safeDiv(split.so, split.pa, safeDiv(overall.so, overall.pa))
+        const overallSO = safeDiv(overall.so, overall.pa)
 
-        const splitHR = safeDiv(split.homeRuns, split.pa, safeDiv(overall.homeRuns, overall.pa))
-        const overallHR = safeDiv(overall.homeRuns, overall.pa)
+        const splitBabip = safeDiv(split.hits - split.homeRuns, split.ab - split.so - split.homeRuns, safeDiv(overall.hits - overall.homeRuns, overall.ab - overall.so - overall.homeRuns))
+        const overallBabip = safeDiv(overall.hits - overall.homeRuns, overall.ab - overall.so - overall.homeRuns)
+
+        const splitGap = Number(split.doubles ?? 0) + Number(split.triples ?? 0)
+        const overallGap = Number(overall.doubles ?? 0) + Number(overall.triples ?? 0)
+
+        const splitHR = Number(split.homeRuns ?? 0)
+        const overallHR = Number(overall.homeRuns ?? 0)
+
+        const splitXBH = splitGap + splitHR
+        const overallXBH = overallGap + overallHR
+
+        const splitGapRate = safeDiv(splitGap, this.getHitterPowerOutcomeCount(split), safeDiv(overallGap, this.getHitterPowerOutcomeCount(overall)))
+        const overallGapRate = safeDiv(overallGap, this.getHitterPowerOutcomeCount(overall))
+
+        const splitHRRate = safeDiv(splitHR, this.getHitterPowerOutcomeCount(split), safeDiv(overallHR, this.getHitterPowerOutcomeCount(overall)))
+        const overallHRRate = safeDiv(overallHR, this.getHitterPowerOutcomeCount(overall))
+
+        const splitXBHRate = safeDiv(splitXBH, this.getHitterPowerOutcomeCount(split), safeDiv(overallXBH, this.getHitterPowerOutcomeCount(overall)))
+        const overallXBHRate = safeDiv(overallXBH, this.getHitterPowerOutcomeCount(overall))
+
+        const splitHRShareOfXBH = safeDiv(splitHR, splitXBH, safeDiv(overallHR, overallXBH))
+        const overallHRShareOfXBH = safeDiv(overallHR, overallXBH)
+
+        const splitGapShareOfXBH = safeDiv(splitGap, splitXBH, safeDiv(overallGap, overallXBH))
+        const overallGapShareOfXBH = safeDiv(overallGap, overallXBH)
 
         const splitEV = split.exitVelocity > 0 ? split.exitVelocity : overall.exitVelocity?.avgExitVelo
         const overallEV = overall.exitVelocity?.avgExitVelo
@@ -208,34 +275,26 @@ class PlayerRatingService {
         if (ratingType === "contact") {
             delta = this.sumDeltas([
                 this.getHigherIsBetterDelta(splitAvg, overallAvg, avgRating),
+                this.getHigherIsBetterDelta(splitBabip, overallBabip, avgRating),
                 this.averageDeltas([
-                    this.getHigherIsBetterDelta(splitObp, overallObp, avgRating),
-                    this.getHigherIsBetterDelta(splitSlg, overallSlg, avgRating),
-                    this.getHigherIsBetterDelta(splitOps, overallOps, avgRating),
-                    this.getHigherIsBetterDelta(splitEV, overallEV, avgRating)
+                    this.getLowerIsBetterDelta(splitSO, overallSO, avgRating * 0.5)
                 ])
             ])
         }
 
         if (ratingType === "gapPower") {
             delta = this.sumDeltas([
-                this.getHigherIsBetterDelta(splitGap, overallGap, avgRating),
-                this.averageDeltas([
-                    this.getHigherIsBetterDelta(splitSlg, overallSlg, avgRating),
-                    this.getHigherIsBetterDelta(splitOps, overallOps, avgRating),
-                    this.getHigherIsBetterDelta(splitEV, overallEV, avgRating)
-                ])
+                this.getHigherIsBetterDelta(splitGapRate, overallGapRate, avgRating * 0.6),
+                this.getHigherIsBetterDelta(splitXBHRate, overallXBHRate, avgRating * 0.35),
+                this.getHigherIsBetterDelta(splitGapShareOfXBH, overallGapShareOfXBH, avgRating * 0.45)
             ])
         }
 
         if (ratingType === "homerunPower") {
             delta = this.sumDeltas([
-                this.getHigherIsBetterDelta(splitHR, overallHR, avgRating),
-                this.averageDeltas([
-                    this.getHigherIsBetterDelta(splitSlg, overallSlg, avgRating),
-                    this.getHigherIsBetterDelta(splitOps, overallOps, avgRating),
-                    this.getHigherIsBetterDelta(splitEV, overallEV, avgRating)
-                ])
+                this.getHigherIsBetterDelta(splitHRRate, overallHRRate, avgRating * 1.25),
+                this.getHigherIsBetterDelta(splitHRShareOfXBH, overallHRShareOfXBH, avgRating * 0.75),
+                this.getHigherIsBetterDelta(splitEV, overallEV, avgRating * 0.15)
             ])
         }
 
@@ -259,7 +318,33 @@ class PlayerRatingService {
 
         const soRate = safeDiv(pitcher.so, pitcher.battersFaced, env.outcome.soPercent)
         const bbRate = safeDiv(pitcher.bbAllowed, pitcher.battersFaced, env.outcome.bbPercent)
-        const hrRate = safeDiv(pitcher.homeRunsAllowed, pitcher.battersFaced, env.outcome.homeRunPercent)
+
+        const pitcherPowerOutcomeCount = this.getPitcherPowerOutcomeCount(pitcher)
+        const leaguePitcherPowerOutcomeCount = this.getPitcherPowerOutcomeCount(leaguePitcher)
+
+        const leagueGapAllowedRate = safeDiv(
+            leaguePitcher.doublesAllowed + leaguePitcher.triplesAllowed,
+            leaguePitcherPowerOutcomeCount,
+            env.outcome.doublePercent + env.outcome.triplePercent
+        )
+
+        const leagueHRAllowedRate = safeDiv(
+            leaguePitcher.homeRunsAllowed,
+            leaguePitcherPowerOutcomeCount,
+            env.outcome.homeRunPercent
+        )
+
+        const gapAllowedRate = safeDiv(
+            pitcher.doublesAllowed + pitcher.triplesAllowed,
+            pitcherPowerOutcomeCount,
+            leagueGapAllowedRate
+        )
+
+        const hrAllowedRate = safeDiv(
+            pitcher.homeRunsAllowed,
+            pitcherPowerOutcomeCount,
+            leagueHRAllowedRate
+        )
 
         const leagueZoneContactAllowed = env.swing.inZoneContactPercent / 100
         const leagueChaseContactAllowed = env.swing.outZoneContactPercent / 100
@@ -307,7 +392,10 @@ class PlayerRatingService {
         ]))
 
         const movement = this.rating(env, avgRating + this.sumDeltas([
-            this.getLowerIsBetterDelta(hrRate, env.outcome.homeRunPercent, avgRating),
+            this.averageDeltas([
+                this.getLowerIsBetterDelta(gapAllowedRate, leagueGapAllowedRate, avgRating),
+                this.getLowerIsBetterDelta(hrAllowedRate, leagueHRAllowedRate, avgRating)
+            ]),
             this.averageDeltas([
                 this.getLowerIsBetterDelta(zoneContactAllowed, leagueZoneContactAllowed, avgRating),
                 this.getLowerIsBetterDelta(chaseContactAllowed, leagueChaseContactAllowed, avgRating),
@@ -328,17 +416,6 @@ class PlayerRatingService {
             },
             pitches: this.getPitchTypes(command)
         }
-    }
-
-    private static getHitterObp(hitter: any, fallback = 0): number {
-        return safeDiv((hitter.hits ?? 0) + (hitter.bb ?? 0) + (hitter.hbp ?? 0), hitter.pa ?? 0, fallback)
-    }
-
-    private static getHitterSlg(hitter: any, fallback = 0): number {
-        const singles = (hitter.hits ?? 0) - (hitter.doubles ?? 0) - (hitter.triples ?? 0) - (hitter.homeRuns ?? 0)
-        const totalBases = singles + ((hitter.doubles ?? 0) * 2) + ((hitter.triples ?? 0) * 3) + ((hitter.homeRuns ?? 0) * 4)
-
-        return safeDiv(totalBases, hitter.ab ?? 0, fallback)
     }
 
     private static sumDeltas(values: number[]): number {
@@ -421,29 +498,79 @@ class PlayerRatingService {
     }
 
     private static scaleRating(env: PitchEnvironmentTarget, rating: number, avgRating: number, scale: number): number {
+        const n = Number(rating)
+        const s = Number(scale ?? 0)
+
+        if (!Number.isFinite(n)) return this.rating(env, avgRating)
+        if (!Number.isFinite(s)) return this.rating(env, n)
+
         return this.rating(
             env,
-            Number(rating) * (1 + Number(scale ?? 0))
+            avgRating + ((n - avgRating) * (1 + s))
         )
     }
 
+    private static getPitcherPowerOutcomeCount(pitcher: any): number {
+        const battersFaced = Number(pitcher.battersFaced ?? 0)
+        const walks = Number(pitcher.bbAllowed ?? pitcher.bb ?? 0)
+        const hbp = Number(pitcher.hbpAllowed ?? pitcher.hbp ?? 0)
+        const strikeouts = Number(pitcher.so ?? 0)
+        const atBats = Number(pitcher.atBats ?? pitcher.ab ?? Math.max(0, battersFaced - walks - hbp))
+
+        return Math.max(0, atBats - strikeouts)
+    }    
 
     private static applyPitchingSplit(env: PitchEnvironmentTarget, baseRating: number, split: any, overall: any, ratingType: "control" | "movement"): number {
         if (!split || split.battersFaced <= 0 || overall.battersFaced <= 0) return baseRating
 
         const avgRating = env.avgRating
+        const reliability = safeDiv(split.battersFaced, overall.battersFaced)
+
         const splitBB = safeDiv(split.bbAllowed, split.battersFaced, safeDiv(overall.bbAllowed, overall.battersFaced))
         const overallBB = safeDiv(overall.bbAllowed, overall.battersFaced)
-        const splitHR = safeDiv(split.homeRunsAllowed, split.battersFaced, safeDiv(overall.homeRunsAllowed, overall.battersFaced))
-        const overallHR = safeDiv(overall.homeRunsAllowed, overall.battersFaced)
+
         const splitSO = safeDiv(split.so, split.battersFaced, safeDiv(overall.so, overall.battersFaced))
         const overallSO = safeDiv(overall.so, overall.battersFaced)
 
+        const splitGapAllowedRate = safeDiv(
+            split.doublesAllowed + split.triplesAllowed,
+            this.getPitcherPowerOutcomeCount(split),
+            safeDiv(overall.doublesAllowed + overall.triplesAllowed, this.getPitcherPowerOutcomeCount(overall))
+        )
+
+        const overallGapAllowedRate = safeDiv(
+            overall.doublesAllowed + overall.triplesAllowed,
+            this.getPitcherPowerOutcomeCount(overall)
+        )
+
+        const splitHRAllowedRate = safeDiv(
+            split.homeRunsAllowed,
+            this.getPitcherPowerOutcomeCount(split),
+            safeDiv(overall.homeRunsAllowed, this.getPitcherPowerOutcomeCount(overall))
+        )
+
+        const overallHRAllowedRate = safeDiv(
+            overall.homeRunsAllowed,
+            this.getPitcherPowerOutcomeCount(overall)
+        )
+
+        let delta = 0
+
         if (ratingType === "control") {
-            return this.rating(env, baseRating + this.averageDeltas([this.getLowerIsBetterDelta(splitBB, overallBB, avgRating), this.getHigherIsBetterDelta(splitSO, overallSO, avgRating)]))
+            delta = this.averageDeltas([
+                this.getLowerIsBetterDelta(splitBB, overallBB, avgRating),
+                this.getHigherIsBetterDelta(splitSO, overallSO, avgRating)
+            ])
         }
 
-        return this.rating(env, baseRating + this.averageDeltas([this.getLowerIsBetterDelta(splitHR, overallHR, avgRating), this.getHigherIsBetterDelta(splitSO, overallSO, avgRating)]))
+        if (ratingType === "movement") {
+            delta = this.averageDeltas([
+                this.getLowerIsBetterDelta(splitGapAllowedRate, overallGapAllowedRate, avgRating),
+                this.getLowerIsBetterDelta(splitHRAllowedRate, overallHRAllowedRate, avgRating)
+            ])
+        }
+
+        return this.rating(env, baseRating + (delta * reliability))
     }
 
     private static getHitterContactProfile(command: PlayerFromStatsCommand, env: PitchEnvironmentTarget) {
@@ -598,66 +725,63 @@ class PlayerRatingService {
         const avgRating = env.avgRating
         const leagueFielding = env.importReference.fielding
 
-        const fieldingChances =
-            (command.fielding.errors ?? 0) +
-            (command.fielding.assists ?? 0) +
-            (command.fielding.putouts ?? 0)
+        const errors = Number(command.fielding.errors ?? 0)
+        const assists = Number(command.fielding.assists ?? 0)
+        const putouts = Number(command.fielding.putouts ?? 0)
+        const chances = errors + assists + putouts
 
-        if (fieldingChances <= 0) {
+        if (chances <= 0) {
             return {
                 defense: avgRating,
                 arm: avgRating
             }
         }
 
-        const leagueFieldingPct = safeDiv(
-            leagueFielding.chances - leagueFielding.errors,
-            leagueFielding.chances
+        const leagueChances = Number(leagueFielding.chances ?? 0)
+        const leagueErrors = Number(leagueFielding.errors ?? 0)
+        const leagueAssists = Number(leagueFielding.assists ?? 0)
+        const leaguePutouts = Number(leagueFielding.putouts ?? 0)
+
+        const fieldingPct = safeDiv(chances - errors, chances)
+        const leagueFieldingPct = safeDiv(leagueChances - leagueErrors, leagueChances)
+
+        const assistShare = safeDiv(assists, chances)
+        const leagueAssistShare = safeDiv(leagueAssists, leagueChances)
+
+        const putoutShare = safeDiv(putouts, chances)
+        const leaguePutoutShare = safeDiv(leaguePutouts, leagueChances)
+
+        const playerOutfieldAssistShare = safeDiv(Number(command.fielding.outfieldAssists ?? 0), chances)
+        const leagueOutfieldAssistShare = safeDiv(Number(leagueFielding.outfieldAssists ?? 0), leagueChances)
+
+        const playerCatcherCaughtStealing = Number(command.fielding.catcherCaughtStealing ?? 0)
+        const playerCatcherStolenBasesAllowed = Number(command.fielding.catcherStolenBasesAllowed ?? 0)
+        const leagueCatcherCaughtStealing = Number(leagueFielding.catcherCaughtStealing ?? 0)
+        const leagueCatcherStolenBasesAllowed = Number(leagueFielding.catcherStolenBasesAllowed ?? 0)
+
+        const catcherThrowRate = safeDiv(
+            playerCatcherCaughtStealing,
+            playerCatcherCaughtStealing + playerCatcherStolenBasesAllowed
         )
 
-        const fieldingPct = safeDiv(
-            fieldingChances - (command.fielding.errors ?? 0),
-            fieldingChances,
-            leagueFieldingPct
+        const leagueCatcherThrowRate = safeDiv(
+            leagueCatcherCaughtStealing,
+            leagueCatcherCaughtStealing + leagueCatcherStolenBasesAllowed
         )
 
-        const assistShare = safeDiv(
-            command.fielding.assists ?? 0,
-            fieldingChances,
-            safeDiv(leagueFielding.assists, leagueFielding.chances)
-        )
-
-        const defense = this.rating(
-            env,
-            avgRating + this.getHigherIsBetterDelta(fieldingPct, leagueFieldingPct, avgRating)
-        )
-
-        const arm = this.rating(
-            env,
-            avgRating + this.averageDeltas([
-                this.getHigherIsBetterDelta(
-                    assistShare,
-                    safeDiv(leagueFielding.assists, leagueFielding.chances),
-                    avgRating
-                ),
-                this.getHigherIsBetterDelta(
-                    safeDiv(command.fielding.outfieldAssists ?? 0, fieldingChances),
-                    safeDiv(leagueFielding.outfieldAssists, leagueFielding.chances),
-                    avgRating
-                ),
-                this.getHigherIsBetterDelta(
-                    safeDiv(
-                        command.fielding.catcherCaughtStealing ?? 0,
-                        (command.fielding.catcherCaughtStealing ?? 0) + (command.fielding.catcherStolenBasesAllowed ?? 0)
-                    ),
-                    safeDiv(
-                        leagueFielding.catcherCaughtStealing,
-                        leagueFielding.catcherCaughtStealing + leagueFielding.catcherStolenBasesAllowed
-                    ),
-                    avgRating
-                )
+        const defense = this.rating(env, avgRating + this.sumDeltas([
+            this.getHigherIsBetterDelta(fieldingPct, leagueFieldingPct, avgRating),
+            this.averageDeltas([
+                this.getHigherIsBetterDelta(assistShare, leagueAssistShare, avgRating * 0.5),
+                this.getHigherIsBetterDelta(putoutShare, leaguePutoutShare, avgRating * 0.5)
             ])
-        )
+        ]))
+
+        const arm = this.rating(env, avgRating + this.sumDeltas([
+            this.getHigherIsBetterDelta(assistShare, leagueAssistShare, avgRating),
+            this.getHigherIsBetterDelta(playerOutfieldAssistShare, leagueOutfieldAssistShare, avgRating),
+            this.getHigherIsBetterDelta(catcherThrowRate, leagueCatcherThrowRate, avgRating)
+        ]))
 
         return {
             defense,
@@ -714,7 +838,15 @@ class PlayerRatingService {
     }
 
     private static rating(env: PitchEnvironmentTarget, value: number): number {
-        return Math.round(clamp(value, env.avgRating / 2, env.avgRating * 2))
+        const n = Number(value)
+
+        if (!Number.isFinite(n)) return env.avgRating
+
+        const avgRating = Number(env.avgRating ?? 100)
+        const minRating = Math.round(avgRating * 0.3)
+        const maxRating = Math.round(avgRating * 1.7)
+
+        return clamp(Math.round(n), minRating, maxRating)
     }
 
     static getHigherIsBetterDelta(playerRate: number, baselineRate: number, scale: number): number {
@@ -832,7 +964,7 @@ class PlayerRatingService {
         return false
     }    
 
-    public evaluatePlayerRatings(pitchEnvironment: PitchEnvironmentTarget, ratingTuning: RatingTuning, players: PlayerImportRaw[], rng: Function, gamesPerPlayer: number = 30): { actual: any, target: any, diff: any, score: number } {
+    public evaluatePlayerRatings(pitchEnvironment: PitchEnvironmentTarget, ratingTuning: RatingTuning, players: PlayerImportRaw[], rng: Function, gamesPerPlayer: number = 30): { actual: any, target: any, diff: any, score: number, results: any[] } {
         const results = players.map(playerImportRaw => this.evaluatePlayerRating(pitchEnvironment, ratingTuning, playerImportRaw, rng, gamesPerPlayer))
         const validResults = results.filter(result => Number.isFinite(Number(result.score)))
 
@@ -870,7 +1002,8 @@ class PlayerRatingService {
                 hitter: hitterDiff,
                 pitcher: pitcherDiff
             },
-            score
+            score,
+            results
         }
     }
 
@@ -907,7 +1040,11 @@ class PlayerRatingService {
                     pitcher: pitcherResult.diff
                 },
                 score: (hitterResult.score + pitcherResult.score) / 2,
-                ratings
+                ratings,
+                diagnostic: {
+                    hitter: hitterResult.diagnostic,
+                    pitcher: pitcherResult.diagnostic
+                }
             }
         }
 
@@ -916,8 +1053,10 @@ class PlayerRatingService {
 
     private evaluateHitterRating(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, ratings: { hittingRatings: HittingRatings, pitchRatings: PitchRatings }, rng: Function, gamesPerPlayer: number): any {
         const player = this.buildPlayerFromImportRawAndRatings(playerImportRaw, ratings, false)
-        const actual = this.simHitterForRatingEvaluation(pitchEnvironment, playerImportRaw, player, rng, gamesPerPlayer)
-        const target = this.getHitterRatingTarget(playerImportRaw)
+        const simulation = this.simHitterForRatingEvaluation(pitchEnvironment, playerImportRaw, player, rng, gamesPerPlayer)
+        const actual = simulation.actual
+        const targetHandedness = this.getEvaluationHitterTargetHandedness(pitchEnvironment, player)
+        const target = this.getHitterRatingTarget(playerImportRaw, targetHandedness)
         const diff = this.getRatingEvaluationDiff(actual, target)
         const score = this.scoreHitterRatingEvaluationDiff(diff)
 
@@ -929,17 +1068,34 @@ class PlayerRatingService {
             target,
             diff,
             score,
-            ratings
+            ratings,
+            diagnostic: simulation.diagnostic
         }
+    }
+
+    private getEvaluationHitterTargetHandedness(pitchEnvironment: PitchEnvironmentTarget, player: Player): "vsR" | "vsL" | undefined {
+        const game = this.baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `target-handedness-${player._id}`)
+        const gamePlayer = this.findGamePlayer(game, player._id)
+
+        if (!gamePlayer) {
+            return undefined
+        }
+
+        const offense = game.away.players.find((p: GamePlayer) => p._id === player._id) ? game.away : game.home
+        const defense = offense === game.away ? game.home : game.away
+        const pitcher = defense.players.find((p: GamePlayer) => p._id === defense.currentPitcherId)
+
+        if (!pitcher) {
+            return undefined
+        }
+
+        return pitcher.throws === "L" ? "vsL" : "vsR"
     }
 
     private evaluatePitcherRating(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, ratings: { hittingRatings: HittingRatings, pitchRatings: PitchRatings }, rng: Function, gamesPerPlayer: number): any {
         const player = this.buildPlayerFromImportRawAndRatings(playerImportRaw, ratings, true)
-        
-        
-        
-        
-        const actual = this.simPitcherForRatingEvaluation(pitchEnvironment, playerImportRaw, player, rng, gamesPerPlayer)
+        const simulation = this.simPitcherForRatingEvaluation(pitchEnvironment, playerImportRaw, player, rng, gamesPerPlayer)
+        const actual = simulation.actual
         const target = this.getPitcherRatingTarget(playerImportRaw)
         const diff = this.getRatingEvaluationDiff(actual, target)
         const score = this.scorePitcherRatingEvaluationDiff(diff)
@@ -952,15 +1108,19 @@ class PlayerRatingService {
             target,
             diff,
             score,
-            ratings
+            ratings,
+            diagnostic: simulation.diagnostic
         }
     }
 
     private simHitterForRatingEvaluation(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, player: Player, rng: Function, gamesPerPlayer: number): any {
         let total: HitResultCount = {} as HitResultCount
+        const diagnostic = this.createHitterEvaluationDiagnostic(playerImportRaw, player)
 
         for (let i = 0; i < gamesPerPlayer; i++) {
             const game = this.baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `rating-hitter-${playerImportRaw.playerId}-${i}`)
+
+            this.addPreGameHitterEvaluationDiagnostic(pitchEnvironment, diagnostic, game, player)
 
             while (!game.isComplete) {
                 this.simService.simPitch(game, rng)
@@ -972,14 +1132,27 @@ class PlayerRatingService {
 
             if (gamePlayer?.hitResult) {
                 total = this.baselineGameService.mergeHitResults(total, gamePlayer.hitResult)
+                diagnostic.gameHitResults.push({
+                    gameIndex: i,
+                    hitResult: gamePlayer.hitResult
+                })
             }
+
+            this.addPostGameHitterEvaluationDiagnostic(diagnostic, game, player._id)
         }
 
-        return this.getHitterRatingActual(total)
+        diagnostic.totalHitResult = total
+        diagnostic.actual = this.getHitterRatingActual(total)
+
+        return {
+            actual: diagnostic.actual,
+            diagnostic
+        }
     }
 
     private simPitcherForRatingEvaluation(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, player: Player, rng: Function, gamesPerPlayer: number): any {
         let total: PitchResultCount = {} as PitchResultCount
+        const diagnostic = this.createPitcherEvaluationDiagnostic(playerImportRaw, player)
 
         for (let i = 0; i < gamesPerPlayer; i++) {
             const game = this.baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `rating-pitcher-${playerImportRaw.playerId}-${i}`)
@@ -994,15 +1167,258 @@ class PlayerRatingService {
 
             if (gamePlayer?.pitchResult) {
                 total = this.baselineGameService.mergePitchResults(total, gamePlayer.pitchResult)
+                diagnostic.gamePitchResults.push({
+                    gameIndex: i,
+                    pitchResult: gamePlayer.pitchResult
+                })
             }
         }
 
-        return this.getPitcherRatingActual(total)
+        diagnostic.totalPitchResult = total
+        diagnostic.actual = this.getPitcherRatingActual(total)
+
+        return {
+            actual: diagnostic.actual,
+            diagnostic
+        }
+    }
+
+    private createHitterEvaluationDiagnostic(playerImportRaw: PlayerImportRaw, player: Player): any {
+        return {
+            playerId: playerImportRaw.playerId,
+            name: `${playerImportRaw.firstName} ${playerImportRaw.lastName}`,
+            role: "hitter",
+            insertedPlayer: {
+                id: player._id,
+                primaryPosition: player.primaryPosition,
+                hits: player.hits,
+                throws: player.throws,
+                hittingRatings: player.hittingRatings
+            },
+            activeMatchup: undefined,
+            gameHitResults: [],
+            totalHitResult: {},
+            actual: undefined,
+            pitchCounts: {
+                pitches: 0,
+                swings: 0,
+                noSwings: 0,
+                contactedPitches: 0,
+                fairContacts: 0,
+                foulContacts: 0,
+                whiffs: 0,
+                calledStrikes: 0,
+                balls: 0,
+                hbp: 0,
+                inZone: 0,
+                outZone: 0
+            },
+            plateAppearanceCounts: {
+                pa: 0,
+                inPlay: 0,
+                strikeouts: 0,
+                walks: 0,
+                hbp: 0,
+                other: 0
+            },
+            finalPlayResults: {
+                out: 0,
+                singles: 0,
+                doubles: 0,
+                triples: 0,
+                homeRuns: 0,
+                errors: 0,
+                strikeouts: 0,
+                walks: 0,
+                hbp: 0,
+                other: 0
+            },
+            contactTypes: {
+                groundBalls: 0,
+                lineDrives: 0,
+                flyBalls: 0,
+                missing: 0
+            }
+        }
+    }
+
+    private createPitcherEvaluationDiagnostic(playerImportRaw: PlayerImportRaw, player: Player): any {
+        return {
+            playerId: playerImportRaw.playerId,
+            name: `${playerImportRaw.firstName} ${playerImportRaw.lastName}`,
+            role: "pitcher",
+            insertedPlayer: {
+                id: player._id,
+                primaryPosition: player.primaryPosition,
+                hits: player.hits,
+                throws: player.throws,
+                pitchRatings: player.pitchRatings
+            },
+            gamePitchResults: [],
+            totalPitchResult: {},
+            actual: undefined
+        }
+    }
+
+    private addPreGameHitterEvaluationDiagnostic(pitchEnvironment: PitchEnvironmentTarget, diagnostic: any, game: Game, player: Player): void {
+        if (diagnostic.activeMatchup) return
+
+        const gamePlayer = this.findGamePlayer(game, player._id)
+
+        if (!gamePlayer) {
+            diagnostic.activeMatchup = {
+                error: `Player not found in evaluation game: ${player._id}`
+            }
+            return
+        }
+
+        const offense = game.away.players.find((p: GamePlayer) => p._id === player._id) ? game.away : game.home
+        const defense = offense === game.away ? game.home : game.away
+        const pitcher = defense.players.find((p: GamePlayer) => p._id === defense.currentPitcherId)
+
+        if (!pitcher) {
+            diagnostic.activeMatchup = {
+                error: "Current pitcher not found in evaluation game."
+            }
+            return
+        }
+
+        const hitterChange = pitcher.throws === "L" ? gamePlayer.hitterChange.vsL : gamePlayer.hitterChange.vsR
+        const hitterBatSide = gamePlayer.hits === "S"
+            ? pitcher.throws === "L" ? "R" : "L"
+            : gamePlayer.hits
+        const pitcherChange = hitterBatSide === "L" ? pitcher.pitcherChange.vsL : pitcher.pitcherChange.vsR
+
+        diagnostic.activeMatchup = {
+            hitter: {
+                id: gamePlayer._id,
+                name: gamePlayer.fullName,
+                position: gamePlayer.currentPosition,
+                hits: gamePlayer.hits,
+                ratings: gamePlayer.hittingRatings,
+                hitterChange
+            },
+            pitcher: {
+                id: pitcher._id,
+                name: pitcher.fullName,
+                throws: pitcher.throws,
+                ratings: pitcher.pitchRatings,
+                pitcherChange
+            }
+        }
+    }
+
+    private addPostGameHitterEvaluationDiagnostic(diagnostic: any, game: Game, playerId: string): void {
+        const targetPlays = (GameInfo.getPlays(game) as any[]).filter(play => play.hitterId === playerId)
+
+        for (const play of targetPlays) {
+            diagnostic.plateAppearanceCounts.pa++
+
+            const pitches = play.pitchLog?.pitches ?? []
+            const terminalPitch = pitches[pitches.length - 1]
+
+            if (terminalPitch?.result === "IN_PLAY") diagnostic.plateAppearanceCounts.inPlay++
+            else if (play.result === "STRIKEOUT") diagnostic.plateAppearanceCounts.strikeouts++
+            else if (play.result === "BB") diagnostic.plateAppearanceCounts.walks++
+            else if (play.result === "HIT_BY_PITCH") diagnostic.plateAppearanceCounts.hbp++
+            else diagnostic.plateAppearanceCounts.other++
+
+            this.addPlayResultToHitterEvaluationDiagnostic(diagnostic, play)
+            this.addContactTypeToHitterEvaluationDiagnostic(diagnostic, play)
+
+            for (const pitch of pitches) {
+                diagnostic.pitchCounts.pitches++
+
+                if (pitch.inZone) diagnostic.pitchCounts.inZone++
+                else diagnostic.pitchCounts.outZone++
+
+                if (pitch.swing) diagnostic.pitchCounts.swings++
+                else diagnostic.pitchCounts.noSwings++
+
+                if (pitch.result === "BALL") diagnostic.pitchCounts.balls++
+                if (pitch.result === "HBP") diagnostic.pitchCounts.hbp++
+
+                if (pitch.result === "STRIKE" && !pitch.swing) {
+                    diagnostic.pitchCounts.calledStrikes++
+                }
+
+                if (pitch.swing && !pitch.con && pitch.result === "STRIKE") {
+                    diagnostic.pitchCounts.whiffs++
+                }
+
+                if (pitch.con) {
+                    diagnostic.pitchCounts.contactedPitches++
+
+                    if (pitch.result === "IN_PLAY") {
+                        diagnostic.pitchCounts.fairContacts++
+                    } else if (pitch.result === "FOUL") {
+                        diagnostic.pitchCounts.foulContacts++
+                    }
+                }
+            }
+        }
+    }
+
+    private addPlayResultToHitterEvaluationDiagnostic(diagnostic: any, play: any): void {
+        switch (play.result) {
+            case "OUT":
+                diagnostic.finalPlayResults.out++
+                break
+            case "SINGLE":
+                diagnostic.finalPlayResults.singles++
+                break
+            case "DOUBLE":
+                diagnostic.finalPlayResults.doubles++
+                break
+            case "TRIPLE":
+                diagnostic.finalPlayResults.triples++
+                break
+            case "HR":
+                diagnostic.finalPlayResults.homeRuns++
+                break
+            case "ERROR":
+                diagnostic.finalPlayResults.errors++
+                break
+            case "STRIKEOUT":
+                diagnostic.finalPlayResults.strikeouts++
+                break
+            case "BB":
+                diagnostic.finalPlayResults.walks++
+                break
+            case "HIT_BY_PITCH":
+                diagnostic.finalPlayResults.hbp++
+                break
+            default:
+                diagnostic.finalPlayResults.other++
+                break
+        }
+    }
+
+    private addContactTypeToHitterEvaluationDiagnostic(diagnostic: any, play: any): void {
+        switch (play.contact) {
+            case "GROUNDBALL":
+                diagnostic.contactTypes.groundBalls++
+                break
+            case "LINE_DRIVE":
+                diagnostic.contactTypes.lineDrives++
+                break
+            case "FLY_BALL":
+                diagnostic.contactTypes.flyBalls++
+                break
+            default:
+                diagnostic.contactTypes.missing++
+                break
+        }
     }
 
     private buildPlayerFromImportRawAndRatings(playerImportRaw: PlayerImportRaw, ratings: { hittingRatings: HittingRatings, pitchRatings: PitchRatings }, forcePitcher: boolean = false): Player {
-        const isPitcher = forcePitcher || playerImportRaw.primaryPosition === Position.PITCHER
+        const isPitcher = forcePitcher
         const isStarter = Number(playerImportRaw.pitching?.starts ?? 0) > 0
+        const primaryPosition = isPitcher
+            ? Position.PITCHER
+            : playerImportRaw.primaryPosition === Position.PITCHER
+                ? Position.FIRST_BASE
+                : playerImportRaw.primaryPosition
 
         return {
             _id: playerImportRaw.playerId,
@@ -1010,7 +1426,7 @@ class PlayerRatingService {
             lastName: playerImportRaw.lastName,
             get fullName() { return `${this.firstName} ${this.lastName}` },
             get displayName() { return this.fullName },
-            primaryPosition: isPitcher ? Position.PITCHER : playerImportRaw.primaryPosition,
+            primaryPosition,
             secondaryPositions: playerImportRaw.secondaryPositions ?? [],
             zodiacSign: "Aries",
             throws: playerImportRaw.throws,
@@ -1100,8 +1516,13 @@ class PlayerRatingService {
         }
     }
 
-    private getHitterRatingTarget(playerImportRaw: PlayerImportRaw): any {
-        const h = playerImportRaw.hitting
+    private getHitterRatingTarget(playerImportRaw: PlayerImportRaw, handedness?: "vsR" | "vsL"): any {
+        const h = handedness === "vsR"
+            ? playerImportRaw.splits?.hitting?.vsR ?? playerImportRaw.hitting
+            : handedness === "vsL"
+                ? playerImportRaw.splits?.hitting?.vsL ?? playerImportRaw.hitting
+                : playerImportRaw.hitting
+
         const pa = Number(h.pa ?? 0)
         const ab = Number(h.ab ?? 0)
         const hits = Number(h.hits ?? 0)

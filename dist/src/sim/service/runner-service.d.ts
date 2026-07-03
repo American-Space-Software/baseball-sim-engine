@@ -21,8 +21,12 @@ declare class RunnerService {
     getPositionCoveringBase(throwFromPosition: Position, throwToBase: BaseResult): Position.CATCHER | Position.FIRST_BASE | Position.SECOND_BASE | Position.THIRD_BASE | Position.SHORTSTOP;
     stealBases(runner1B: GamePlayer, runner2B: GamePlayer, runner3B: GamePlayer, gameRNG: () => number, runnerResult: RunnerResult, allEvents: RunnerEvent[], runnerEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], pitchEnvironmentTarget: PitchEnvironmentTarget, catcher: GamePlayer, defense: TeamInfo, offense: TeamInfo, pitcher: GamePlayer, pitchIndex: number, pitchCount: PitchCount): void;
     private getStealSettingsForState;
-    getStolenBaseSafe(pitchEnvironmentTarget: PitchEnvironmentTarget, armRating: number, runnerSpeed: number, runnerSteals: number, defaultSuccess: number): any;
-    getChanceRunnerSafe(pitchEnvironmentTarget: PitchEnvironmentTarget, armRating: number, runnerSpeed: number, defaultSuccess: number): any;
+    private getBatterGroundballSafeChance;
+    getStolenBaseSafe(pitchEnvironmentTarget: PitchEnvironmentTarget, armRating: number, runnerSpeed: number, runnerSteals: number, defaultSuccess: number): number;
+    getChanceRunnerSafe(pitchEnvironmentTarget: PitchEnvironmentTarget, armRating: number, runnerSpeed: number, defaultSuccess: number): number;
+    private getWeightedRatingFactor;
+    private getOddsAdjustedChance;
+    private getRatingFactor;
     getRunnerEvents(gameRNG: () => number, runnerResult: RunnerResult, halfInningRunnerEvents: RunnerEvent[], defensiveCredits: DefensiveCredit[], pitchEnvironmentTarget: PitchEnvironmentTarget, playResult: PlayResult, contact: Contact | undefined, shallowDeep: ShallowDeep | undefined, hitter: GamePlayer, fielderPlayer: GamePlayer | undefined, runner1B: GamePlayer | undefined, runner2B: GamePlayer | undefined, runner3B: GamePlayer | undefined, offense: TeamInfo, defense: TeamInfo, pitcher: GamePlayer, pitchIndex: number): RunnerEvent[];
     generateRunnerEventsFromPitch(command: SimPitchCommand, pitchIndex: number, result: SimPitchResult): void;
     validateRunners(firstId: string, secondId: string, thirdId: string): void;
