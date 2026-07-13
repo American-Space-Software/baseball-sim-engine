@@ -22,9 +22,6 @@ const NUMBER_OF_WORKERS = 25
 
 const CHATGPT_API_KEY = process.env.CHATGPT_API_KEY
 
-if (!CHATGPT_API_KEY) {
-    throw new Error("CHATGPT_API_KEY environment variable is required to run the importer")
-}
 
 const log = (...args: any[]) => {
     console.log("[IMPORTER]", ...args)

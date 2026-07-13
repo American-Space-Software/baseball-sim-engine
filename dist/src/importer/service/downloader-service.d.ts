@@ -1,12 +1,13 @@
 import { PlayerImportRaw } from "../../sim/service/interfaces.js";
 declare class DownloaderService {
+    private readonly scheduleCacheMs;
     private api;
     private throttleMs;
     private baseDataDir;
     private seasonImportCache;
     private statAccumulatorService;
     constructor(baseDataDir: string, throttleMs?: number);
-    downloadSeasonGames(season: number, onGame: (gamePk: number, data: any) => Promise<void>, forceFullReimport?: boolean): Promise<void>;
+    downloadSeasonGames(season: number, onGame: (gamePk: number, data: any) => Promise<void>, forceFullReimport?: boolean): Promise<Set<number>>;
     buildSeasonPlayerImports(season: number, filterPlayerIds?: Set<string>, forceFullReimport?: boolean): Promise<Map<string, PlayerImportRaw>>;
     buildSeasonPlayerImportRaw(season: number, playerId: string, forceFullReimport?: boolean): Promise<PlayerImportRaw | undefined>;
     clearSeasonImportCache(season?: number): void;
@@ -22,14 +23,18 @@ declare class DownloaderService {
     private finalizePlayerImportRaw;
     private accumulateGameIntoSeasonPlayerImports;
     private getSeasonGames;
-    private mapHandedness;
     private getOrDownloadSchedule;
     private downloadSchedule;
     private getOrDownloadGame;
     private getScheduleFilePath;
     private getGameFilePath;
     private getGameDate;
-    private shouldRefreshRecentGame;
+    private isCurrentSeason;
+    private isFutureGameDate;
+    private isGameComplete;
+    private isGameTerminal;
+    private getGameStatus;
+    private isFileFresh;
     private downloadGame;
     private fileExists;
     private readJson;

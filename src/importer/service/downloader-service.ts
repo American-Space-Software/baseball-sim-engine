@@ -9,6 +9,7 @@ import { StatAccumulatorService } from "./stat-accumulator-service.js"
 
 class DownloaderService {
 
+    private readonly scheduleCacheMs = 1000 * 60 * 60
     private api: MLBStatsAPI
     private throttleMs: number
     private baseDataDir: string
@@ -23,8 +24,9 @@ class DownloaderService {
         this.statAccumulatorService = new StatAccumulatorService()
     }
 
-    async downloadSeasonGames(season: number, onGame: (gamePk: number, data: any) => Promise<void>, forceFullReimport = false): Promise<void> {
+    async downloadSeasonGames(season: number, onGame: (gamePk: number, data: any) => Promise<void>, forceFullReimport = false): Promise<Set<number>> {
         const games = await this.getSeasonGames(season)
+        const completedGamePks = new Set<number>()
 
         console.log(`Processing ${games.length} games for season ${season}`)
 
@@ -33,10 +35,28 @@ class DownloaderService {
             const gamePk = Number(game.gamePk)
             const gameDate = this.getGameDate(game)
 
-            if (!gameDate) continue
+            if (!gamePk || !gameDate) continue
+            if (this.isFutureGameDate(gameDate)) continue
 
             try {
-                const result = await this.getOrDownloadGame(season, gamePk, gameDate, forceFullReimport)
+                const result = await this.getOrDownloadGame(
+                    season,
+                    gamePk,
+                    gameDate,
+                    forceFullReimport
+                )
+
+                if (!this.isGameComplete(result.data)) {
+                    console.log(`Skipped ${i + 1}/${games.length} (gamePk: ${gamePk}, status: ${this.getGameStatus(result.data)})`)
+
+                    if (result.downloaded) {
+                        await this.sleep(this.throttleMs)
+                    }
+
+                    continue
+                }
+
+                completedGamePks.add(gamePk)
                 await onGame(gamePk, result.data)
 
                 console.log(`Processed ${i + 1}/${games.length} (gamePk: ${gamePk}, date: ${gameDate})`)
@@ -44,13 +64,14 @@ class DownloaderService {
                 if (result.downloaded) {
                     await this.sleep(this.throttleMs)
                 }
-
             } catch (err: any) {
                 console.error(`Failed game ${gamePk}:`, err?.message ?? err)
             }
         }
 
-        console.log(`Finished downloading season ${season}`)
+        console.log(`Finished processing season ${season}: ${completedGamePks.size} completed games`)
+
+        return completedGamePks
     }
 
     async buildSeasonPlayerImports(season: number, filterPlayerIds?: Set<string>, forceFullReimport = false): Promise<Map<string, PlayerImportRaw>> {
@@ -60,9 +81,11 @@ class DownloaderService {
 
         const normalizedPlayerIds = this.normalizePlayerIds(effectiveFilterPlayerIds)
         const resultsFilePath = this.getResultsFilePath(season)
+        const currentSeason = this.isCurrentSeason(season)
 
-        if (!forceFullReimport) {
+        if (!forceFullReimport && !currentSeason) {
             const cachedResults = await this.readResultsFile(resultsFilePath)
+
             if (cachedResults && this.samePlayerIds(cachedResults.playerIds, normalizedPlayerIds)) {
                 return this.resultsFileToPlayerMap(cachedResults.players)
             }
@@ -70,38 +93,77 @@ class DownloaderService {
 
         const cacheKey = this.getSeasonCacheKey(season, forceFullReimport)
 
-        if (!effectiveFilterPlayerIds && this.seasonImportCache.has(cacheKey)) {
+        if (!currentSeason && !effectiveFilterPlayerIds && this.seasonImportCache.has(cacheKey)) {
             const cached = this.clonePlayerImportMap(this.seasonImportCache.get(cacheKey)!)
-            await this.writeResultsFile(resultsFilePath, season, normalizedPlayerIds, cached)
+
+            await this.writeResultsFile(
+                resultsFilePath,
+                season,
+                normalizedPlayerIds,
+                cached,
+                []
+            )
+
             return cached
         }
 
-        if (effectiveFilterPlayerIds) {
+        if (!currentSeason && effectiveFilterPlayerIds) {
             const fullSeasonCacheKey = this.getSeasonCacheKey(season, false)
 
             if (!forceFullReimport && this.seasonImportCache.has(fullSeasonCacheKey)) {
-                const filtered = this.filterPlayerImportMap(this.seasonImportCache.get(fullSeasonCacheKey)!, effectiveFilterPlayerIds)
-                await this.writeResultsFile(resultsFilePath, season, normalizedPlayerIds, filtered)
+                const filtered = this.filterPlayerImportMap(
+                    this.seasonImportCache.get(fullSeasonCacheKey)!,
+                    effectiveFilterPlayerIds
+                )
+
+                await this.writeResultsFile(
+                    resultsFilePath,
+                    season,
+                    normalizedPlayerIds,
+                    filtered,
+                    []
+                )
+
                 return filtered
             }
         }
 
         const players = new Map<string, PlayerImportRaw>()
 
-        await this.downloadSeasonGames(season, async (gamePk, data) => {
-            this.accumulateGameIntoSeasonPlayerImports(season, gamePk, data, players, effectiveFilterPlayerIds)
-        }, forceFullReimport)
+        const completedGamePks = await this.downloadSeasonGames(
+            season,
+            async (gamePk, data) => {
+                this.accumulateGameIntoSeasonPlayerImports(
+                    season,
+                    gamePk,
+                    data,
+                    players,
+                    effectiveFilterPlayerIds
+                )
+            },
+            forceFullReimport
+        )
 
         for (const player of players.values()) {
             this.finalizePlayerImportRaw(player)
         }
 
-        if (!effectiveFilterPlayerIds) {
-            this.seasonImportCache.set(cacheKey, this.clonePlayerImportMap(players))
+        if (!currentSeason && !effectiveFilterPlayerIds) {
+            this.seasonImportCache.set(
+                cacheKey,
+                this.clonePlayerImportMap(players)
+            )
         }
 
         const result = this.clonePlayerImportMap(players)
-        await this.writeResultsFile(resultsFilePath, season, normalizedPlayerIds, result)
+
+        await this.writeResultsFile(
+            resultsFilePath,
+            season,
+            normalizedPlayerIds,
+            result,
+            Array.from(completedGamePks).sort((a, b) => a - b)
+        )
 
         return result
     }
@@ -139,11 +201,23 @@ class DownloaderService {
         return true
     }
 
-    private async readResultsFile(filePath: string): Promise<{ season: number, playerIds: string[], players: PlayerImportRaw[] } | undefined> {
+    private async readResultsFile(filePath: string): Promise<{ season: number, playerIds: string[], completedGamePks: number[], players: PlayerImportRaw[] } | undefined> {
         if (!await this.fileExists(filePath)) return undefined
+
         const data = await this.readJson(filePath)
-        if (!data || !Array.isArray(data.players) || !Array.isArray(data.playerIds)) return undefined
-        return { season: Number(data.season), playerIds: data.playerIds, players: data.players }
+
+        if (!data || !Array.isArray(data.players) || !Array.isArray(data.playerIds)) {
+            return undefined
+        }
+
+        return {
+            season: Number(data.season),
+            playerIds: data.playerIds.map((id: unknown) => String(id)),
+            completedGamePks: Array.isArray(data.completedGamePks)
+                ? data.completedGamePks.map((gamePk: unknown) => Number(gamePk)).filter(Number.isFinite)
+                : [],
+            players: data.players
+        }
     }
 
     private resultsFileToPlayerMap(players: PlayerImportRaw[]): Map<string, PlayerImportRaw> {
@@ -152,8 +226,15 @@ class DownloaderService {
         return map
     }
 
-    private async writeResultsFile(filePath: string, season: number, playerIds: string[], players: Map<string, PlayerImportRaw>): Promise<void> {
-        const data = { season, playerIds, players: Array.from(players.values()) }
+    private async writeResultsFile(filePath: string, season: number, playerIds: string[], players: Map<string, PlayerImportRaw>, completedGamePks: number[]): Promise<void> {
+        const data = {
+            season,
+            playerIds,
+            completedGamePks,
+            generatedAt: new Date().toISOString(),
+            players: Array.from(players.values())
+        }
+
         await this.ensureDir(path.dirname(filePath))
         await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), "utf8")
     }
@@ -251,24 +332,20 @@ class DownloaderService {
         return games
     }
 
-    private mapHandedness(code?: string): Handedness {
-        switch (code) {
-            case "L":
-                return Handedness.L
-            case "S":
-                return Handedness.S
-            default:
-                return Handedness.R
-        }
-    }
 
     private async getOrDownloadSchedule(season: number): Promise<{ data: any, downloaded: boolean }> {
         const filePath = this.getScheduleFilePath(season)
+        const fileExists = await this.fileExists(filePath)
 
-        if (await this.fileExists(filePath)) {
-            return {
-                data: await this.readJson(filePath),
-                downloaded: false
+        if (fileExists) {
+            const shouldRefresh = this.isCurrentSeason(season) &&
+                !await this.isFileFresh(filePath, this.scheduleCacheMs)
+
+            if (!shouldRefresh) {
+                return {
+                    data: await this.readJson(filePath),
+                    downloaded: false
+                }
             }
         }
 
@@ -298,12 +375,22 @@ class DownloaderService {
 
     private async getOrDownloadGame(season: number, gamePk: number, gameDate?: string, forceFullReimport = false): Promise<{ data: any, downloaded: boolean }> {
         const filePath = this.getGameFilePath(season, gamePk)
-        const shouldRefresh = !forceFullReimport && this.shouldRefreshRecentGame(gameDate)
 
-        if (!forceFullReimport && !shouldRefresh && await this.fileExists(filePath)) {
-            return {
-                data: await this.readJson(filePath),
-                downloaded: false
+        if (!forceFullReimport && await this.fileExists(filePath)) {
+            const cachedData = await this.readJson(filePath)
+
+            if (this.isGameTerminal(cachedData)) {
+                return {
+                    data: cachedData,
+                    downloaded: false
+                }
+            }
+
+            if (gameDate && this.isFutureGameDate(gameDate)) {
+                return {
+                    data: cachedData,
+                    downloaded: false
+                }
             }
         }
 
@@ -330,19 +417,71 @@ class DownloaderService {
         return game?.officialDate ?? game?.gameDate?.slice(0, 10)
     }
 
-    private shouldRefreshRecentGame(gameDate?: string): boolean {
-        if (!gameDate) return false
+    private isCurrentSeason(season: number): boolean {
+        return season === new Date().getUTCFullYear()
+    }
 
-        const today = new Date()
-        const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+    private isFutureGameDate(gameDate: string): boolean {
+        const game = new Date(`${gameDate}T00:00:00.000Z`)
 
-        const game = new Date(`${gameDate}T00:00:00Z`)
         if (Number.isNaN(game.getTime())) return false
 
-        const gameUtc = Date.UTC(game.getUTCFullYear(), game.getUTCMonth(), game.getUTCDate())
-        const diffDays = Math.floor((todayUtc - gameUtc) / (24 * 60 * 60 * 1000))
+        const now = new Date()
+        const todayUtc = Date.UTC(
+            now.getUTCFullYear(),
+            now.getUTCMonth(),
+            now.getUTCDate()
+        )
 
-        return diffDays >= 0 && diffDays <= 5
+        return game.getTime() > todayUtc
+    }
+
+    private isGameComplete(gameData: any): boolean {
+        const abstractState = String(
+            gameData?.gameData?.status?.abstractGameState ?? ""
+        )
+
+        const codedState = String(
+            gameData?.gameData?.status?.codedGameState ?? ""
+        )
+
+        const detailedState = String(
+            gameData?.gameData?.status?.detailedState ?? ""
+        )
+
+        return abstractState === "Final" ||
+            codedState === "F" ||
+            detailedState === "Final" ||
+            detailedState === "Completed Early"
+    }
+
+    private isGameTerminal(gameData: any): boolean {
+        if (this.isGameComplete(gameData)) return true
+
+        const detailedState = String(
+            gameData?.gameData?.status?.detailedState ?? ""
+        ).toLowerCase()
+
+        return detailedState.includes("cancelled") ||
+            detailedState.includes("canceled") ||
+            detailedState.includes("postponed")
+    }
+
+    private getGameStatus(gameData: any): string {
+        return String(
+            gameData?.gameData?.status?.detailedState ??
+            gameData?.gameData?.status?.abstractGameState ??
+            gameData?.gameData?.status?.codedGameState ??
+            "unknown"
+        )
+    }
+
+    private async isFileFresh(filePath: string, maxAgeMs: number): Promise<boolean> {
+        const stat = await fs.promises.stat(filePath).catch(() => undefined)
+
+        if (!stat?.isFile()) return false
+
+        return Date.now() - stat.mtimeMs <= maxAgeMs
     }
 
     private async downloadGame(gamePk: number): Promise<any> {

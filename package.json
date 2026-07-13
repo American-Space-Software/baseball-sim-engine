@@ -1,6 +1,6 @@
 {
   "name": "baseball-sim-engine",
-  "version": "1.9.0",
+  "version": "1.9.2",
   "description": "A deterministic baseball simulation engine written in TypeScript. The engine runs in both Node.js and browser environments.",
   "type": "module",
   "main": "./dist/index.js",
@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./importer": {
+      "types": "./dist/importer.d.ts",
+      "import": "./dist/importer.js"
     }
   },
   "files": [
