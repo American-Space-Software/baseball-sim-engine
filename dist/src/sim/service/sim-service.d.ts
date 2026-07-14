@@ -73,8 +73,8 @@ declare class GameInfo {
     static isGameOver(game: Game): boolean;
     static getTeamDefense(teamInfo: TeamInfo): number;
     static getPlays(game: Game): Play[];
-    static validateGameLineup(players: Player[], lineup: Lineup, startingPitcher: RotationPitcher): void;
-    buildTeamInfo(pitchEnvironmentTarget: PitchEnvironmentTarget, team: Team, lineup: Lineup, availablePitchers: PitchingRole[], players: Player[], startingPitcher: RotationPitcher, color1: string, color2: string, homeAway: HomeAway, startingId: number, teamOptions?: any): TeamInfo;
+    static validateGameLineup(players: Player[], lineup: Lineup, startingPitcher: RotationPitcher, useDH: boolean): void;
+    buildTeamInfo(pitchEnvironmentTarget: PitchEnvironmentTarget, team: Team, lineup: Lineup, availablePitchers: PitchingRole[], players: Player[], startingPitcher: RotationPitcher, color1: string, color2: string, homeAway: HomeAway, startingId: number, useDH: boolean, teamOptions?: any): TeamInfo;
 }
 declare class AtBatInfo {
     static isAtBat(playResult: OfficialPlayResult): boolean;

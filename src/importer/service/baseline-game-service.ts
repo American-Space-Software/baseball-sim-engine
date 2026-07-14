@@ -8,13 +8,13 @@ class BaselineGameService {
         private simService:SimService
     ) {}
 
-    public buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId: string = "baseline-game"): Game {
+    public buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId: string = "baseline-game", useDH: boolean = false): Game {
 
         const awayPlayers = this.buildBaselinePlayers()
         const homePlayers = this.buildBaselinePlayers()
 
-        const awayLineup = this.buildBaselineLineup(awayPlayers)
-        const homeLineup = this.buildBaselineLineup(homePlayers)
+        const awayLineup = this.buildBaselineLineup(awayPlayers, useDH)
+        const homeLineup = this.buildBaselineLineup(homePlayers, useDH)
 
         const awayStartingPitcher: RotationPitcher = {
             _id: awayPlayers.find(p => p.primaryPosition === Position.PITCHER)!._id
@@ -83,22 +83,24 @@ class BaselineGameService {
             homeAvailablePitchers,
 
             pitchEnvironmentTarget: pitchEnvironment,
+            useDH,
             date: new Date()
         })
-    }  
+    }
 
-    public buildStartedBaselineGameWithPlayer(pitchEnvironment: PitchEnvironmentTarget, player: Player, gameId: string = "baseline-player-game"): Game {
+    public buildStartedBaselineGameWithPlayer(pitchEnvironment: PitchEnvironmentTarget, player: Player, gameId: string = "baseline-player-game", useDH: boolean = false): Game {
+
         const awayPlayers = this.buildBaselinePlayers()
         const homePlayers = this.buildBaselinePlayers()
 
         if (player.primaryPosition === Position.PITCHER) {
             this.replaceBaselineStartingPitcher(awayPlayers, player)
         } else {
-            this.replaceBaselineLineupPlayer(awayPlayers, player)
+            this.replaceBaselineLineupPlayer(awayPlayers, player, useDH)
         }
 
-        const awayLineup = this.buildBaselineLineup(awayPlayers)
-        const homeLineup = this.buildBaselineLineup(homePlayers)
+        const awayLineup = this.buildBaselineLineup(awayPlayers, useDH)
+        const homeLineup = this.buildBaselineLineup(homePlayers, useDH)
 
         const awayStartingPitcher: RotationPitcher = {
             _id: awayPlayers.find(p => p.primaryPosition === Position.PITCHER)!._id
@@ -167,12 +169,14 @@ class BaselineGameService {
             homeAvailablePitchers,
 
             pitchEnvironmentTarget: pitchEnvironment,
+            useDH,
             date: new Date()
         })
     }
 
-    private replaceBaselineLineupPlayer(players: Player[], player: Player): void {
-        const targetPosition = player.primaryPosition === Position.DESIGNATED_HITTER
+    private replaceBaselineLineupPlayer(players: Player[], player: Player, useDH: boolean): void {
+
+        const targetPosition = player.primaryPosition === Position.DESIGNATED_HITTER && !useDH
             ? Position.FIRST_BASE
             : player.primaryPosition
 
@@ -248,6 +252,7 @@ class BaselineGameService {
             this.buildBaselinePlayer("lf-1", Position.LEFT_FIELD),
             this.buildBaselinePlayer("cf-1", Position.CENTER_FIELD),
             this.buildBaselinePlayer("rf-1", Position.RIGHT_FIELD),
+            this.buildBaselinePlayer("dh-1", Position.DESIGNATED_HITTER),
 
             this.buildBaselinePlayer("c-2", Position.CATCHER),
             this.buildBaselinePlayer("if-1", Position.SECOND_BASE),
@@ -272,10 +277,7 @@ class BaselineGameService {
         ]
     }
 
-    public buildBaselineLineup(players: Player[]): Lineup {
-        const startingPitchers = players
-            .filter(p => p.primaryPosition === Position.PITCHER)
-            .slice(0, 5)
+    public buildBaselineLineup(players: Player[], useDH: boolean = false): Lineup {
 
         const starterForPosition = (position: Position): Player => {
             const player = players.find(p => p.primaryPosition === position)
@@ -287,6 +289,10 @@ class BaselineGameService {
             return player
         }
 
+        const finalHitter = useDH
+            ? starterForPosition(Position.DESIGNATED_HITTER)
+            : starterForPosition(Position.PITCHER)
+
         return {
             order: [
                 starterForPosition(Position.CATCHER),
@@ -297,10 +303,10 @@ class BaselineGameService {
                 starterForPosition(Position.LEFT_FIELD),
                 starterForPosition(Position.CENTER_FIELD),
                 starterForPosition(Position.RIGHT_FIELD),
-                startingPitchers[0]
-            ].map(p => ({
-                _id: p._id,
-                position: p.primaryPosition
+                finalHitter
+            ].map(player => ({
+                _id: player._id,
+                position: player.primaryPosition
             }))
         } as Lineup
     }

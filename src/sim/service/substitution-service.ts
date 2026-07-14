@@ -15,17 +15,114 @@ class SubstitutionService {
             throw new Error("New pitcher is already the current pitcher.")
         }
 
+        const previousPitcher = team.players.find(p => p._id === previousPitcherId)
+
+        if (!previousPitcher) {
+            throw new Error("Current pitcher was not found.")
+        }
+
         const newPitcher = this.validateIncomingPlayer(game, team, newPitcherId)
 
         if (!newPitcher.pitchRatings) {
             throw new Error("New pitcher must have pitch ratings.")
         }
 
-        if (newPitcher.positions.includes(Position.PITCHER) && this.getPitcherPitchesRemaining(newPitcher) <= 0) {
+        if (
+            newPitcher.positions.includes(Position.PITCHER) &&
+            this.getPitcherPitchesRemaining(newPitcher) <= 0
+        ) {
             throw new Error("New pitcher does not have enough pitches remaining.")
         }
 
-        this.replaceLineupPlayer(game, team, previousPitcherId, newPitcherId, Position.PITCHER, true, playIndex)
+        const previousPitcherIsDesignatedHitter =
+            game.useDH &&
+            previousPitcher.currentPosition === Position.DESIGNATED_HITTER &&
+            team.lineupIds.includes(previousPitcherId)
+
+        if (previousPitcherIsDesignatedHitter) {
+            this.replaceDefensivePitcher(
+                game,
+                team,
+                previousPitcher,
+                newPitcher,
+                playIndex
+            )
+
+            return
+        }
+
+        const pitcherLineupIndex = team.lineupIds.findIndex(
+            id => id === previousPitcherId
+        )
+
+        if (pitcherLineupIndex >= 0) {
+            this.replaceLineupPlayer(
+                game,
+                team,
+                previousPitcherId,
+                newPitcherId,
+                Position.PITCHER,
+                true,
+                playIndex
+            )
+
+            return
+        }
+
+        if (!game.useDH) {
+            throw new Error("Current pitcher was not found in the lineup for a non-DH game.")
+        }
+
+        this.replaceDefensivePitcher(
+            game,
+            team,
+            previousPitcher,
+            newPitcher,
+            playIndex
+        )
+    }
+
+    private replaceDefensivePitcher(game: Game, team: TeamInfo, outPitcher: GamePlayer, inPitcher: GamePlayer, playIndex: number): void {
+
+        if (team.lineupIds.includes(inPitcher._id)) {
+            throw new Error("Incoming pitcher is already in the batting lineup.")
+        }
+
+        const outPitcherRemainsInLineup = team.lineupIds.includes(outPitcher._id)
+        const fromPosition = Position.PITCHER
+
+        if (outPitcherRemainsInLineup) {
+            if (outPitcher.currentPosition !== Position.DESIGNATED_HITTER) {
+                throw new Error("Pitcher can remain in a DH batting order only as the designated hitter.")
+            }
+
+            if (outPitcher.lineupIndex === undefined) {
+                throw new Error("Two-way designated hitter has no batting-order index.")
+            }
+        } else {
+            outPitcher.currentPosition = undefined
+            outPitcher.lineupIndex = undefined
+        }
+
+        inPitcher.currentPosition = Position.PITCHER
+        inPitcher.lineupIndex = undefined
+
+        team.currentPitcherId = inPitcher._id
+
+        game.substitutions.push({
+            inning: game.currentInning,
+            top: game.isTopInning,
+            teamId: team._id,
+            outPlayerId: outPitcher._id,
+            inPlayerId: inPitcher._id,
+            lineupIndex: undefined,
+            fromPosition,
+            toPosition: Position.PITCHER,
+            isPitchingChange: true,
+            playIndex,
+            requiresPitcherChange: false,
+            resolvedPitcherChange: undefined
+        })
     }
 
     public changeHitter(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string, playIndex: number): void {
@@ -116,7 +213,7 @@ class SubstitutionService {
             throw new Error("Outgoing player was not found in the lineup.")
         }
 
-        if (toPosition && !inPlayer.positions.includes(toPosition) && !(isPitchingChange && toPosition === Position.PITCHER && inPlayer.pitchRatings)) {
+        if (!this.canEnterPosition(inPlayer, toPosition, isPitchingChange)) {
             throw new Error(`Incoming player cannot play ${toPosition}.`)
         }
 
@@ -148,7 +245,6 @@ class SubstitutionService {
             requiresPitcherChange,
             resolvedPitcherChange: requiresPitcherChange ? false : undefined
         })
-
     }
 
     public getAvailablePitchers(game: Game, team: TeamInfo): GamePlayer[] {
@@ -232,20 +328,23 @@ class SubstitutionService {
 
         const usedPlayerIds = this.getUsedPlayerIds(game, offense)
 
-        const availableHitters = offense.players.filter(p => {
-            if (p._id === currentHitterId) return false
-            if (p._id === offense.currentPitcherId) return false
-            if (offense.lineupIds.includes(p._id)) return false
-            if (offense.runner1BId === p._id) return false
-            if (offense.runner2BId === p._id) return false
-            if (offense.runner3BId === p._id) return false
-            if (usedPlayerIds.has(p._id)) return false
+        const availableHitters = offense.players.filter(player => {
+            if (player._id === currentHitterId) return false
+            if (player._id === offense.currentPitcherId) return false
+            if (offense.lineupIds.includes(player._id)) return false
+            if (offense.runner1BId === player._id) return false
+            if (offense.runner2BId === player._id) return false
+            if (offense.runner3BId === player._id) return false
+            if (usedPlayerIds.has(player._id)) return false
 
             if (isPitcherSlot) {
-                return !p.positions.includes(Position.PITCHER)
+                return !player.positions.includes(Position.PITCHER)
             }
 
-            return p.positions.includes(currentHitter.currentPosition)
+            return this.canEnterPosition(
+                player,
+                currentHitter.currentPosition
+            )
         })
 
         if (availableHitters.length <= 0) {
@@ -406,6 +505,27 @@ class SubstitutionService {
         }
 
         return incomingPlayer
+    }
+
+    private canEnterPosition(player: GamePlayer, position: Position | undefined, isPitchingChange: boolean = false): boolean {
+
+        if (position === undefined) {
+            return true
+        }
+
+        if (position === Position.DESIGNATED_HITTER) {
+            return !player.positions.includes(Position.PITCHER)
+        }
+
+        if (
+            isPitchingChange &&
+            position === Position.PITCHER &&
+            player.pitchRatings
+        ) {
+            return true
+        }
+
+        return player.positions.includes(position)
     }
 
     private getUsedPlayerIds(game: Game, team: TeamInfo): Set<string> {

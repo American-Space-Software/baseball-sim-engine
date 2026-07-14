@@ -18,6 +18,7 @@ interface StartGameCommand {
     awayAvailablePitchers: PitchingRole[],
 
     pitchEnvironmentTarget?:PitchEnvironmentTarget
+    useDH:boolean
     date:Date
 }
 
@@ -112,19 +113,26 @@ interface Game {
 
     substitutions: GameSubstitution[]
 
+    useDH:boolean
+
     lastUpdated?: Date
     dateCreated?: Date
 }
 
 interface GameSubstitution {
+    
     inning: number
     top: boolean
     teamId: string
+
     outPlayerId: string
     inPlayerId: string
+
     lineupIndex?: number
+
     fromPosition?: Position
     toPosition?: Position
+
     isPitchingChange: boolean
     playIndex: number
 

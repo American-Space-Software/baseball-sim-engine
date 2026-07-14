@@ -14,6 +14,7 @@ interface StartGameCommand {
     awayStartingPitcher: RotationPitcher;
     awayAvailablePitchers: PitchingRole[];
     pitchEnvironmentTarget?: PitchEnvironmentTarget;
+    useDH: boolean;
     date: Date;
 }
 interface SimPitchCommand {
@@ -81,6 +82,7 @@ interface Game {
     startDate?: Date;
     gameDate?: Date;
     substitutions: GameSubstitution[];
+    useDH: boolean;
     lastUpdated?: Date;
     dateCreated?: Date;
 }

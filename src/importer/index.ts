@@ -60,14 +60,19 @@ type TuningWorkerFailure = {
 
 type TuningWorkerOutput = TuningWorkerSuccess | TuningWorkerFailure
 
-interface ImportPitchEnvironmentTargetResult {
+interface ExportPitchEnvironmentTargetResult {
     pitchEnvironment: PitchEnvironmentTarget
     players: Map<string, PlayerImportRaw>
 }
 
+interface ExportAllResult {
+    season: number
+    pitchEnvironmentTarget: PitchEnvironmentTarget
+    ratingTuning: RatingTuning
+    playerRatings: any[]
+}
 
-
-async function importPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any): Promise<PitchEnvironmentTarget> {
+async function exportPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any): Promise<PitchEnvironmentTarget> {
     const existingPitchEnvironmentTargetPath = path.join(baseDataDir, String(season), `_pitch_environment_target.json`)
 
     const readJson = async (filePath: string): Promise<any> => {
@@ -125,7 +130,7 @@ async function importPitchEnvironmentTarget(season: number, baseDataDir: string,
     return fullPitchEnvironment
 }
 
-async function importRatingTuning(season: number, baseDataDir: string, options?: any): Promise<RatingTuning> {
+async function exportRatingTuning(season: number, baseDataDir: string, options?: any): Promise<RatingTuning> {
     const existingRatingTuningPath = path.join(baseDataDir, String(season), `_ratings_tuning.json`)
 
     const readJson = async (filePath: string): Promise<any> => JSON.parse(await fs.promises.readFile(filePath, "utf8"))
@@ -180,74 +185,164 @@ async function importRatingTuning(season: number, baseDataDir: string, options?:
     return ratingTuning
 }
 
-async function importPlayerRatings(season: number, baseDataDir: string, ratingTuning?: RatingTuning): Promise<any[]> {
+async function exportPlayerRatings(season: number, baseDataDir: string, ratingTuning?: RatingTuning): Promise<any[]> {
     const seasonDataDir = path.join(baseDataDir, String(season))
     const playerRatingsPath = path.join(seasonDataDir, `_player_ratings.json`)
     const ratingTuningPath = path.join(seasonDataDir, `_ratings_tuning.json`)
     const pitchEnvironmentTargetPath = path.join(seasonDataDir, `_pitch_environment_target.json`)
 
     const readJson = async (filePath: string): Promise<any> => {
-        return JSON.parse(await fs.promises.readFile(filePath, "utf8"))
+        return JSON.parse(
+            await fs.promises.readFile(
+                filePath,
+                "utf8"
+            )
+        )
     }
 
     const writeJson = async (filePath: string, data: any): Promise<void> => {
-        await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
-        await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), "utf8")
+        await fs.promises.mkdir(
+            path.dirname(filePath),
+            {
+                recursive: true
+            }
+        )
+
+        await fs.promises.writeFile(
+            filePath,
+            JSON.stringify(data, null, 2),
+            "utf8"
+        )
     }
 
     const fileExists = async (filePath: string): Promise<boolean> => {
         try {
-            await fs.promises.access(filePath, fs.constants.F_OK)
+            await fs.promises.access(
+                filePath,
+                fs.constants.F_OK
+            )
+
             return true
         } catch {
             return false
         }
     }
 
-    const tuningSupportService = new TuningSupportService(baseDataDir)
-    const { downloader } = tuningSupportService.createServices()
-
-    const players = await downloader.buildSeasonPlayerImports(season, new Set([]))
-
-    const pitchEnvironment: PitchEnvironmentTarget = await fileExists(pitchEnvironmentTargetPath)
-        ? await readJson(pitchEnvironmentTargetPath)
-        : PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
-
-    const finalRatingTuning: RatingTuning = ratingTuning
-        ?? (await fileExists(ratingTuningPath)
-            ? await readJson(ratingTuningPath)
-            : PlayerRatingService.seedRatingTuning())
-
-    if (!ratingTuning && !(await fileExists(ratingTuningPath))) {
-        log("RATING TUNING MISSING", ratingTuningPath, "using seed rating tuning")
+    if (!(await fileExists(pitchEnvironmentTargetPath))) {
+        throw new Error(
+            `Pitch environment target not found: ${pitchEnvironmentTargetPath}`
+        )
     }
 
-    const playerRatings = Array.from(players.values()).map(playerImportRaw => {
-        const command = PlayerRatingService.createPlayerFromImportRaw(
-            pitchEnvironment,
-            playerImportRaw
+    if (!ratingTuning && !(await fileExists(ratingTuningPath))) {
+        throw new Error(
+            `Rating tuning not found: ${ratingTuningPath}`
+        )
+    }
+
+    const tuningSupportService =
+        new TuningSupportService(baseDataDir)
+
+    const { downloader } =
+        tuningSupportService.createServices()
+
+    const players =
+        await downloader.buildSeasonPlayerImports(
+            season,
+            new Set([])
         )
 
-        Object.assign(command as any, { ratingTuning: finalRatingTuning })
+    const pitchEnvironment: PitchEnvironmentTarget =
+        await readJson(
+            pitchEnvironmentTargetPath
+        )
 
-        const ratings = PlayerRatingService.createPlayerFromStatsCommand(command)
+    const finalRatingTuning: RatingTuning =
+        ratingTuning ??
+        await readJson(
+            ratingTuningPath
+        )
 
-        return {
-            playerId: playerImportRaw.playerId,
-            firstName: playerImportRaw.firstName,
-            lastName: playerImportRaw.lastName,
-            primaryPosition: playerImportRaw.primaryPosition,
-            age: playerImportRaw.age,
-            throws: playerImportRaw.throws,
-            hits: playerImportRaw.bats,
-            hittingRatings: ratings.hittingRatings,
-            pitchRatings: ratings.pitchRatings
-        }
-    })
+    const playerRatings =
+        Array.from(players.values()).map(playerImportRaw => {
+            const command =
+                PlayerRatingService.createPlayerFromImportRaw(
+                    pitchEnvironment,
+                    playerImportRaw
+                )
 
-    await writeJson(playerRatingsPath, playerRatings)
+            Object.assign(
+                command as any,
+                {
+                    ratingTuning: finalRatingTuning
+                }
+            )
+
+            const ratings =
+                PlayerRatingService.createPlayerFromStatsCommand(
+                    command
+                )
+
+            return {
+                playerId: playerImportRaw.playerId,
+                firstName: playerImportRaw.firstName,
+                lastName: playerImportRaw.lastName,
+                primaryPosition: playerImportRaw.primaryPosition,
+                age: playerImportRaw.age,
+                throws: playerImportRaw.throws,
+                hits: playerImportRaw.bats,
+                hittingRatings: ratings.hittingRatings,
+                pitchRatings: ratings.pitchRatings
+            }
+        })
+
+    await writeJson(
+        playerRatingsPath,
+        playerRatings
+    )
 
     return playerRatings
+}
+
+async function exportAll(season: number, baseDataDir: string, options?: any): Promise<ExportAllResult> {
+    log("GENERATE ALL START", `season=${season}`)
+
+    log("GENERATE ALL STEP 1/3", "pitch environment target")
+
+    const pitchEnvironmentTarget =
+        await exportPitchEnvironmentTarget(
+            season,
+            baseDataDir,
+            options
+        )
+
+    log("GENERATE ALL STEP 2/3", "rating tuning")
+
+    const ratingTuning =
+        await exportRatingTuning(
+            season,
+            baseDataDir,
+            {
+                ...options,
+                forceRatingTuning: true
+            }
+        )
+
+    log("GENERATE ALL STEP 3/3", "player ratings")
+
+    const playerRatings =
+        await exportPlayerRatings(
+            season,
+            baseDataDir,
+            ratingTuning
+        )
+
+    return {
+        season,
+        pitchEnvironmentTarget,
+        ratingTuning,
+        playerRatings
+    }
 }
 
 class PitchEnvironmentTuner {
@@ -2055,29 +2150,58 @@ class TuningSupportService {
 }
 
 export {
-    importPitchEnvironmentTarget,
-    importRatingTuning,
-    importPlayerRatings,
-    ImportPitchEnvironmentTargetResult
+    exportPitchEnvironmentTarget,
+    exportRatingTuning,
+    exportPlayerRatings,
+    exportAll,
+    ExportPitchEnvironmentTargetResult,
+    ExportAllResult
 }
 
 
-
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-    const command = process.argv[2]
-    const season = Number(process.argv[3])
+    const action = process.argv[2]
+    const subject = process.argv[3]
+    const seasonArgument = process.argv[4]
 
-    if (!["target", "ratings"].includes(command)) {
-        throw new Error(`Unknown command: ${command}`)
+    const command = `${action ?? ""} ${subject ?? ""}`.trim()
+
+    const season = seasonArgument
+        ? Number(seasonArgument)
+        : new Date().getUTCFullYear()
+
+    const supportedCommands = [
+        "tune target",
+        "tune ratings",
+        "generate ratings",
+        "generate all"
+    ]
+
+    if (!supportedCommands.includes(command)) {
+        throw new Error(
+            [
+                `Unknown command: ${command || "(none)"}`,
+                "",
+                "Supported commands:",
+                "  tune target [season]",
+                "  tune ratings [season]",
+                "  generate ratings [season]",
+                "  generate all [season]"
+            ].join("\n")
+        )
     }
 
-    if (!Number.isFinite(season)) {
-        throw new Error("Season is required.")
+    if (!Number.isInteger(season) || season < 1871) {
+        throw new Error(
+            `Invalid season: ${seasonArgument}`
+        )
     }
 
-    let options = {
+    const options = {
         gamesPerIteration: 150,
         finalGamesPerIteration: 300,
+        gamesPerPlayer: 150,
+        finalGamesPerPlayer: 300,
         workers: NUMBER_OF_WORKERS,
         samplesPerCandidate: 5
     }
@@ -2086,18 +2210,64 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 
     let result: any
 
-    if (command === "target") {
-        result = await importPitchEnvironmentTarget(season, baseDataDir, options)
+    if (command === "tune target") {
+        result = await exportPitchEnvironmentTarget(
+            season,
+            baseDataDir,
+            options
+        )
     }
 
-    if (command === "ratings") {
-        result = await importRatingTuning(season, baseDataDir, options)
+    if (command === "tune ratings") {
+        result = await exportRatingTuning(
+            season,
+            baseDataDir,
+            options
+        )
+    }
+
+    if (command === "generate ratings") {
+        result = await exportPlayerRatings(
+            season,
+            baseDataDir
+        )
+    }
+
+    if (command === "generate all") {
+        result = await exportAll(
+            season,
+            baseDataDir,
+            options
+        )
     }
 
     console.log("")
     console.log("========================================")
     console.log(`${command.toUpperCase()} COMPLETE`)
+    console.log(`SEASON: ${season}`)
     console.log("========================================")
-    console.log(JSON.stringify(result, null, 2))
+
+    if (command === "generate all") {
+        console.log(
+            JSON.stringify(
+                {
+                    season: result.season,
+                    playerRatingsGenerated:
+                        result.playerRatings.length
+                },
+                null,
+                2
+            )
+        )
+    } else {
+        console.log(
+            JSON.stringify(
+                result,
+                null,
+                2
+            )
+        )
+    }
+
     console.log("")
 }

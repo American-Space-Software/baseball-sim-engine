@@ -2,6 +2,7 @@ import { Position, PitchingRoleType } from "./enums.js";
 import { Game, GamePlayer, TeamInfo } from "./interfaces.js";
 declare class SubstitutionService {
     changePitcher(game: Game, team: TeamInfo, newPitcherId: string, playIndex: number): void;
+    private replaceDefensivePitcher;
     changeHitter(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string, playIndex: number): void;
     changeFielder(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string, position: Position, playIndex: number): void;
     changeRunner(game: Game, team: TeamInfo, outPlayerId: string, inPlayerId: string, playIndex: number): void;
@@ -14,6 +15,7 @@ declare class SubstitutionService {
     changePitcherIfNeeded(game: Game, defense: TeamInfo, playIndex: number): boolean;
     getFatigueScale(pitcher: GamePlayer): number;
     private validateIncomingPlayer;
+    private canEnterPosition;
     private getUsedPlayerIds;
     private shouldConsiderHitterChange;
 }

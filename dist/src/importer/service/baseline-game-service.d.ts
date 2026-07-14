@@ -4,13 +4,13 @@ import { Game, HitResultCount, Lineup, PitchEnvironmentTarget, PitchResultCount,
 declare class BaselineGameService {
     private simService;
     constructor(simService: SimService);
-    buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId?: string): Game;
-    buildStartedBaselineGameWithPlayer(pitchEnvironment: PitchEnvironmentTarget, player: Player, gameId?: string): Game;
+    buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId?: string, useDH?: boolean): Game;
+    buildStartedBaselineGameWithPlayer(pitchEnvironment: PitchEnvironmentTarget, player: Player, gameId?: string, useDH?: boolean): Game;
     private replaceBaselineLineupPlayer;
     private replaceBaselineStartingPitcher;
     buildBaselinePlayer(id: string, position: Position): Player;
     buildBaselinePlayers(): Player[];
-    buildBaselineLineup(players: Player[]): Lineup;
+    buildBaselineLineup(players: Player[], useDH?: boolean): Lineup;
     mergeHitResults(total: HitResultCount, current: HitResultCount): HitResultCount;
     mergePitchResults(total: PitchResultCount, current: PitchResultCount): PitchResultCount;
     private getBaselineStamina;

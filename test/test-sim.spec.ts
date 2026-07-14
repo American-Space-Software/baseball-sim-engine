@@ -21,7 +21,6 @@ import type {
 } from "../src/sim/index.js"
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
-import { importPitchEnvironmentTarget } from "../src/importer/index.js"
 import { DownloaderService } from "../src/importer/service/downloader-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 

@@ -1,9 +1,16 @@
 import { PitchEnvironmentTarget, PlayerImportRaw, RatingTuning } from "../sim/service/interfaces.js";
-interface ImportPitchEnvironmentTargetResult {
+interface ExportPitchEnvironmentTargetResult {
     pitchEnvironment: PitchEnvironmentTarget;
     players: Map<string, PlayerImportRaw>;
 }
-declare function importPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any): Promise<PitchEnvironmentTarget>;
-declare function importRatingTuning(season: number, baseDataDir: string, options?: any): Promise<RatingTuning>;
-declare function importPlayerRatings(season: number, baseDataDir: string, ratingTuning?: RatingTuning): Promise<any[]>;
-export { importPitchEnvironmentTarget, importRatingTuning, importPlayerRatings, ImportPitchEnvironmentTargetResult };
+interface ExportAllResult {
+    season: number;
+    pitchEnvironmentTarget: PitchEnvironmentTarget;
+    ratingTuning: RatingTuning;
+    playerRatings: any[];
+}
+declare function exportPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any): Promise<PitchEnvironmentTarget>;
+declare function exportRatingTuning(season: number, baseDataDir: string, options?: any): Promise<RatingTuning>;
+declare function exportPlayerRatings(season: number, baseDataDir: string, ratingTuning?: RatingTuning): Promise<any[]>;
+declare function exportAll(season: number, baseDataDir: string, options?: any): Promise<ExportAllResult>;
+export { exportPitchEnvironmentTarget, exportRatingTuning, exportPlayerRatings, exportAll, ExportPitchEnvironmentTargetResult, ExportAllResult };

@@ -19,7 +19,6 @@ import { PitchEnvironmentService } from "../src/importer/service/pitch-environme
 import { PlayerRatingService } from "../src/importer/service/player-rating-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 import { DownloaderService } from "../src/importer/service/downloader-service.js"
-import { importRatingTuning } from "../src/importer/index.js"
 import { Contact, Handedness, PitchCall, PlayResult, simService } from "../src/sim/index.js"
 
 const season = 2025
@@ -1426,8 +1425,6 @@ describe("Player Rating Diagnostics", function () {
             { player: "Paul Skenes", row: "DIFF", ...RatingTestHarness.formatDiffForTable(skenes.pitcher.actual, skenes.pitcher.target) }
         ])
     })
-
-
 
 
 })

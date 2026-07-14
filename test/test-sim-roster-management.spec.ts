@@ -5,13 +5,18 @@ import {
     simService,
     Position,
     PitchingRoleType,
-    Handedness
+    Handedness,
+    GameInfo
 } from "../src/sim/index.js"
 import type {
     PitchEnvironmentTarget,
     Game,
     GamePlayer,
-    TeamInfo
+    TeamInfo,
+    Lineup,
+    Player,
+    RotationPitcher,
+    Team
 } from "../src/sim/index.js"
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
@@ -43,7 +48,143 @@ const buildGame = (seed: string): Game => {
     )
 }
 
+const buildDHGame = (seed: string): Game => {
+    const environment = clone(pitchEnvironment)
 
+    environment.pitchEnvironmentTuning = pitchEnvironmentService.seedPitchEnvironmentTuning(environment)
+
+    return baselineGameService.buildStartedBaselineGame(
+        environment,
+        seed,
+        true
+    )
+}
+
+const buildTwoWayDHGame = (seed: string): Game => {
+    const environment = clone(pitchEnvironment)
+
+    environment.pitchEnvironmentTuning =
+        pitchEnvironmentService.seedPitchEnvironmentTuning(environment)
+
+    const twoWayPlayer = baselineGameService.buildBaselinePlayer(
+        "two-way-1",
+        Position.PITCHER
+    )
+
+    twoWayPlayer.stamina = 1
+    twoWayPlayer.maxPitchCount = 100
+
+    const awayPlayers = baselineGameService.buildBaselinePlayers()
+    const homePlayers = baselineGameService.buildBaselinePlayers()
+
+    const awayStartingPitcherIndex = awayPlayers.findIndex(
+        player => player._id === "sp-1"
+    )
+
+    if (awayStartingPitcherIndex < 0) {
+        throw new Error("No away baseline starting pitcher found.")
+    }
+
+    awayPlayers[awayStartingPitcherIndex] = twoWayPlayer
+
+    const awayLineup = baselineGameService.buildBaselineLineup(
+        awayPlayers,
+        true
+    )
+
+    const awayDHSpot = awayLineup.order.find(
+        spot => spot.position === Position.DESIGNATED_HITTER
+    )
+
+    if (!awayDHSpot) {
+        throw new Error("No away designated hitter spot found.")
+    }
+
+    awayDHSpot._id = twoWayPlayer._id
+
+    const homeLineup = baselineGameService.buildBaselineLineup(
+        homePlayers,
+        true
+    )
+
+    const awayStartingPitcher: RotationPitcher = {
+        _id: twoWayPlayer._id
+    }
+
+    const homeStartingPitcher: RotationPitcher = {
+        _id: homePlayers.find(
+            player => player.primaryPosition === Position.PITCHER
+        )!._id
+    }
+
+    const buildAvailablePitchers = (rosterPlayers: Player[], startingPitcher: RotationPitcher) => {
+        return rosterPlayers
+            .filter(player =>
+                player.primaryPosition === Position.PITCHER &&
+                player._id !== startingPitcher._id
+            )
+            .map((player, index) => ({
+                playerId: player._id,
+                role:
+                    index === 0 ? PitchingRoleType.CLOSER :
+                    index <= 2 ? PitchingRoleType.SETUP :
+                    index <= 4 ? PitchingRoleType.MIDDLE :
+                    index <= 6 ? PitchingRoleType.LONG :
+                    PitchingRoleType.MOP_UP,
+                priority: index
+            }))
+    }
+
+    const game = { _id: seed } as Game
+
+    simService.initGame(game)
+
+    return simService.startGame({
+        game,
+
+        away: {
+            _id: `${seed}-away`,
+            name: "Away",
+            abbrev: "AWAY",
+            colors: {
+                color1: "#ff0000",
+                color2: "#ffffff"
+            }
+        },
+
+        awayTeamOptions: {},
+        awayPlayers,
+        awayLineup,
+        awayStartingPitcher,
+        awayAvailablePitchers: buildAvailablePitchers(
+            awayPlayers,
+            awayStartingPitcher
+        ),
+
+        home: {
+            _id: `${seed}-home`,
+            name: "Home",
+            abbrev: "HOME",
+            colors: {
+                color1: "#0000ff",
+                color2: "#ffffff"
+            }
+        },
+
+        homeTeamOptions: {},
+        homePlayers,
+        homeLineup,
+        homeStartingPitcher,
+        homeAvailablePitchers: buildAvailablePitchers(
+            homePlayers,
+            homeStartingPitcher
+        ),
+
+        pitchEnvironmentTarget: environment,
+        useDH: true,
+        date: new Date()
+    })
+}
 
 const getBenchPlayerForPosition = (team: TeamInfo, position: Position): GamePlayer => {
     const player = team.players.find(p =>
@@ -120,6 +261,7 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.equal(game.isStarted, true)
         assert.equal(game.currentInning, 1)
         assert.equal(game.isTopInning, true)
+        assert.equal(game.useDH, false)
 
         assert.equal(game.away.lineupIds.length, 9)
         assert.equal(game.home.lineupIds.length, 9)
@@ -127,8 +269,20 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.ok(game.away.currentPitcherId)
         assert.ok(game.home.currentPitcherId)
 
-        assert.ok(game.away.players.find(p => p._id === game.away.currentPitcherId))
-        assert.ok(game.home.players.find(p => p._id === game.home.currentPitcherId))
+        const awayPitcher = game.away.players.find(p => p._id === game.away.currentPitcherId)
+        const homePitcher = game.home.players.find(p => p._id === game.home.currentPitcherId)
+
+        assert.ok(awayPitcher)
+        assert.ok(homePitcher)
+
+        assert.ok(game.away.lineupIds.includes(game.away.currentPitcherId))
+        assert.ok(game.home.lineupIds.includes(game.home.currentPitcherId))
+
+        assert.equal(awayPitcher.currentPosition, Position.PITCHER)
+        assert.equal(homePitcher.currentPosition, Position.PITCHER)
+
+        assert.ok(awayPitcher.lineupIndex !== undefined)
+        assert.ok(homePitcher.lineupIndex !== undefined)
     })
 
     it("should get available pitchers", () => {
@@ -666,7 +820,6 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.equal(nextHitter, undefined)
     })
 
-
     it("should change hitter for pitcher slot and require later pitcher change", () => {
         const game = buildGame("change-hitter-for-pitcher")
         const team = game.away
@@ -782,5 +935,1051 @@ describe("Baseball Sim Engine Substitutions", async () => {
         assert.equal(nextHitter.positions.includes(Position.PITCHER), false)
     })
 
+    it("should validate a DH lineup with no pitcher batting spot", () => {
+    const rosterPlayers = baselineGameService.buildBaselinePlayers()
+    const lineup = baselineGameService.buildBaselineLineup(rosterPlayers, true)
+
+    const startingPitcher: RotationPitcher = {
+        _id: rosterPlayers.find(player => player.primaryPosition === Position.PITCHER)!._id
+    }
+
+    assert.doesNotThrow(() => {
+        GameInfo.validateGameLineup(
+            rosterPlayers,
+            lineup,
+            startingPitcher,
+            true
+        )
+    })
+
+    assert.equal(
+        lineup.order.filter(spot => spot.position === Position.DESIGNATED_HITTER).length,
+        1
+    )
+
+    assert.equal(
+        lineup.order.filter(spot => spot.position === Position.PITCHER).length,
+        0
+    )
+    })
+
+    it("should reject a DH lineup containing a pitcher batting spot", () => {
+        const rosterPlayers = baselineGameService.buildBaselinePlayers()
+        const lineup = baselineGameService.buildBaselineLineup(rosterPlayers, true)
+
+        const startingPitcher: RotationPitcher = {
+            _id: rosterPlayers.find(player => player.primaryPosition === Position.PITCHER)!._id
+        }
+
+        const designatedHitterSpot = lineup.order.find(
+            spot => spot.position === Position.DESIGNATED_HITTER
+        )
+
+        assert.ok(designatedHitterSpot)
+
+        designatedHitterSpot.position = Position.PITCHER
+
+        assert.throws(
+            () => GameInfo.validateGameLineup(
+                rosterPlayers,
+                lineup,
+                startingPitcher,
+                true
+            ),
+            /cannot contain a pitcher batting spot/i
+        )
+    })
+
+    it("should reject a DH lineup without a designated hitter", () => {
+        const rosterPlayers = baselineGameService.buildBaselinePlayers()
+        const lineup = baselineGameService.buildBaselineLineup(rosterPlayers, true)
+
+        const startingPitcher: RotationPitcher = {
+            _id: rosterPlayers.find(player => player.primaryPosition === Position.PITCHER)!._id
+        }
+
+        const designatedHitterSpot = lineup.order.find(
+            spot => spot.position === Position.DESIGNATED_HITTER
+        )
+
+        assert.ok(designatedHitterSpot)
+
+        designatedHitterSpot.position = undefined
+
+        assert.throws(
+            () => GameInfo.validateGameLineup(
+                rosterPlayers,
+                lineup,
+                startingPitcher,
+                true
+            ),
+            /must contain exactly one designated hitter/i
+        )
+    })
+
+    it("should reject a non-DH lineup containing a designated hitter", () => {
+        const rosterPlayers = baselineGameService.buildBaselinePlayers()
+        const lineup = baselineGameService.buildBaselineLineup(rosterPlayers, true)
+
+        const startingPitcher: RotationPitcher = {
+            _id: rosterPlayers.find(player => player.primaryPosition === Position.PITCHER)!._id
+        }
+
+        assert.throws(
+            () => GameInfo.validateGameLineup(
+                rosterPlayers,
+                lineup,
+                startingPitcher,
+                false
+            ),
+            /cannot contain a designated hitter/i
+        )
+    })
+
+    it("should reject a starting pitcher not found in the roster", () => {
+        const rosterPlayers = baselineGameService.buildBaselinePlayers()
+        const lineup = baselineGameService.buildBaselineLineup(rosterPlayers, true)
+
+        const startingPitcher: RotationPitcher = {
+            _id: "missing-starting-pitcher"
+        }
+
+        assert.throws(
+            () => GameInfo.validateGameLineup(
+                rosterPlayers,
+                lineup,
+                startingPitcher,
+                true
+            ),
+            /starting pitcher.*not found in players list/i
+        )
+    })
+
+    it("should start a DH game with separate batting and pitching assignments", () => {
+        const environment = clone(pitchEnvironment)
+
+        environment.pitchEnvironmentTuning =
+            pitchEnvironmentService.seedPitchEnvironmentTuning(environment)
+
+        const game = baselineGameService.buildStartedBaselineGame(
+            environment,
+            "start-dh-game",
+            true
+        )
+
+        assert.equal(game.useDH, true)
+
+        for (const team of [game.away, game.home]) {
+            const pitcher = team.players.find(
+                player => player._id === team.currentPitcherId
+            )
+
+            const designatedHitter = team.players.find(
+                player => player.currentPosition === Position.DESIGNATED_HITTER
+            )
+
+            assert.ok(pitcher)
+            assert.ok(designatedHitter)
+
+            assert.equal(team.lineupIds.length, 9)
+
+            assert.equal(
+                team.lineupIds.includes(pitcher._id),
+                false
+            )
+
+            assert.equal(
+                team.lineupIds.includes(designatedHitter._id),
+                true
+            )
+
+            assert.equal(
+                pitcher.currentPosition,
+                Position.PITCHER
+            )
+
+            assert.equal(
+                pitcher.lineupIndex,
+                undefined
+            )
+
+            assert.ok(
+                designatedHitter.lineupIndex !== undefined
+            )
+
+            assert.equal(
+                team.lineupIds[designatedHitter.lineupIndex],
+                designatedHitter._id
+            )
+        }
+    })
+
+    it("should start a DH game with nine defenders and one designated hitter", () => {
+        const environment = clone(pitchEnvironment)
+
+        environment.pitchEnvironmentTuning =
+            pitchEnvironmentService.seedPitchEnvironmentTuning(environment)
+
+        const game = baselineGameService.buildStartedBaselineGame(
+            environment,
+            "dh-active-players",
+            true
+        )
+
+        for (const team of [game.away, game.home]) {
+            const activePlayers = team.players.filter(
+                player => player.currentPosition !== undefined
+            )
+
+            const defenders = activePlayers.filter(
+                player => player.currentPosition !== Position.DESIGNATED_HITTER
+            )
+
+            const designatedHitters = activePlayers.filter(
+                player => player.currentPosition === Position.DESIGNATED_HITTER
+            )
+
+            assert.equal(activePlayers.length, 10)
+            assert.equal(defenders.length, 9)
+            assert.equal(designatedHitters.length, 1)
+
+            assert.equal(
+                defenders.filter(
+                    player => player.currentPosition === Position.PITCHER
+                ).length,
+                1
+            )
+
+            assert.equal(
+                new Set(
+                    defenders.map(player => player.currentPosition)
+                ).size,
+                9
+            )
+        }
+    })
+
+    it("should change pitcher without changing the batting order in a DH game", () => {
+        const game = buildDHGame("change-dh-pitcher")
+        const team = game.home
+        const playIndex = 1
+
+        const originalLineupIds = [...team.lineupIds]
+        const previousPitcherId = team.currentPitcherId
+        const previousPitcher = team.players.find(p => p._id === previousPitcherId)
+        const newPitcher = substitutionService.getAvailablePitchers(game, team)[0]
+
+        assert.ok(previousPitcher)
+        assert.ok(newPitcher)
+
+        assert.equal(team.lineupIds.includes(previousPitcherId), false)
+        assert.equal(team.lineupIds.includes(newPitcher._id), false)
+
+        substitutionService.changePitcher(
+            game,
+            team,
+            newPitcher._id,
+            playIndex
+        )
+
+        assert.equal(team.currentPitcherId, newPitcher._id)
+        assert.deepEqual(team.lineupIds, originalLineupIds)
+
+        assert.equal(previousPitcher.currentPosition, undefined)
+        assert.equal(previousPitcher.lineupIndex, undefined)
+
+        assert.equal(newPitcher.currentPosition, Position.PITCHER)
+        assert.equal(newPitcher.lineupIndex, undefined)
+    })
+
+    it("should log a DH pitching change without a batting-order index", () => {
+        const game = buildDHGame("log-dh-pitching-change")
+        const team = game.home
+        const playIndex = 4
+
+        const previousPitcherId = team.currentPitcherId
+        const newPitcher = substitutionService.getAvailablePitchers(game, team)[0]
+
+        assert.ok(newPitcher)
+
+        substitutionService.changePitcher(
+            game,
+            team,
+            newPitcher._id,
+            playIndex
+        )
+
+        assert.equal(game.substitutions.length, 1)
+
+        const substitution = game.substitutions[0]
+
+        assert.equal(substitution.teamId, team._id)
+        assert.equal(substitution.outPlayerId, previousPitcherId)
+        assert.equal(substitution.inPlayerId, newPitcher._id)
+
+        assert.equal(substitution.lineupIndex, undefined)
+        assert.equal(substitution.fromPosition, Position.PITCHER)
+        assert.equal(substitution.toPosition, Position.PITCHER)
+
+        assert.equal(substitution.isPitchingChange, true)
+        assert.equal(substitution.requiresPitcherChange, false)
+        assert.equal(substitution.resolvedPitcherChange, undefined)
+        assert.equal(substitution.playIndex, playIndex)
+    })
+
+    it("should preserve the DH batting order through multiple pitching changes", () => {
+        const game = buildDHGame("multiple-dh-pitching-changes")
+        const team = game.home
+
+        const originalLineupIds = [...team.lineupIds]
+
+        const secondPitcher = substitutionService.getAvailablePitchers(game, team)[0]
+
+        assert.ok(secondPitcher)
+
+        substitutionService.changePitcher(
+            game,
+            team,
+            secondPitcher._id,
+            1
+        )
+
+        assert.deepEqual(team.lineupIds, originalLineupIds)
+
+        const thirdPitcher = substitutionService.getAvailablePitchers(game, team)[0]
+
+        assert.ok(thirdPitcher)
+
+        substitutionService.changePitcher(
+            game,
+            team,
+            thirdPitcher._id,
+            2
+        )
+
+        assert.equal(team.currentPitcherId, thirdPitcher._id)
+        assert.deepEqual(team.lineupIds, originalLineupIds)
+
+        assert.equal(secondPitcher.currentPosition, undefined)
+        assert.equal(secondPitcher.lineupIndex, undefined)
+
+        assert.equal(thirdPitcher.currentPosition, Position.PITCHER)
+        assert.equal(thirdPitcher.lineupIndex, undefined)
+
+        assert.equal(game.substitutions.length, 2)
+    })
+
+    it("should not allow a removed pitcher to re-enter a DH game", () => {
+        const game = buildDHGame("dh-pitcher-re-entry")
+        const team = game.home
+
+        const firstPitcherId = team.currentPitcherId
+        const secondPitcher = substitutionService.getAvailablePitchers(game, team)[0]
+
+        assert.ok(secondPitcher)
+
+        substitutionService.changePitcher(
+            game,
+            team,
+            secondPitcher._id,
+            1
+        )
+
+        assert.throws(
+            () => substitutionService.changePitcher(
+                game,
+                team,
+                firstPitcherId,
+                2
+            ),
+            /already left this game/i
+        )
+    })    
+
+    it("should automatically replace an exhausted pitcher without changing a DH lineup", () => {
+        const game = buildDHGame("automatic-dh-pitching-change")
+        const team = game.home
+
+        const originalLineupIds = [...team.lineupIds]
+        const previousPitcherId = team.currentPitcherId
+        const previousPitcher = team.players.find(
+            p => p._id === previousPitcherId
+        )
+
+        assert.ok(previousPitcher)
+
+        previousPitcher.maxPitchCount = 30
+        previousPitcher.stamina = 1
+        previousPitcher.pitchResult.pitches = 30
+
+        const changed = substitutionService.changePitcherIfNeeded(
+            game,
+            team,
+            1
+        )
+
+        assert.equal(changed, true)
+        assert.notEqual(team.currentPitcherId, previousPitcherId)
+        assert.deepEqual(team.lineupIds, originalLineupIds)
+
+        const newPitcher = team.players.find(
+            p => p._id === team.currentPitcherId
+        )
+
+        assert.ok(newPitcher)
+        assert.equal(newPitcher.currentPosition, Position.PITCHER)
+        assert.equal(newPitcher.lineupIndex, undefined)
+
+        assert.equal(previousPitcher.currentPosition, undefined)
+        assert.equal(previousPitcher.lineupIndex, undefined)
+    })
+
+    it("should allow the starting pitcher to also occupy the designated hitter spot", () => {
+        const rosterPlayers = baselineGameService.buildBaselinePlayers()
+        const lineup = baselineGameService.buildBaselineLineup(
+            rosterPlayers,
+            true
+        )
+
+        const startingPitcher = rosterPlayers.find(
+            player => player.primaryPosition === Position.PITCHER
+        )
+
+        const designatedHitterSpot = lineup.order.find(
+            spot => spot.position === Position.DESIGNATED_HITTER
+        )
+
+        assert.ok(startingPitcher)
+        assert.ok(designatedHitterSpot)
+
+        designatedHitterSpot._id = startingPitcher._id
+
+        assert.doesNotThrow(() => {
+            GameInfo.validateGameLineup(
+                rosterPlayers,
+                lineup,
+                { _id: startingPitcher._id },
+                true
+            )
+        })
+    })
+
+    it("should start a two-way player as both pitcher and designated hitter", () => {
+        const game = buildTwoWayDHGame("start-two-way-dh")
+        const team = game.away
+        const twoWayPlayer = team.players.find(
+            player => player._id === team.currentPitcherId
+        )
+
+        assert.ok(twoWayPlayer)
+
+        assert.equal(game.useDH, true)
+        assert.equal(twoWayPlayer._id, "two-way-1")
+
+        assert.equal(
+            team.lineupIds.includes(twoWayPlayer._id),
+            true
+        )
+
+        assert.equal(
+            twoWayPlayer.currentPosition,
+            Position.DESIGNATED_HITTER
+        )
+
+        assert.ok(twoWayPlayer.lineupIndex !== undefined)
+
+        assert.equal(
+            team.lineupIds[twoWayPlayer.lineupIndex],
+            twoWayPlayer._id
+        )
+    })
+
+    it("should log a two-way player's pitching change without removing their DH slot", () => {
+        const game = buildTwoWayDHGame("log-two-way-pitching-change")
+        const team = game.away
+        const playIndex = 5
+
+        const twoWayPlayerId = team.currentPitcherId
+        const newPitcher = substitutionService.getAvailablePitchers(
+            game,
+            team
+        )[0]
+
+        assert.ok(newPitcher)
+
+        substitutionService.changePitcher(
+            game,
+            team,
+            newPitcher._id,
+            playIndex
+        )
+
+        assert.equal(game.substitutions.length, 1)
+
+        const substitution = game.substitutions[0]
+
+        assert.equal(substitution.outPlayerId, twoWayPlayerId)
+        assert.equal(substitution.inPlayerId, newPitcher._id)
+
+        assert.equal(substitution.lineupIndex, undefined)
+        assert.equal(substitution.fromPosition, Position.PITCHER)
+        assert.equal(substitution.toPosition, Position.PITCHER)
+
+        assert.equal(substitution.isPitchingChange, true)
+        assert.equal(substitution.playIndex, playIndex)
+
+        assert.equal(
+            team.lineupIds.includes(twoWayPlayerId),
+            true
+        )
+    })    
+
+    it("should not allow a two-way player to return as pitcher after leaving the mound", () => {
+        const game = buildTwoWayDHGame("two-way-pitcher-reentry")
+        const team = game.away
+
+        const twoWayPlayerId = team.currentPitcherId
+        const secondPitcher = substitutionService.getAvailablePitchers(
+            game,
+            team
+        )[0]
+
+        assert.ok(secondPitcher)
+
+        substitutionService.changePitcher(
+            game,
+            team,
+            secondPitcher._id,
+            1
+        )
+
+        assert.throws(
+            () => substitutionService.changePitcher(
+                game,
+                team,
+                twoWayPlayerId,
+                2
+            ),
+            /already in the lineup/i
+        )
+    })    
+
+    it("should automatically remove an exhausted two-way player as pitcher while keeping them as DH", () => {
+        const game = buildTwoWayDHGame("automatic-two-way-change")
+        const team = game.away
+
+        const twoWayPlayer = team.players.find(
+            player => player._id === team.currentPitcherId
+        )
+
+        assert.ok(twoWayPlayer)
+        assert.ok(twoWayPlayer.lineupIndex !== undefined)
+
+        const originalLineupIds = [...team.lineupIds]
+        const originalLineupIndex = twoWayPlayer.lineupIndex
+
+        twoWayPlayer.maxPitchCount = 30
+        twoWayPlayer.stamina = 1
+        twoWayPlayer.pitchResult.pitches = 30
+
+        const changed = substitutionService.changePitcherIfNeeded(
+            game,
+            team,
+            1
+        )
+
+        assert.equal(changed, true)
+        assert.notEqual(team.currentPitcherId, twoWayPlayer._id)
+
+        assert.deepEqual(team.lineupIds, originalLineupIds)
+
+        assert.equal(
+            twoWayPlayer.currentPosition,
+            Position.DESIGNATED_HITTER
+        )
+
+        assert.equal(
+            twoWayPlayer.lineupIndex,
+            originalLineupIndex
+        )
+
+        assert.equal(
+            team.lineupIds[originalLineupIndex],
+            twoWayPlayer._id
+        )
+    })    
+
+    it("should replace a designated hitter with a bench position player", () => {
+        const game = buildDHGame("replace-designated-hitter")
+        const team = game.away
+        const playIndex = 1
+
+        const designatedHitter = team.players.find(
+            player => player.currentPosition === Position.DESIGNATED_HITTER
+        )
+
+        const incomingHitter = getBenchPositionPlayer(team)
+
+        assert.ok(designatedHitter)
+        assert.ok(incomingHitter)
+        assert.ok(designatedHitter.lineupIndex !== undefined)
+
+        const lineupIndex = designatedHitter.lineupIndex
+        const pitcherId = team.currentPitcherId
+
+        assert.equal(
+            incomingHitter.positions.includes(Position.DESIGNATED_HITTER),
+            false
+        )
+
+        substitutionService.changeHitter(
+            game,
+            team,
+            designatedHitter._id,
+            incomingHitter._id,
+            playIndex
+        )
+
+        assert.equal(
+            team.lineupIds[lineupIndex],
+            incomingHitter._id
+        )
+
+        assert.equal(
+            team.currentPitcherId,
+            pitcherId
+        )
+
+        assert.equal(
+            designatedHitter.currentPosition,
+            undefined
+        )
+
+        assert.equal(
+            designatedHitter.lineupIndex,
+            undefined
+        )
+
+        assert.equal(
+            incomingHitter.currentPosition,
+            Position.DESIGNATED_HITTER
+        )
+
+        assert.equal(
+            incomingHitter.lineupIndex,
+            lineupIndex
+        )
+    })
+
+    it("should get a late-game pinch hitter for the designated hitter", () => {
+        const game = buildDHGame("next-hitter-for-dh")
+        const offense = game.away
+        const defense = game.home
+
+        const designatedHitter = offense.players.find(
+            player => player.currentPosition === Position.DESIGNATED_HITTER
+        )
+
+        const defensivePitcher = defense.players.find(
+            player => player._id === defense.currentPitcherId
+        )
+
+        const benchHitter = getBenchPositionPlayer(offense)
+
+        assert.ok(designatedHitter)
+        assert.ok(defensivePitcher)
+        assert.ok(benchHitter)
+        assert.ok(designatedHitter.lineupIndex !== undefined)
+
+        offense.currentHitterIndex = designatedHitter.lineupIndex
+
+        game.currentInning = 8
+        game.score.away = 2
+        game.score.home = 4
+
+        for (const player of offense.players) {
+            if (offense.lineupIds.includes(player._id)) continue
+            if (player._id === offense.currentPitcherId) continue
+            if (player.positions.includes(Position.PITCHER)) continue
+
+            setHitterMatchupRatings(
+                player,
+                defensivePitcher,
+                1
+            )
+        }
+
+        setHitterMatchupRatings(
+            designatedHitter,
+            defensivePitcher,
+            40
+        )
+
+        setHitterMatchupRatings(
+            benchHitter,
+            defensivePitcher,
+            70
+        )
+
+        const nextHitter = substitutionService.getNextHitter(
+            game,
+            offense,
+            defense
+        )
+
+        assert.ok(nextHitter)
+        assert.equal(nextHitter._id, benchHitter._id)
+    })    
+
+    it("should automatically replace the DH without changing pitchers", () => {
+        const game = buildDHGame("automatic-dh-change")
+        const offense = game.away
+        const defense = game.home
+
+        const designatedHitter = offense.players.find(
+            player => player.currentPosition === Position.DESIGNATED_HITTER
+        )
+
+        const defensivePitcher = defense.players.find(
+            player => player._id === defense.currentPitcherId
+        )
+
+        const benchHitter = getBenchPositionPlayer(offense)
+
+        assert.ok(designatedHitter)
+        assert.ok(defensivePitcher)
+        assert.ok(benchHitter)
+        assert.ok(designatedHitter.lineupIndex !== undefined)
+
+        offense.currentHitterIndex = designatedHitter.lineupIndex
+
+        game.currentInning = 8
+        game.score.away = 2
+        game.score.home = 4
+
+        for (const player of offense.players) {
+            if (offense.lineupIds.includes(player._id)) continue
+            if (player._id === offense.currentPitcherId) continue
+            if (player.positions.includes(Position.PITCHER)) continue
+
+            setHitterMatchupRatings(
+                player,
+                defensivePitcher,
+                1
+            )
+        }
+
+        setHitterMatchupRatings(
+            designatedHitter,
+            defensivePitcher,
+            40
+        )
+
+        setHitterMatchupRatings(
+            benchHitter,
+            defensivePitcher,
+            70
+        )
+
+        const originalPitcherId = offense.currentPitcherId
+        const lineupIndex = designatedHitter.lineupIndex
+
+        const nextHitter = substitutionService.getNextHitter(
+            game,
+            offense,
+            defense
+        )
+
+        assert.ok(nextHitter)
+
+        substitutionService.changeHitter(
+            game,
+            offense,
+            designatedHitter._id,
+            nextHitter._id,
+            1
+        )
+
+        assert.equal(
+            offense.currentPitcherId,
+            originalPitcherId
+        )
+
+        assert.equal(
+            offense.lineupIds[lineupIndex],
+            benchHitter._id
+        )
+
+        assert.equal(
+            benchHitter.currentPosition,
+            Position.DESIGNATED_HITTER
+        )
+
+        assert.equal(
+            game.substitutions[0].requiresPitcherChange,
+            false
+        )
+    })
+
+    it("should not allow a pitcher to replace the designated hitter", () => {
+        const game = buildDHGame("pitcher-cannot-replace-dh")
+        const team = game.away
+
+        const designatedHitter = team.players.find(
+            player => player.currentPosition === Position.DESIGNATED_HITTER
+        )
+
+        const benchPitcher = substitutionService.getAvailablePitchers(
+            game,
+            team
+        )[0]
+
+        assert.ok(designatedHitter)
+        assert.ok(benchPitcher)
+
+        assert.throws(
+            () => substitutionService.changeHitter(
+                game,
+                team,
+                designatedHitter._id,
+                benchPitcher._id,
+                1
+            ),
+            /cannot play DH./i
+        )
+    })
+
+    it("should complete a full DH game without either starting pitcher batting", () => {
+        const game = buildDHGame("complete-full-dh-game")
+        const rng = seedrandom("complete-full-dh-game")
+
+        const awayStartingPitcherId = game.away.currentPitcherId
+        const homeStartingPitcherId = game.home.currentPitcherId
+
+        let steps = 0
+
+        while (!game.isComplete && steps < 5000) {
+            simService.simPitch(game, rng)
+            steps++
+        }
+
+        assert.equal(game.isComplete, true)
+        assert.ok(steps > 0)
+        assert.ok(steps < 5000)
+
+        const awayStartingPitcher = game.away.players.find(
+            player => player._id === awayStartingPitcherId
+        )
+
+        const homeStartingPitcher = game.home.players.find(
+            player => player._id === homeStartingPitcherId
+        )
+
+        assert.ok(awayStartingPitcher)
+        assert.ok(homeStartingPitcher)
+
+        assert.equal(awayStartingPitcher.hitResult.pa, 0)
+        assert.equal(homeStartingPitcher.hitResult.pa, 0)
+
+        assert.equal(game.away.lineupIds.includes(awayStartingPitcherId), false)
+        assert.equal(game.home.lineupIds.includes(homeStartingPitcherId), false)
+
+        assert.equal(game.away.lineupIds.length, 9)
+        assert.equal(game.home.lineupIds.length, 9)
+    })
+
+    it("should complete a full DH game without either starting pitcher batting", () => {
+        const game = buildDHGame("complete-full-dh-game")
+        const rng = seedrandom("complete-full-dh-game")
+
+        const awayStartingPitcherId = game.away.currentPitcherId
+        const homeStartingPitcherId = game.home.currentPitcherId
+
+        let steps = 0
+
+        while (!game.isComplete && steps < 5000) {
+            simService.simPitch(game, rng)
+            steps++
+        }
+
+        assert.equal(game.isComplete, true)
+        assert.ok(steps > 0)
+        assert.ok(steps < 5000)
+
+        const awayStartingPitcher = game.away.players.find(
+            player => player._id === awayStartingPitcherId
+        )
+
+        const homeStartingPitcher = game.home.players.find(
+            player => player._id === homeStartingPitcherId
+        )
+
+        assert.ok(awayStartingPitcher)
+        assert.ok(homeStartingPitcher)
+
+        assert.equal(awayStartingPitcher.hitResult.pa, 0)
+        assert.equal(homeStartingPitcher.hitResult.pa, 0)
+
+        assert.equal(game.away.lineupIds.includes(awayStartingPitcherId), false)
+        assert.equal(game.home.lineupIds.includes(homeStartingPitcherId), false)
+
+        assert.equal(game.away.lineupIds.length, 9)
+        assert.equal(game.home.lineupIds.length, 9)
+    })
+
+    it("should maintain a valid defensive pitcher throughout a DH game", () => {
+        const game = buildDHGame("dh-valid-defense")
+        const rng = seedrandom("dh-valid-defense")
+
+        let steps = 0
+
+        while (!game.isComplete && steps < 5000) {
+            const defense = game.isTopInning
+                ? game.home
+                : game.away
+
+            const pitcher = defense.players.find(
+                player => player._id === defense.currentPitcherId
+            )
+
+            assert.ok(pitcher)
+            assert.ok(pitcher.pitchRatings)
+
+            const nonPitcherDefenders = defense.players.filter(player =>
+                player.currentPosition !== undefined &&
+                player.currentPosition !== Position.DESIGNATED_HITTER &&
+                player._id !== defense.currentPitcherId
+            )
+
+            assert.equal(nonPitcherDefenders.length, 8)
+
+            assert.equal(
+                nonPitcherDefenders.some(
+                    player => player.currentPosition === Position.DESIGNATED_HITTER
+                ),
+                false
+            )
+
+            simService.simPitch(game, rng)
+            steps++
+        }
+
+        assert.equal(game.isComplete, true)
+        assert.ok(steps < 5000)
+    })
+
+    it("should let a two-way starter accumulate both hitting and pitching stats", () => {
+        const game = buildTwoWayDHGame("two-way-hitting-and-pitching")
+        const rng = seedrandom("two-way-hitting-and-pitching")
+
+        const twoWayPlayer = game.away.players.find(
+            player => player._id === "two-way-1"
+        )
+
+        assert.ok(twoWayPlayer)
+        assert.equal(game.away.currentPitcherId, twoWayPlayer._id)
+        assert.equal(twoWayPlayer.currentPosition, Position.DESIGNATED_HITTER)
+
+        let steps = 0
+
+        while (!game.isComplete && steps < 5000) {
+            simService.simPitch(game, rng)
+            steps++
+        }
+
+        assert.equal(game.isComplete, true)
+
+        assert.ok(twoWayPlayer.hitResult.pa > 0)
+        assert.ok(twoWayPlayer.pitchResult.battersFaced > 0)
+        assert.ok(twoWayPlayer.pitchResult.pitches > 0)
+    })
+
+    it("should award the win to a pitcher of record who is currently the designated hitter", () => {
+        const game = buildTwoWayDHGame("two-way-winning-pitcher")
+        const twoWayPlayer = game.away.players.find(
+            player => player._id === game.away.currentPitcherId
+        )
+
+        assert.ok(twoWayPlayer)
+        assert.equal(twoWayPlayer.currentPosition, Position.DESIGNATED_HITTER)
+
+        for (const player of game.away.players) {
+            player.isPitcherOfRecord = false
+        }
+
+        for (const player of game.home.players) {
+            player.isPitcherOfRecord = false
+        }
+
+        twoWayPlayer.isPitcherOfRecord = true
+
+        const losingPitcher = game.home.players.find(
+            player => player._id === game.home.currentPitcherId
+        )
+
+        assert.ok(losingPitcher)
+
+        losingPitcher.isPitcherOfRecord = true
+
+        game.score.away = 5
+        game.score.home = 3
+
+        simService.finishGame(game)
+
+        assert.equal(game.winningTeamId, game.away._id)
+        assert.equal(game.losingTeamId, game.home._id)
+
+        assert.equal(game.winningPitcherId, twoWayPlayer._id)
+        assert.equal(game.losingPitcherId, losingPitcher._id)
+
+        assert.equal(twoWayPlayer.pitchResult.wins, 1)
+        assert.equal(losingPitcher.pitchResult.losses, 1)
+
+        assert.equal(game.isFinished, true)
+    })
+
+    it("should award the loss to a pitcher of record who is currently the designated hitter", () => {
+        const game = buildTwoWayDHGame("two-way-losing-pitcher")
+        const twoWayPlayer = game.away.players.find(
+            player => player._id === game.away.currentPitcherId
+        )
+
+        assert.ok(twoWayPlayer)
+        assert.equal(twoWayPlayer.currentPosition, Position.DESIGNATED_HITTER)
+
+        for (const player of game.away.players) {
+            player.isPitcherOfRecord = false
+        }
+
+        for (const player of game.home.players) {
+            player.isPitcherOfRecord = false
+        }
+
+        twoWayPlayer.isPitcherOfRecord = true
+
+        const winningPitcher = game.home.players.find(
+            player => player._id === game.home.currentPitcherId
+        )
+
+        assert.ok(winningPitcher)
+
+        winningPitcher.isPitcherOfRecord = true
+
+        game.score.away = 2
+        game.score.home = 4
+
+        simService.finishGame(game)
+
+        assert.equal(game.winningTeamId, game.home._id)
+        assert.equal(game.losingTeamId, game.away._id)
+
+        assert.equal(game.winningPitcherId, winningPitcher._id)
+        assert.equal(game.losingPitcherId, twoWayPlayer._id)
+
+        assert.equal(winningPitcher.pitchResult.wins, 1)
+        assert.equal(twoWayPlayer.pitchResult.losses, 1)
+
+        assert.equal(game.isFinished, true)
+    })    
 
 })

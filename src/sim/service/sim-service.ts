@@ -78,9 +78,11 @@ class SimService {
 
         let game = command.game
 
+        game.useDH = command.useDH
+
         //Validate lineups
-        GameInfo.validateGameLineup(command.awayPlayers, command.awayLineup, command.awayStartingPitcher)
-        GameInfo.validateGameLineup(command.homePlayers, command.homeLineup, command.homeStartingPitcher)
+        GameInfo.validateGameLineup(command.awayPlayers, command.awayLineup, command.awayStartingPitcher, command.useDH)
+        GameInfo.validateGameLineup(command.homePlayers, command.homeLineup, command.homeStartingPitcher, command.useDH)
 
         //Use what gets passed in or just use default config
         game.pitchEnvironmentTarget = JSON.parse(JSON.stringify(command.pitchEnvironmentTarget ?? this.defaultPitchEnvironmentTarget))
@@ -89,8 +91,8 @@ class SimService {
             throw new Error("No league averages provided to start game.")
         }
 
-        game.away = this.gameInfo.buildTeamInfo(game.pitchEnvironmentTarget, command.away, command.awayLineup, command.awayAvailablePitchers, command.awayPlayers, command.awayStartingPitcher, command.away.colors.color1, command.away.colors.color2, HomeAway.AWAY, 1, command.awayTeamOptions)            
-        game.home = this.gameInfo.buildTeamInfo(game.pitchEnvironmentTarget, command.home, command.homeLineup, command.homeAvailablePitchers, command.homePlayers, command.homeStartingPitcher, command.home.colors.color1, command.home.colors.color2, HomeAway.HOME, 1 + command.awayPlayers.length, command.homeTeamOptions)
+        game.away = this.gameInfo.buildTeamInfo(game.pitchEnvironmentTarget, command.away, command.awayLineup, command.awayAvailablePitchers, command.awayPlayers, command.awayStartingPitcher, command.away.colors.color1, command.away.colors.color2, HomeAway.AWAY, 1, command.useDH, command.awayTeamOptions)            
+        game.home = this.gameInfo.buildTeamInfo(game.pitchEnvironmentTarget, command.home, command.homeLineup, command.homeAvailablePitchers, command.homePlayers, command.homeStartingPitcher, command.home.colors.color1, command.home.colors.color2, HomeAway.HOME, 1 + command.awayPlayers.length, command.useDH, command.homeTeamOptions)
 
         game.startDate = command.date
         game.count = {
@@ -104,46 +106,46 @@ class SimService {
         return game 
     }
 
-    public finishGame(game:Game) : void {
+    public finishGame(game: Game): void {
 
-        let homeWin = game.score.home > game.score.away
+        const homeWin = game.score.home > game.score.away
 
-        let winningTeam:TeamInfo = homeWin ? game.home : game.away
-        let losingTeam:TeamInfo = homeWin ? game.away : game.home
+        const winningTeam: TeamInfo = homeWin ? game.home : game.away
+        const losingTeam: TeamInfo = homeWin ? game.away : game.home
 
         game.winningTeamId = winningTeam._id
         game.losingTeamId = losingTeam._id
 
-        //Mark player team win/loss
-        for(let winGp of winningTeam.players) {
+        const winningPitcher = winningTeam.players.find(player =>
+            player.isPitcherOfRecord
+        )
 
-            if (winGp.currentPosition == Position.PITCHER && winGp.isPitcherOfRecord) {
-                game.winningPitcherId = winGp._id
-                winGp.pitchResult.wins = 1
-            } 
+        const losingPitcher = losingTeam.players.find(player =>
+            player.isPitcherOfRecord
+        )
 
-            winGp.pitchResult.teamWins = 1
-            winGp.hitResult.teamWins = 1
-
+        if (winningPitcher) {
+            game.winningPitcherId = winningPitcher._id
+            winningPitcher.pitchResult.wins = 1
         }
 
-        for (let loseGp of losingTeam.players) {
-
-            if (loseGp.currentPosition == Position.PITCHER && loseGp.isPitcherOfRecord) {
-                game.losingPitcherId = loseGp._id
-                loseGp.pitchResult.losses = 1
-            }
-
-            loseGp.pitchResult.teamLosses = 1
-            loseGp.hitResult.teamLosses = 1
-
+        if (losingPitcher) {
+            game.losingPitcherId = losingPitcher._id
+            losingPitcher.pitchResult.losses = 1
         }
 
+        for (const player of winningTeam.players) {
+            player.pitchResult.teamWins = 1
+            player.hitResult.teamWins = 1
+        }
 
-        //Mark game as finished
+        for (const player of losingTeam.players) {
+            player.pitchResult.teamLosses = 1
+            player.hitResult.teamLosses = 1
+        }
+
         game.isFinished = true
-
-    }    
+    }  
 
     public simPitch(game: Game, rng: any) {
 
@@ -2103,73 +2105,139 @@ class GameInfo {
         return game.halfInnings.map((inning) => inning.plays).reduce((accumulator, playsArray) => accumulator.concat(playsArray), []) // Flatten into a single array
     }
 
-    static validateGameLineup(players:Player[], lineup:Lineup, startingPitcher:RotationPitcher) {
+    static validateGameLineup(players: Player[], lineup: Lineup, startingPitcher: RotationPitcher, useDH: boolean) {
 
-        //Make sure there are 9 spots in the order 
-        if (lineup.order.length != 9) {
+        if (lineup.order.length !== 9) {
             throw new Error("Lineup must have 9 players.")
         }
 
-        //Make sure no one is playing a duplicate position
-        let filledSpots = lineup.order.filter(o => o.position != undefined)
-        let filledPositions = new Set(filledSpots.map( o => o.position))
+        if (!startingPitcher) {
+            throw new Error("No valid starting pitcher.")
+        }
 
-        if (filledPositions.size != filledSpots.length) {
+        const startingPitcherPlayer = players.find(p => p._id === startingPitcher._id)
+
+        if (!startingPitcherPlayer) {
+            throw new Error(`Starting pitcher with id ${startingPitcher._id} not found in players list.`)
+        }
+
+        const lineupPlayerIds = lineup.order.map(spot => spot._id)
+        const uniqueLineupPlayerIds = new Set(lineupPlayerIds)
+
+        if (uniqueLineupPlayerIds.size !== lineupPlayerIds.length) {
+            throw new Error("Duplicate players in lineup.")
+        }
+
+        const filledSpots = lineup.order.filter(spot => spot.position !== undefined)
+        const filledPositions = new Set(filledSpots.map(spot => spot.position))
+
+        if (filledPositions.size !== filledSpots.length) {
             throw new Error("Duplicate position players.")
         }
 
-        //Verify the pitcher and all players in the lineup are in the players list
-        for (let spot of lineup.order) {
-
-            let player = players.find( p => p._id == spot._id)
+        for (const spot of lineup.order) {
+            const player = players.find(p => p._id === spot._id)
 
             if (!player) {
                 throw new Error(`Player with id ${spot._id} in lineup not found in players list.`)
             }
-
         }
+
+        const pitcherSpots = lineup.order.filter(spot => spot.position === Position.PITCHER)
+        const designatedHitterSpots = lineup.order.filter(spot => spot.position === Position.DESIGNATED_HITTER)
+
+        if (useDH) {
+            if (pitcherSpots.length > 0) {
+                throw new Error("DH lineup cannot contain a pitcher batting spot.")
+            }
+
+            if (designatedHitterSpots.length !== 1) {
+                throw new Error("DH lineup must contain exactly one designated hitter.")
+            }
+
+            return
+        }
+
+        if (designatedHitterSpots.length > 0) {
+            throw new Error("Non-DH lineup cannot contain a designated hitter.")
+        }
+
+        if (pitcherSpots.length !== 1) {
+            throw new Error("Non-DH lineup must contain exactly one pitcher batting spot.")
+        }
+    }
+
+    buildTeamInfo(pitchEnvironmentTarget: PitchEnvironmentTarget, team: Team, lineup: Lineup, availablePitchers: PitchingRole[], players: Player[], startingPitcher: RotationPitcher, color1: string, color2: string, homeAway: HomeAway, startingId: number, useDH: boolean, teamOptions?: any): TeamInfo {
 
         if (!startingPitcher) {
-            throw new Error(`No valid starting pitcher`)
+            throw new Error("No valid starting pitcher.")
         }
 
-    } 
+        const gamePlayers = this.gamePlayers.initGamePlayers(
+            pitchEnvironmentTarget,
+            players,
+            startingPitcher,
+            team._id,
+            color1,
+            color2,
+            startingId
+        )
 
-    buildTeamInfo(pitchEnvironmentTarget:PitchEnvironmentTarget, team:Team, lineup:Lineup, availablePitchers:PitchingRole[], players:Player[], startingPitcher:RotationPitcher, color1:string, color2:string, homeAway:HomeAway, startingId:number, teamOptions?:any) : TeamInfo {
-
-        let gamePlayer:GamePlayer[] = this.gamePlayers.initGamePlayers(pitchEnvironmentTarget, players, startingPitcher, team._id, color1, color2, startingId)
-
-        if (!startingPitcher) throw new Error("No valid starting pitcher.")
-
-        const pitcherSpot = lineup.order.find(p => p.position == Position.PITCHER)
-
-        if (!pitcherSpot) {
-            throw new Error("Lineup has no pitcher spot.")
-        }
-
-        pitcherSpot._id = startingPitcher._id
-
-        let pitcherGP = gamePlayer.find(gp => gp._id == startingPitcher._id)
+        const pitcherGP = gamePlayers.find(gp => gp._id === startingPitcher._id)
 
         if (!pitcherGP) {
             throw new Error("Starting pitcher was not found in game players.")
         }
 
-        for (let player of gamePlayer) {
+        const pitcherSpotIndex = lineup.order.findIndex(
+            spot => spot.position === Position.PITCHER
+        )
+
+        const designatedHitterSpotIndex = lineup.order.findIndex(
+            spot => spot.position === Position.DESIGNATED_HITTER
+        )
+
+        if (useDH) {
+            if (pitcherSpotIndex >= 0) {
+                throw new Error("DH lineup cannot contain a pitcher batting spot.")
+            }
+
+            if (designatedHitterSpotIndex < 0) {
+                throw new Error("DH lineup has no designated hitter spot.")
+            }
+        } else {
+            if (pitcherSpotIndex < 0) {
+                throw new Error("Non-DH lineup has no pitcher spot.")
+            }
+
+            if (designatedHitterSpotIndex >= 0) {
+                throw new Error("Non-DH lineup cannot contain a designated hitter.")
+            }
+        }
+
+        for (const player of gamePlayers) {
             player.currentPosition = undefined
             player.lineupIndex = undefined
         }
 
-        let teamInfo:TeamInfo = Object.assign({
+        const lineupIds = lineup.order.map((spot, index) => {
+            if (!useDH && index === pitcherSpotIndex) {
+                return startingPitcher._id
+            }
+
+            return spot._id
+        })
+
+        const teamInfo: TeamInfo = Object.assign({
             _id: team._id,
 
             name: team.name,
             abbrev: team.abbrev,
 
-            players: gamePlayer,
+            players: gamePlayers,
 
-            lineupIds: lineup.order.map(op => op._id),
-            availablePitchers: availablePitchers,
+            lineupIds,
+            availablePitchers,
 
             currentHitterIndex: 0,
             currentPitcherId: pitcherGP._id,
@@ -2178,25 +2246,40 @@ class GameInfo {
             runner2BId: undefined,
             runner3BId: undefined,
 
-            homeAway: homeAway,
+            homeAway,
 
-            color1: color1,
-            color2: color2
-
+            color1,
+            color2
         }, teamOptions)
 
-        lineup.order.forEach((spot, idx) => {
-            let player:GamePlayer|undefined = teamInfo.players?.find(p => p._id == spot._id)
+        lineup.order.forEach((spot, index) => {
+            const playerId = !useDH && index === pitcherSpotIndex
+                ? startingPitcher._id
+                : spot._id
 
-            if (player) {
-                player.currentPosition = spot.position
-                player.lineupIndex = idx
+            const player = teamInfo.players.find(p => p._id === playerId)
+
+            if (!player) {
+                throw new Error(`Lineup player ${playerId} was not found in game players.`)
             }
+
+            player.currentPosition = spot.position
+            player.lineupIndex = index
         })
 
-        return teamInfo
+        if (useDH) {
+            const startingPitcherIsDesignatedHitter =
+                pitcherGP.currentPosition === Position.DESIGNATED_HITTER &&
+                pitcherGP.lineupIndex !== undefined
 
-    }  
+            if (!startingPitcherIsDesignatedHitter) {
+                pitcherGP.currentPosition = Position.PITCHER
+                pitcherGP.lineupIndex = undefined
+            }
+        }
+
+        return teamInfo
+    }
 
 
 }

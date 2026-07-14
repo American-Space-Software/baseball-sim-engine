@@ -46,7 +46,8 @@ export {
   ThrowResult,
   HomeAway,
   InningEndingEvent,
-  PitchingRoleType
+  PitchingRoleType,
+  GameInfo
 }
 
 export {

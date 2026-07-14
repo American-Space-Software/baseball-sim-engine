@@ -1,6 +1,6 @@
 {
   "name": "baseball-sim-engine",
-  "version": "1.9.2",
+  "version": "1.10.1",
   "description": "A deterministic baseball simulation engine written in TypeScript. The engine runs in both Node.js and browser environments.",
   "type": "module",
   "main": "./dist/index.js",
@@ -25,15 +25,17 @@
   "scripts": {
     
     "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
-    "test1":"node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/test-player-rating.spec.ts",
+    "test1":"node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/test-sim-roster-management.spec.ts",
 
     "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
     "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
     "build": "npm run build:js && npm run build:types",
     "build:watch": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts --watch",
 
-    "import:target": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts target",
-    "import:ratings": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts ratings",
+    "tune:target": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts tune target",
+    "tune:ratings": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts tune ratings",
+    "generate:ratings": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts generate ratings",
+    "generate:all": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts generate all",
 
     "prepublishOnly": "npm run build"
   },

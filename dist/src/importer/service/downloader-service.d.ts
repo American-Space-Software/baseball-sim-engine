@@ -9,6 +9,11 @@ declare class DownloaderService {
     constructor(baseDataDir: string, throttleMs?: number);
     downloadSeasonGames(season: number, onGame: (gamePk: number, data: any) => Promise<void>, forceFullReimport?: boolean): Promise<Set<number>>;
     buildSeasonPlayerImports(season: number, filterPlayerIds?: Set<string>, forceFullReimport?: boolean): Promise<Map<string, PlayerImportRaw>>;
+    private buildCurrentSeasonPlayerImports;
+    private getRollingCurrentSeasonGames;
+    private getGameSortTime;
+    private getParticipatingPlayerIds;
+    private everyFilteredPlayerHasEnoughGames;
     buildSeasonPlayerImportRaw(season: number, playerId: string, forceFullReimport?: boolean): Promise<PlayerImportRaw | undefined>;
     clearSeasonImportCache(season?: number): void;
     private getResultsFilePath;
