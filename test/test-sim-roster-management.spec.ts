@@ -32,6 +32,7 @@ const baselineGameService = new BaselineGameService(simService)
 const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
 
 const downloaderService = new DownloaderService("data", 1000)
+const homeFieldAdvantage = await downloaderService.getSeasonHomeFieldAdvantage(season)
 
 const players = await downloaderService.buildSeasonPlayerImports(season, new Set([]))
 
@@ -247,7 +248,7 @@ const substitutionService = simService.substitutionService
 
 describe("Baseball Sim Engine Substitutions", async () => {
     it("should calculate pitch environment target for season", async () => {
-        pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
+        pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players, homeFieldAdvantage)
         assert.ok(pitchEnvironment)
     })
 

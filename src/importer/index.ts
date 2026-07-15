@@ -68,12 +68,11 @@ interface ExportPitchEnvironmentTargetResult {
 interface ExportAllResult {
     season: number
     pitchEnvironmentTarget: PitchEnvironmentTarget
-    ratingTuning: RatingTuning
     playerRatings: any[]
 }
 
-async function exportPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any): Promise<PitchEnvironmentTarget> {
-    const existingPitchEnvironmentTargetPath = path.join(baseDataDir, String(season), `_pitch_environment_target.json`)
+async function exportPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any, seasonPlayers?: Map<string, PlayerImportRaw>): Promise<PitchEnvironmentTarget> {
+    const existingPitchEnvironmentTargetPath = path.join(baseDataDir, String(season), "_pitch_environment_target.json")
 
     const readJson = async (filePath: string): Promise<any> => {
         const text = await fs.promises.readFile(filePath, "utf8")
@@ -101,13 +100,19 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
     const tuningSupportService = new TuningSupportService(baseDataDir)
     const { pitchEnvironmentService, downloader } = tuningSupportService.createServices()
 
-    const players = await downloader.buildSeasonPlayerImports(season, new Set([]))
-    const pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
+    const players = seasonPlayers ?? await downloader.buildSeasonPlayerImports(season, new Set([]))
+    const homeFieldAdvantage = await downloader.getSeasonHomeFieldAdvantage(season)
+
+    const pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(
+        season,
+        players,
+        homeFieldAdvantage
+    )
+
     const rng = seedrandom(String(season))
 
     const tuningEvaluationService = new TuningEvaluationService()
     const pitchEnvironmentTuner = new PitchEnvironmentTuner(tuningSupportService, tuningEvaluationService)
-    
 
     const pitchEnvironmentTuning = await pitchEnvironmentTuner.getTunings(
         pitchEnvironment,
@@ -130,10 +135,15 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
     return fullPitchEnvironment
 }
 
-async function exportRatingTuning(season: number, baseDataDir: string, options?: any): Promise<RatingTuning> {
-    const existingRatingTuningPath = path.join(baseDataDir, String(season), `_ratings_tuning.json`)
+async function exportPlayerRatings(season: number, baseDataDir: string, ratingTuning?: RatingTuning, seasonPlayers?: Map<string, PlayerImportRaw>): Promise<any[]> {
+    
+    const seasonDataDir = path.join(baseDataDir, String(season))
+    const playerRatingsPath = path.join(seasonDataDir, "_player_ratings.json")
+    const pitchEnvironmentTargetPath = path.join(seasonDataDir, "_pitch_environment_target.json")
 
-    const readJson = async (filePath: string): Promise<any> => JSON.parse(await fs.promises.readFile(filePath, "utf8"))
+    const readJson = async (filePath: string): Promise<any> => {
+        return JSON.parse(await fs.promises.readFile(filePath, "utf8"))
+    }
 
     const writeJson = async (filePath: string, data: any): Promise<void> => {
         await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
@@ -149,198 +159,85 @@ async function exportRatingTuning(season: number, baseDataDir: string, options?:
         }
     }
 
-    const existingRatingTuning = await fileExists(existingRatingTuningPath)
-        ? await readJson(existingRatingTuningPath)
-        : undefined
-
-    if (existingRatingTuning && !options?.forceRatingTuning) {
-        log("RATING TUNING READ", existingRatingTuningPath)
-        return existingRatingTuning
+    if (!await fileExists(pitchEnvironmentTargetPath)) {
+        throw new Error(`Pitch environment target not found: ${pitchEnvironmentTargetPath}`)
     }
 
-    const tuningSupportService = new TuningSupportService(baseDataDir)
-    const tuningEvaluationService = new TuningEvaluationService()
-    const { pitchEnvironmentService, downloader } = tuningSupportService.createServices()
+    let players = seasonPlayers
 
-    const players = await downloader.buildSeasonPlayerImports(season, new Set([]))
-    const pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
-    const rng = seedrandom(String(season))
+    if (!players) {
+        const tuningSupportService = new TuningSupportService(baseDataDir)
+        const { downloader } = tuningSupportService.createServices()
 
-    const ratingTuner = new RatingTuner(tuningSupportService, tuningEvaluationService)
-
-    const ratingTuning = await ratingTuner.getTuning(
-        pitchEnvironment,
-        players,
-        rng,
-        {
-            ...options,
-            baseDataDir,
-            pitchEnvironmentService,
-            startingCandidate: existingRatingTuning
-        }
-    )
-
-    await writeJson(existingRatingTuningPath, ratingTuning)
-
-    return ratingTuning
-}
-
-async function exportPlayerRatings(season: number, baseDataDir: string, ratingTuning?: RatingTuning): Promise<any[]> {
-    const seasonDataDir = path.join(baseDataDir, String(season))
-    const playerRatingsPath = path.join(seasonDataDir, `_player_ratings.json`)
-    const ratingTuningPath = path.join(seasonDataDir, `_ratings_tuning.json`)
-    const pitchEnvironmentTargetPath = path.join(seasonDataDir, `_pitch_environment_target.json`)
-
-    const readJson = async (filePath: string): Promise<any> => {
-        return JSON.parse(
-            await fs.promises.readFile(
-                filePath,
-                "utf8"
-            )
-        )
+        players = await downloader.buildSeasonPlayerImports(season, new Set([]))
     }
 
-    const writeJson = async (filePath: string, data: any): Promise<void> => {
-        await fs.promises.mkdir(
-            path.dirname(filePath),
-            {
-                recursive: true
-            }
+    const pitchEnvironment: PitchEnvironmentTarget = await readJson(pitchEnvironmentTargetPath)
+
+    const playerRatings = Array.from(players.values()).map(playerImportRaw => {
+        const command = PlayerRatingService.createPlayerFromImportRaw(
+            pitchEnvironment,
+            playerImportRaw
         )
 
-        await fs.promises.writeFile(
-            filePath,
-            JSON.stringify(data, null, 2),
-            "utf8"
-        )
-    }
-
-    const fileExists = async (filePath: string): Promise<boolean> => {
-        try {
-            await fs.promises.access(
-                filePath,
-                fs.constants.F_OK
-            )
-
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    if (!(await fileExists(pitchEnvironmentTargetPath))) {
-        throw new Error(
-            `Pitch environment target not found: ${pitchEnvironmentTargetPath}`
-        )
-    }
-
-    if (!ratingTuning && !(await fileExists(ratingTuningPath))) {
-        throw new Error(
-            `Rating tuning not found: ${ratingTuningPath}`
-        )
-    }
-
-    const tuningSupportService =
-        new TuningSupportService(baseDataDir)
-
-    const { downloader } =
-        tuningSupportService.createServices()
-
-    const players =
-        await downloader.buildSeasonPlayerImports(
-            season,
-            new Set([])
-        )
-
-    const pitchEnvironment: PitchEnvironmentTarget =
-        await readJson(
-            pitchEnvironmentTargetPath
-        )
-
-    const finalRatingTuning: RatingTuning =
-        ratingTuning ??
-        await readJson(
-            ratingTuningPath
-        )
-
-    const playerRatings =
-        Array.from(players.values()).map(playerImportRaw => {
-            const command =
-                PlayerRatingService.createPlayerFromImportRaw(
-                    pitchEnvironment,
-                    playerImportRaw
-                )
-
-            Object.assign(
-                command as any,
-                {
-                    ratingTuning: finalRatingTuning
-                }
-            )
-
-            const ratings =
-                PlayerRatingService.createPlayerFromStatsCommand(
-                    command
-                )
-
-            return {
-                playerId: playerImportRaw.playerId,
-                firstName: playerImportRaw.firstName,
-                lastName: playerImportRaw.lastName,
-                primaryPosition: playerImportRaw.primaryPosition,
-                age: playerImportRaw.age,
-                throws: playerImportRaw.throws,
-                hits: playerImportRaw.bats,
-                hittingRatings: ratings.hittingRatings,
-                pitchRatings: ratings.pitchRatings
-            }
+        Object.assign(command as any, {
+            ratingTuning: ratingTuning
         })
 
-    await writeJson(
-        playerRatingsPath,
-        playerRatings
-    )
+        const ratings = PlayerRatingService.createPlayerFromStatsCommand(command)
+
+        return {
+            playerId: playerImportRaw.playerId,
+            firstName: playerImportRaw.firstName,
+            lastName: playerImportRaw.lastName,
+            primaryPosition: playerImportRaw.primaryPosition,
+            age: playerImportRaw.age,
+            throws: playerImportRaw.throws,
+            hits: playerImportRaw.bats,
+            hittingRatings: ratings.hittingRatings,
+            pitchRatings: ratings.pitchRatings
+        }
+    })
+
+    await writeJson(playerRatingsPath, playerRatings)
 
     return playerRatings
 }
 
 async function exportAll(season: number, baseDataDir: string, options?: any): Promise<ExportAllResult> {
     log("GENERATE ALL START", `season=${season}`)
+    log("GENERATE ALL DATA", "synchronizing and building season player imports")
 
-    log("GENERATE ALL STEP 1/3", "pitch environment target")
+    const tuningSupportService = new TuningSupportService(baseDataDir)
+    const { downloader } = tuningSupportService.createServices()
 
-    const pitchEnvironmentTarget =
-        await exportPitchEnvironmentTarget(
-            season,
-            baseDataDir,
-            options
-        )
+    const players = await downloader.buildSeasonPlayerImports(
+        season,
+        new Set([])
+    )
 
-    log("GENERATE ALL STEP 2/3", "rating tuning")
+    log("GENERATE ALL STEP 1/2", "pitch environment target")
 
-    const ratingTuning =
-        await exportRatingTuning(
-            season,
-            baseDataDir,
-            {
-                ...options,
-                forceRatingTuning: true
-            }
-        )
+    const pitchEnvironmentTarget = await exportPitchEnvironmentTarget(
+        season,
+        baseDataDir,
+        options,
+        players
+    )
 
-    log("GENERATE ALL STEP 3/3", "player ratings")
 
-    const playerRatings =
-        await exportPlayerRatings(
-            season,
-            baseDataDir,
-            ratingTuning
-        )
+    log("GENERATE ALL STEP 2/2", "player ratings")
+
+    const playerRatings = await exportPlayerRatings(
+        season,
+        baseDataDir,
+        PlayerRatingService.seedRatingTuning(),
+        players
+    )
 
     return {
         season,
         pitchEnvironmentTarget,
-        ratingTuning,
         playerRatings
     }
 }
@@ -1219,584 +1116,6 @@ class PitchEnvironmentTuner {
     }
 }
 
-class RatingTuner {
-
-    constructor(private tuningSupportService: TuningSupportService, private tuningEvaluationService: TuningEvaluationService) {}
-
-    public async getTuning(pitchEnvironment: PitchEnvironmentTarget, players: Map<string, PlayerImportRaw>, rng: Function, params?: any): Promise<RatingTuning> {
-        const ctx = this.createRatingTuningContext(pitchEnvironment, players, rng, params)
-
-        let candidate = this.normalizeTuningShape(params?.startingCandidate ?? PlayerRatingService.seedRatingTuning())
-
-        candidate = await this.tuneRatingTrack(candidate, ctx, ctx.sortedHitters, "hitting")
-        candidate = await this.tuneRatingTrack(candidate, ctx, ctx.sortedPitchers, "pitching")
-
-        const verifyHitters = ctx.sortedHitters.slice(0, Math.min(Number(params?.sampleSize ?? 100), ctx.sortedHitters.length))
-        const verifyPitchers = ctx.sortedPitchers.slice(0, Math.min(Number(params?.sampleSize ?? 100), ctx.sortedPitchers.length))
-        const verifyPlayers = [...new Map([...verifyHitters, ...verifyPitchers].map(player => [player.playerId, player])).values()]
-
-        const verifyGamesPerPlayer = Math.max(ctx.gamesPerPlayer, Number(params?.finalGamesPerPlayer ?? ctx.gamesPerPlayer))
-        const verified = await this.evaluateOne(candidate, ctx, verifyGamesPerPlayer, "verify", verifyPlayers)
-
-        this.printStatus("verify", 0, verifyGamesPerPlayer, candidate, verified)
-
-        return candidate
-    }
-
-
-    private async tuneRatingTrack(candidate: RatingTuning, ctx: any, sortedPlayers: PlayerImportRaw[], track: "hitting" | "pitching"): Promise<RatingTuning> {
-        const stageSizes = this.getRatingStageSizes(sortedPlayers.length, Number(ctx.sampleSize ?? 100))
-
-        for (const stageSize of stageSizes) {
-            const stagePlayers = sortedPlayers.slice(0, stageSize)
-            const label = `${track}-top-${stageSize}`
-
-            log("RATING STAGE START", label, `players=${stagePlayers.length}`)
-
-            candidate = await this.tuneRatingStage(candidate, ctx, stagePlayers, label, track)
-
-            const result = await this.evaluateOne(candidate, ctx, ctx.gamesPerPlayer, `${label}-verify`, stagePlayers)
-            this.printStatus(`${label}-verify`, 0, ctx.gamesPerPlayer, candidate, result)
-        }
-
-        return candidate
-    }
-
-    private async tuneRatingStage(candidate: RatingTuning, ctx: any, players: PlayerImportRaw[], label: string, track: "hitting" | "pitching"): Promise<RatingTuning> {
-        let bestCandidate = this.normalizeTuningShape(candidate)
-        let bestResult = await this.evaluateOne(bestCandidate, ctx, ctx.gamesPerPlayer, `${label}-baseline`, players)
-
-        this.printStatus(`${label}-baseline`, 0, ctx.gamesPerPlayer, bestCandidate, bestResult)
-
-        if (track === "hitting") {
-            let lockResult = await this.runRatingLock(bestCandidate, bestResult, ctx, players, `${label}-lock-hSO`, "hitting", "soPercent", "lock-so", 0.010, next => {
-                const metric = this.ratingMetric(bestResult, "hitting", "soPercent")
-                const step = clamp(metric.diff / 0.40, -0.06, 0.06)
-                next.hitting.contactScale = this.clampScale(next.hitting.contactScale + step)
-            })
-
-            bestCandidate = lockResult.candidate
-            bestResult = lockResult.result
-
-            lockResult = await this.runRatingLock(bestCandidate, bestResult, ctx, players, `${label}-lock-hBB`, "hitting", "bbPercent", "lock-bb", 0.007, next => {
-                const metric = this.ratingMetric(bestResult, "hitting", "bbPercent")
-                const step = clamp((metric.target - metric.actual) / 0.35, -0.06, 0.06)
-                next.hitting.plateDisciplineScale = this.clampScale(next.hitting.plateDisciplineScale + step)
-            })
-
-            bestCandidate = lockResult.candidate
-            bestResult = lockResult.result
-
-            let probeResult = await this.runBestRatingProbePass(bestCandidate, bestResult, ctx, players, `${label}-shape-hAVG`, "hitting", "avg-obp", ["hContactUp", "hContactDown"])
-            bestCandidate = probeResult.candidate
-            bestResult = probeResult.result
-
-            probeResult = await this.runBestRatingProbePass(bestCandidate, bestResult, ctx, players, `${label}-shape-hOBP`, "hitting", "avg-obp", ["hDiscUp", "hDiscDown"])
-            bestCandidate = probeResult.candidate
-            bestResult = probeResult.result
-
-            probeResult = await this.runBestRatingProbePass(bestCandidate, bestResult, ctx, players, `${label}-shape-hSLG`, "hitting", "slg-ops", ["hGapUp", "hGapDown", "hHrUp", "hHrDown"])
-            bestCandidate = probeResult.candidate
-            bestResult = probeResult.result
-        }
-
-        if (track === "pitching") {
-            let lockResult = await this.runRatingLock(bestCandidate, bestResult, ctx, players, `${label}-lock-pSO`, "pitching", "soPercent", "lock-so", 0.010, next => {
-                const metric = this.ratingMetric(bestResult, "pitching", "soPercent")
-                const step = clamp((metric.target - metric.actual) / 0.40, -0.06, 0.06)
-                next.pitching.powerScale = this.clampScale(next.pitching.powerScale + step)
-            })
-
-            bestCandidate = lockResult.candidate
-            bestResult = lockResult.result
-
-            lockResult = await this.runRatingLock(bestCandidate, bestResult, ctx, players, `${label}-lock-pBB`, "pitching", "bbPercent", "lock-bb", 0.007, next => {
-                const metric = this.ratingMetric(bestResult, "pitching", "bbPercent")
-                const step = clamp(metric.diff / 0.35, -0.06, 0.06)
-                next.pitching.controlScale = this.clampScale(next.pitching.controlScale + step)
-            })
-
-            bestCandidate = lockResult.candidate
-            bestResult = lockResult.result
-
-            const probeResult = await this.runBestRatingProbePass(bestCandidate, bestResult, ctx, players, `${label}-shape-pERA-HR`, "pitching", "era-hr", ["pMovementUp", "pMovementDown"])
-            bestCandidate = probeResult.candidate
-            bestResult = probeResult.result
-        }
-
-        return bestCandidate
-    }
-
-    private async runRatingLock(candidate: RatingTuning, result: any, ctx: any, players: PlayerImportRaw[], label: string, track: "hitting" | "pitching", metricKey: string, scenario: "lock-so" | "lock-bb" | "avg-obp" | "slg-ops" | "era-hr", tolerance: number, mutate: (next: RatingTuning) => void): Promise<{ candidate: RatingTuning, result: any }> {
-        const metric = this.ratingMetric(result, track, metricKey)
-
-        if (!Number.isFinite(metric.actual) || !Number.isFinite(metric.target) || metric.target === 0) {
-            log("RATING LOCK SKIP", label, "reason=missing-metric")
-            return { candidate, result }
-        }
-
-        if (Math.abs(metric.diff) <= tolerance) {
-            log("RATING LOCK SKIP", label, "reason=already-close", `actual=${this.tuningEvaluationService.f(metric.actual)}`, `target=${this.tuningEvaluationService.f(metric.target)}`)
-            return { candidate, result }
-        }
-
-        const next = this.normalizeTuningShape(JSON.parse(JSON.stringify(candidate)))
-        mutate(next)
-
-
-        
-        const nextResult = await this.evaluateOne(next, ctx, ctx.gamesPerPlayer, label, players)
-        const nextMetric = this.ratingMetric(nextResult, track, metricKey)
-
-        const currentMetricError = Math.abs(metric.diff)
-        const nextMetricError = Math.abs(nextMetric.diff)
-        const currentScore = result.score
-        const nextScore = nextResult.score
-
-        this.printStatus(label, 0, ctx.gamesPerPlayer, next, nextResult)
-
-        if (
-            Number.isFinite(nextMetricError) &&
-            nextMetricError < currentMetricError &&
-            Number.isFinite(nextScore) &&
-            nextScore <= currentScore
-        ) {
-            log("RATING LOCK ACCEPT", label, `metric=${this.tuningEvaluationService.f(currentMetricError)}->${this.tuningEvaluationService.f(nextMetricError)}`, `scenarioScore=${this.tuningEvaluationService.f(currentScore)}->${this.tuningEvaluationService.f(nextScore)}`)
-            return { candidate: next, result: nextResult }
-        }
-
-        log("RATING LOCK REJECT", label, `metric=${this.tuningEvaluationService.f(currentMetricError)}->${this.tuningEvaluationService.f(nextMetricError)}`, `scenarioScore=${this.tuningEvaluationService.f(currentScore)}->${this.tuningEvaluationService.f(nextScore)}`)
-
-        return { candidate, result }
-    }
-
-
-
-    private ratingMetric(result: any, track: "hitting" | "pitching", key: string): { actual: number, target: number, diff: number } {
-        const blockKey = track === "hitting" ? "hitter" : "pitcher"
-
-        const actual = Number(result.actual?.[blockKey]?.[key])
-        const target = Number(result.target?.[blockKey]?.[key])
-
-        return {
-            actual,
-            target,
-            diff: actual - target
-        }
-    }
-
-    private async runBestRatingProbePass(candidate: RatingTuning, result: any, ctx: any, players: PlayerImportRaw[], label: string, track: "hitting" | "pitching", scenario: "lock-so" | "lock-bb" | "avg-obp" | "slg-ops" | "era-hr", allowedLabels: string[]): Promise<{ candidate: RatingTuning, result: any }> {
-        const stepFor = (key: string, fallback: number = 0.04): number => {
-            const row = this.ratingMetric(result, track, key)
-
-            if (!Number.isFinite(row.diff)) return fallback
-
-            return clamp(Math.abs(row.diff) * 1.5, 0.02, 0.08)
-        }
-
-        const createProbe = (probeLabel: string): { label: string, candidate: RatingTuning } | undefined => {
-            const next = this.normalizeTuningShape(JSON.parse(JSON.stringify(candidate)))
-
-            if (probeLabel === "hContactUp") next.hitting.contactScale = this.clampScale(next.hitting.contactScale + stepFor("avg"))
-            else if (probeLabel === "hContactDown") next.hitting.contactScale = this.clampScale(next.hitting.contactScale - stepFor("avg"))
-            else if (probeLabel === "hDiscUp") next.hitting.plateDisciplineScale = this.clampScale(next.hitting.plateDisciplineScale + stepFor("obp"))
-            else if (probeLabel === "hDiscDown") next.hitting.plateDisciplineScale = this.clampScale(next.hitting.plateDisciplineScale - stepFor("obp"))
-            else if (probeLabel === "hGapUp") next.hitting.gapPowerScale = this.clampScale(next.hitting.gapPowerScale + stepFor("slg"))
-            else if (probeLabel === "hGapDown") next.hitting.gapPowerScale = this.clampScale(next.hitting.gapPowerScale - stepFor("slg"))
-            else if (probeLabel === "hHrUp") next.hitting.homerunPowerScale = this.clampScale(next.hitting.homerunPowerScale + stepFor("ops"))
-            else if (probeLabel === "hHrDown") next.hitting.homerunPowerScale = this.clampScale(next.hitting.homerunPowerScale - stepFor("ops"))
-            else if (probeLabel === "pMovementUp") next.pitching.movementScale = this.clampScale(next.pitching.movementScale + stepFor("era"))
-            else if (probeLabel === "pMovementDown") next.pitching.movementScale = this.clampScale(next.pitching.movementScale - stepFor("era"))
-            else if (probeLabel === "pPowerUp") next.pitching.powerScale = this.clampScale(next.pitching.powerScale + stepFor("soPercent"))
-            else if (probeLabel === "pPowerDown") next.pitching.powerScale = this.clampScale(next.pitching.powerScale - stepFor("soPercent"))
-            else if (probeLabel === "pControlUp") next.pitching.controlScale = this.clampScale(next.pitching.controlScale + stepFor("bbPercent"))
-            else if (probeLabel === "pControlDown") next.pitching.controlScale = this.clampScale(next.pitching.controlScale - stepFor("bbPercent"))
-            else return undefined
-
-            return { label: probeLabel, candidate: next }
-        }
-
-        const probes = allowedLabels
-            .map(createProbe)
-            .filter((probe): probe is { label: string, candidate: RatingTuning } => !!probe)
-
-        let bestCandidate = candidate
-        let bestResult = result
-        let bestScore = this.ratingScenarioScore(result, track, scenario)
-
-        log(
-            "RATING PROBE BASELINE",
-            label,
-            `scenario=${scenario}`,
-            `scenarioScore=${this.tuningEvaluationService.f(bestScore)}`
-        )
-
-        for (const probe of probes) {
-            const probeResult = await this.evaluateOne(probe.candidate, ctx, ctx.gamesPerPlayer, `${label}-${probe.label}`, players)
-            const probeScore = this.ratingScenarioScore(probeResult, track, scenario)
-
-            this.printStatus(`${label}-${probe.label}`, 0, ctx.gamesPerPlayer, probe.candidate, probeResult)
-
-            log(
-                "RATING PROBE",
-                `${label}-${probe.label}`,
-                `scenario=${scenario}`,
-                `scenarioScore=${this.tuningEvaluationService.f(probeScore)}`,
-                `best=${this.tuningEvaluationService.f(bestScore)}`
-            )
-
-            if (Number.isFinite(probeScore) && probeScore < bestScore) {
-                bestCandidate = this.normalizeTuningShape(probe.candidate)
-                bestResult = probeResult
-                bestScore = probeScore
-            }
-        }
-
-        if (bestCandidate !== candidate) {
-            this.printStatus(`${label}-accepted`, 0, ctx.gamesPerPlayer, bestCandidate, bestResult)
-
-            log(
-                "RATING PROBE ACCEPT",
-                label,
-                `scenario=${scenario}`,
-                `scenarioScore=${this.tuningEvaluationService.f(bestScore)}`
-            )
-        }
-
-        return { candidate: bestCandidate, result: bestResult }
-    }
-
-
-    private async evaluateOne(candidate: RatingTuning, ctx: any, gamesPerPlayer: number, label: string, playersOverride?: PlayerImportRaw[]): Promise<any> {
-        const normalizedCandidate = this.normalizeTuningShape(candidate)
-        const players = playersOverride ?? ctx.sampledPlayers
-        const sampleCount = Math.max(1, Number(ctx.samplesPerCandidate ?? 3))
-        const candidates = new Array(sampleCount).fill(0).map(() => this.normalizeTuningShape(JSON.parse(JSON.stringify(normalizedCandidate))))
-
-        log("RATING BATCH START", label, `players=${players.length}`, `gamesPerPlayer=${gamesPerPlayer}`, `samples=${candidates.length}`, `workers=${ctx.workers}`)
-
-        const evaluated = ctx.workers > 1
-            ? await this.tuningSupportService.evaluateRatingCandidatesWithWorkers(ctx.pitchEnvironment, candidates, players, gamesPerPlayer, ctx.workers, `${ctx.baseSeed}:${label}`)
-            : candidates.map((candidate, index) => ({
-                ok: true as const,
-                candidate,
-                result: this.tuningSupportService.evaluateRatingCandidateLocal(ctx.pitchEnvironment, candidate, players, gamesPerPlayer, `${ctx.baseSeed}:${label}:${index}:${candidate._id}`)
-            }))
-
-        const results = evaluated
-            .filter((row: any) => row?.ok && row?.result)
-            .map((row: any) => row.result)
-
-        if (results.length === 0) {
-            throw new Error(`RatingTuner.evaluateOne produced no results for ${label}`)
-        }
-
-        log("RATING BATCH DONE", label, `results=${results.length}`)
-
-        return this.averageRatingResults(results)
-    }
-
-    private averageRatingResults(results: any[]): any {
-        const averagePath = (path: string[]): number => {
-            const values = results
-                .map(result => {
-                    let current: any = result
-
-                    for (const key of path) {
-                        current = current?.[key]
-                    }
-
-                    return Number(current)
-                })
-                .filter(value => Number.isFinite(value))
-
-            return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0
-        }
-
-        const averageNestedBlock = (rootKey: "actual" | "target", block: "hitter" | "pitcher"): any => {
-            const keys = new Set<string>()
-
-            for (const result of results) {
-                for (const key of Object.keys(result?.[rootKey]?.[block] ?? {})) {
-                    keys.add(key)
-                }
-            }
-
-            const averaged: any = {}
-
-            for (const key of keys) {
-                averaged[key] = averagePath([rootKey, block, key])
-            }
-
-            return averaged
-        }
-
-        const hitterActual = averageNestedBlock("actual", "hitter")
-        const pitcherActual = averageNestedBlock("actual", "pitcher")
-        const hitterTarget = averageNestedBlock("target", "hitter")
-        const pitcherTarget = averageNestedBlock("target", "pitcher")
-
-        const diffBlock = (actual: any, target: any): any => {
-            const keys = new Set<string>([...Object.keys(actual ?? {}), ...Object.keys(target ?? {})])
-            const diff: any = {}
-
-            for (const key of keys) {
-                const actualValue = Number(actual?.[key])
-                const targetValue = Number(target?.[key])
-
-                diff[key] = Number.isFinite(actualValue) && Number.isFinite(targetValue) ? actualValue - targetValue : 0
-            }
-
-            return diff
-        }
-
-        const averagedResult = {
-            actual: {
-                playerCount: this.average(results.map(result => result.actual?.playerCount)),
-                hitterCount: this.average(results.map(result => result.actual?.hitterCount)),
-                pitcherCount: this.average(results.map(result => result.actual?.pitcherCount)),
-                twoWayCount: this.average(results.map(result => result.actual?.twoWayCount)),
-                hitter: hitterActual,
-                pitcher: pitcherActual
-            },
-            target: {
-                hitter: hitterTarget,
-                pitcher: pitcherTarget
-            },
-            diff: {
-                hitter: diffBlock(hitterActual, hitterTarget),
-                pitcher: diffBlock(pitcherActual, pitcherTarget)
-            },
-            score: 0
-        }
-
-        averagedResult.score = this.ratingScore(averagedResult)
-
-        return averagedResult
-    }
-
-    private ratingScenarioScore(result: any, track: "hitting" | "pitching", scenario: "lock-so" | "lock-bb" | "avg-obp" | "slg-ops" | "era-hr"): number {
-        const terms: { key: string, tolerance: number, weight: number }[] = []
-
-        const add = (key: string, tolerance: number, weight: number = 1): void => {
-            terms.push({ key, tolerance, weight })
-        }
-
-        if (track === "hitting") {
-            if (scenario === "lock-so") {
-                add("soPercent", 0.008, 10)
-                add("bbPercent", 0.012, 1)
-                add("avg", 0.018, 1)
-            }
-
-            if (scenario === "lock-bb") {
-                add("bbPercent", 0.006, 10)
-                add("soPercent", 0.012, 1)
-                add("obp", 0.018, 1)
-            }
-
-            if (scenario === "avg-obp") {
-                add("soPercent", 0.010, 2)
-                add("bbPercent", 0.008, 2)
-                add("avg", 0.012, 5)
-                add("obp", 0.014, 5)
-                add("babip", 0.014, 4)
-                add("singlePercent", 0.012, 2)
-            }
-
-            if (scenario === "slg-ops") {
-                add("soPercent", 0.012, 2)
-                add("bbPercent", 0.010, 2)
-                add("avg", 0.018, 1)
-                add("obp", 0.018, 1)
-                add("slg", 0.025, 4)
-                add("ops", 0.030, 2)
-                add("doublePercent", 0.008, 4)
-                add("triplePercent", 0.003, 2)
-                add("homeRunPercent", 0.006, 5)
-            }
-        }
-
-        if (track === "pitching") {
-            if (scenario === "lock-so") {
-                add("soPercent", 0.008, 10)
-                add("bbPercent", 0.012, 1)
-                add("avg", 0.018, 1)
-            }
-
-            if (scenario === "lock-bb") {
-                add("bbPercent", 0.006, 10)
-                add("soPercent", 0.012, 1)
-                add("obp", 0.018, 1)
-            }
-
-            if (scenario === "era-hr") {
-                add("soPercent", 0.010, 2)
-                add("bbPercent", 0.008, 2)
-                add("era", 0.45, 5)
-                add("avg", 0.018, 2)
-                add("obp", 0.020, 2)
-                add("slg", 0.035, 3)
-                add("babip", 0.018, 2)
-                add("doublePercent", 0.010, 2)
-                add("triplePercent", 0.003, 1)
-                add("homeRunPercent", 0.006, 5)
-            }
-        }
-
-        let total = 0
-        let weightTotal = 0
-
-        for (const term of terms) {
-            const metric = this.ratingMetric(result, track, term.key)
-
-            if (!Number.isFinite(metric.diff)) continue
-
-            total += Math.abs(metric.diff / term.tolerance) * term.weight
-            weightTotal += term.weight
-        }
-
-        return weightTotal > 0 ? total / weightTotal : Number(result.score)
-    }
-
-    private createRatingTuningContext(pitchEnvironment: PitchEnvironmentTarget, players: Map<string, PlayerImportRaw>, rng: Function, params?: any): any {
-        const allPlayers = Array.from(players.values())
-
-        const eligibleHitters = allPlayers.filter(player =>
-            Number(player.hitting?.pa ?? 0) >= Number(params?.minHittingPA ?? 100)
-        )
-
-        const eligiblePitchers = allPlayers.filter(player =>
-            Number(player.pitching?.battersFaced ?? 0) >= Number(params?.minPitchingBF ?? 100)
-        )
-
-        const sortedHitters = eligibleHitters
-            .slice()
-            .sort((a, b) => Number(b.hitting?.pa ?? 0) - Number(a.hitting?.pa ?? 0))
-
-        const sortedPitchers = eligiblePitchers
-            .slice()
-            .sort((a, b) => Number(b.pitching?.battersFaced ?? 0) - Number(a.pitching?.battersFaced ?? 0))
-
-        const sampleSize = Number(params?.sampleSize ?? 100)
-        const gamesPerPlayer = Number(params?.gamesPerPlayer ?? params?.gamesPerIteration ?? 150)
-
-        return {
-            pitchEnvironment,
-            allPlayers,
-            eligiblePlayers: [...new Map([...eligibleHitters, ...eligiblePitchers].map(player => [player.playerId, player])).values()],
-            sortedHitters,
-            sortedPitchers,
-            sampledPlayers: [
-                ...sortedHitters.slice(0, Math.min(sampleSize, sortedHitters.length)),
-                ...sortedPitchers.slice(0, Math.min(sampleSize, sortedPitchers.length))
-            ],
-            sampleSize,
-            baseSeed: String(rng()),
-            gamesPerPlayer,
-            workers: Math.max(1, Number(params?.workers ?? 1)),
-            samplesPerCandidate: Number(params?.samplesPerCandidate ?? 3),
-            ratingTuningPasses: Number(params?.ratingTuningPasses ?? 2)
-        }
-    }
-
-    private printStatus(label: string, iteration: number, gamesPerPlayer: number, candidate: RatingTuning, result: any): void {
-        const f = (value: any): string => this.tuningEvaluationService.f(value)
-        const actual = result.actual ?? {}
-        const diff = result.diff ?? {}
-
-        log(
-            "RATING TUNING",
-            label,
-            `i=${iteration}`,
-            `G=${gamesPerPlayer}`,
-            `score=${f(result.score)}`,
-            `players=${f(actual.playerCount ?? 0)}`,
-            `hitters=${f(actual.hitterCount ?? 0)}`,
-            `pitchers=${f(actual.pitcherCount ?? 0)}`,
-            `twoWay=${f(actual.twoWayCount ?? 0)}`,
-            `hAVG=${f(diff.hitter?.avg)}`,
-            `hOBP=${f(diff.hitter?.obp)}`,
-            `hSLG=${f(diff.hitter?.slg)}`,
-            `hOPS=${f(diff.hitter?.ops)}`,
-            `hBABIP=${f(diff.hitter?.babip)}`,
-            `h1B=${f(diff.hitter?.singlePercent)}`,
-            `h2B=${f(diff.hitter?.doublePercent)}`,
-            `h3B=${f(diff.hitter?.triplePercent)}`,
-            `hHR=${f(diff.hitter?.homeRunPercent)}`,
-            `hSO=${f(diff.hitter?.soPercent)}`,
-            `hBB=${f(diff.hitter?.bbPercent)}`,
-            `pERA=${f(diff.pitcher?.era)}`,
-            `pAVG=${f(diff.pitcher?.avg)}`,
-            `pOBP=${f(diff.pitcher?.obp)}`,
-            `pSLG=${f(diff.pitcher?.slg)}`,
-            `pBABIP=${f(diff.pitcher?.babip)}`,
-            `p2B=${f(diff.pitcher?.doublePercent)}`,
-            `p3B=${f(diff.pitcher?.triplePercent)}`,
-            `pHR=${f(diff.pitcher?.homeRunPercent)}`,
-            `pSO=${f(diff.pitcher?.soPercent)}`,
-            `pBB=${f(diff.pitcher?.bbPercent)}`,
-            `T[hCt=${candidate.hitting.contactScale} hDisc=${candidate.hitting.plateDisciplineScale} hGap=${candidate.hitting.gapPowerScale} hHR=${candidate.hitting.homerunPowerScale} hSplit=${candidate.hitting.splitScale} pPow=${candidate.pitching.powerScale} pCtrl=${candidate.pitching.controlScale} pMov=${candidate.pitching.movementScale} pSplit=${candidate.pitching.splitScale}]`
-        )
-    }
-
-    private normalizeTuningShape(candidate: RatingTuning): RatingTuning {
-        const seed = PlayerRatingService.seedRatingTuning()
-
-        return {
-            _id: candidate?._id ?? seed._id,
-            hitting: {
-                contactScale: Number(candidate?.hitting?.contactScale ?? seed.hitting.contactScale),
-                plateDisciplineScale: Number(candidate?.hitting?.plateDisciplineScale ?? seed.hitting.plateDisciplineScale),
-                gapPowerScale: Number(candidate?.hitting?.gapPowerScale ?? seed.hitting.gapPowerScale),
-                homerunPowerScale: Number(candidate?.hitting?.homerunPowerScale ?? seed.hitting.homerunPowerScale),
-                splitScale: Number(candidate?.hitting?.splitScale ?? seed.hitting.splitScale)
-            },
-            pitching: {
-                powerScale: Number(candidate?.pitching?.powerScale ?? seed.pitching.powerScale),
-                controlScale: Number(candidate?.pitching?.controlScale ?? seed.pitching.controlScale),
-                movementScale: Number(candidate?.pitching?.movementScale ?? seed.pitching.movementScale),
-                splitScale: Number(candidate?.pitching?.splitScale ?? seed.pitching.splitScale)
-            },
-            running: {
-                speedScale: Number(candidate?.running?.speedScale ?? seed.running.speedScale),
-                stealsScale: Number(candidate?.running?.stealsScale ?? seed.running.stealsScale)
-            },
-            fielding: {
-                defenseScale: Number(candidate?.fielding?.defenseScale ?? seed.fielding.defenseScale),
-                armScale: Number(candidate?.fielding?.armScale ?? seed.fielding.armScale)
-            }
-        }
-    }
-
-    private getRatingStageSizes(totalPlayers: number, maxPlayers: number): number[] {
-        const cap = Math.min(totalPlayers, maxPlayers)
-
-        return [1, 2, 3, 5, 10, 25, 50, 100]
-            .filter(size => size <= cap)
-            .filter((size, index, sizes) => sizes.indexOf(size) === index)
-    }
-
-
-    private clampScale(value: number): number {
-        return clamp(Number(value), -1, 1)
-    }
-
-    private average(values: any[]): number {
-        const numbers = values.map(value => Number(value)).filter(value => Number.isFinite(value))
-        return numbers.length > 0 ? numbers.reduce((sum, value) => sum + value, 0) / numbers.length : 0
-    }
-
-    private ratingScore(result: any): number {
-        return (
-            this.ratingScenarioScore(result, "hitting", "avg-obp") +
-            this.ratingScenarioScore(result, "hitting", "slg-ops") +
-            this.ratingScenarioScore(result, "pitching", "era-hr")
-        ) / 3
-    }
-
-}
-
 class TuningEvaluationService {
 
     public metric(result: any, key: string): { actual: number, target: number, diff: number } {
@@ -2151,7 +1470,6 @@ class TuningSupportService {
 
 export {
     exportPitchEnvironmentTarget,
-    exportRatingTuning,
     exportPlayerRatings,
     exportAll,
     ExportPitchEnvironmentTargetResult,
@@ -2200,10 +1518,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const options = {
         gamesPerIteration: 150,
         finalGamesPerIteration: 300,
-        gamesPerPlayer: 150,
+
+        ratingSearchGamesPerPlayer: 40,
         finalGamesPerPlayer: 300,
+
         workers: NUMBER_OF_WORKERS,
-        samplesPerCandidate: 5
+        samplesPerCandidate: 5,
+        ratingSamplesPerCandidate: 3,
+
+        sampleSize: 100
     }
 
     const baseDataDir = "data"
@@ -2212,14 +1535,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 
     if (command === "tune target") {
         result = await exportPitchEnvironmentTarget(
-            season,
-            baseDataDir,
-            options
-        )
-    }
-
-    if (command === "tune ratings") {
-        result = await exportRatingTuning(
             season,
             baseDataDir,
             options

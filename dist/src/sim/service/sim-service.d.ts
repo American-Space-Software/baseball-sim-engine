@@ -61,7 +61,7 @@ declare class SimRolls {
 }
 declare class GamePlayers {
     constructor();
-    initGamePlayers(pitchEnvironmentTarget: PitchEnvironmentTarget, players: Player[], startingPitcher: RotationPitcher, teamId: string, color1: string, color2: string, startingId: number): GamePlayer[];
+    initGamePlayers(pitchEnvironmentTarget: PitchEnvironmentTarget, players: Player[], startingPitcher: RotationPitcher, teamId: string, color1: string, color2: string, startingId: number, homeFieldAdvantage?: number): GamePlayer[];
     getGamePlayer(game: Game, playerId: string): GamePlayer;
 }
 declare class GameInfo {

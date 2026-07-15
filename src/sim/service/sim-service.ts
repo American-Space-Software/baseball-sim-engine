@@ -1840,18 +1840,45 @@ class GamePlayers {
 
     constructor() {}
 
-    initGamePlayers(pitchEnvironmentTarget:PitchEnvironmentTarget, players:Player[], startingPitcher:RotationPitcher, teamId:string, color1:string, color2:string, startingId:number) : GamePlayer[] {
+    initGamePlayers(pitchEnvironmentTarget: PitchEnvironmentTarget, players: Player[], startingPitcher: RotationPitcher, teamId: string, color1: string, color2: string, startingId: number, homeFieldAdvantage: number = 0): GamePlayer[] {
+        let gamePlayers: GamePlayer[] = []
 
-        let gamePlayers:GamePlayer[] = []
-        
-        for (let p of players) {
-        
-            let isStartingPitcher = p._id == startingPitcher?._id
+        if (!Number.isFinite(homeFieldAdvantage)) {
+            throw new Error(`Invalid home field advantage ${homeFieldAdvantage}.`)
+        }
 
-            let hittingRatings = p.hittingRatings
-            let pitchRatings = p.pitchRatings
+        for (const p of players) {
+            const isStartingPitcher = p._id == startingPitcher?._id
 
-            gamePlayers.push({ 
+            const hittingRatings: HittingRatings = JSON.parse(JSON.stringify(p.hittingRatings))
+            const pitchRatings: PitchRatings = JSON.parse(JSON.stringify(p.pitchRatings))
+
+            if (homeFieldAdvantage !== 0) {
+                hittingRatings.defense = PlayerChange.applyChange(hittingRatings.defense, homeFieldAdvantage)
+                hittingRatings.arm = PlayerChange.applyChange(hittingRatings.arm, homeFieldAdvantage)
+                hittingRatings.speed = PlayerChange.applyChange(hittingRatings.speed, homeFieldAdvantage)
+                hittingRatings.steals = PlayerChange.applyChange(hittingRatings.steals, homeFieldAdvantage)
+
+                hittingRatings.vsL.plateDiscipline = PlayerChange.applyChange(hittingRatings.vsL.plateDiscipline, homeFieldAdvantage)
+                hittingRatings.vsL.contact = PlayerChange.applyChange(hittingRatings.vsL.contact, homeFieldAdvantage)
+                hittingRatings.vsL.gapPower = PlayerChange.applyChange(hittingRatings.vsL.gapPower, homeFieldAdvantage)
+                hittingRatings.vsL.homerunPower = PlayerChange.applyChange(hittingRatings.vsL.homerunPower, homeFieldAdvantage)
+
+                hittingRatings.vsR.plateDiscipline = PlayerChange.applyChange(hittingRatings.vsR.plateDiscipline, homeFieldAdvantage)
+                hittingRatings.vsR.contact = PlayerChange.applyChange(hittingRatings.vsR.contact, homeFieldAdvantage)
+                hittingRatings.vsR.gapPower = PlayerChange.applyChange(hittingRatings.vsR.gapPower, homeFieldAdvantage)
+                hittingRatings.vsR.homerunPower = PlayerChange.applyChange(hittingRatings.vsR.homerunPower, homeFieldAdvantage)
+
+                pitchRatings.power = PlayerChange.applyChange(pitchRatings.power, homeFieldAdvantage)
+
+                pitchRatings.vsL.control = PlayerChange.applyChange(pitchRatings.vsL.control, homeFieldAdvantage)
+                pitchRatings.vsL.movement = PlayerChange.applyChange(pitchRatings.vsL.movement, homeFieldAdvantage)
+
+                pitchRatings.vsR.control = PlayerChange.applyChange(pitchRatings.vsR.control, homeFieldAdvantage)
+                pitchRatings.vsR.movement = PlayerChange.applyChange(pitchRatings.vsR.movement, homeFieldAdvantage)
+            }
+
+            gamePlayers.push({
                 _id: p._id,
                 fullName: `${p.firstName} ${p.lastName}`,
                 firstName: p.firstName,
@@ -1860,26 +1887,26 @@ class GamePlayers {
                 stamina: p.stamina,
                 maxPitchCount: p.maxPitchCount,
 
-                teamId: teamId,
+                teamId,
 
                 age: p.age,
-                
-                overallRating:{
-                    before: p.overallRating,
+
+                overallRating: {
+                    before: p.overallRating
                 },
 
-                color1: color1,
-                color2: color2,
+                color1,
+                color2,
 
                 throws: p.throws,
                 hits: p.hits,
-            
-                pitchRatings: pitchRatings,
-                hittingRatings: hittingRatings,
+
+                pitchRatings,
+                hittingRatings,
 
                 currentPosition: p.primaryPosition,
                 positions: [p.primaryPosition],
-    
+
                 hitResult: {
                     games: 0,
                     uniqueGames: 0,
@@ -1937,7 +1964,7 @@ class GamePlayers {
                     calledStrikes: 0,
                     swingingStrikes: 0
                 },
-    
+
                 pitchResult: {
                     games: 0,
                     uniqueGames: 0,
@@ -1977,7 +2004,7 @@ class GamePlayers {
                     swingAtStrikes: 0,
                     inZone: 0,
                     starts: p._id == startingPitcher?._id ? 1 : 0,
-                    ip: '0.0',
+                    ip: "0.0",
                     sacFlys: 0,
                     ballsInPlay: 0,
                     totalPitchQuality: 0,
@@ -1993,20 +2020,17 @@ class GamePlayers {
                 },
 
                 hitterChange: {
-                    vsL: PlayerChange.getHitterChange(p.hittingRatings, pitchEnvironmentTarget.avgRating, Handedness.L),
-                    vsR: PlayerChange.getHitterChange(p.hittingRatings, pitchEnvironmentTarget.avgRating, Handedness.R),
+                    vsL: PlayerChange.getHitterChange(hittingRatings, pitchEnvironmentTarget.avgRating, Handedness.L),
+                    vsR: PlayerChange.getHitterChange(hittingRatings, pitchEnvironmentTarget.avgRating, Handedness.R)
                 },
 
                 pitcherChange: {
-                    vsL: PlayerChange.getPitcherChange(p.pitchRatings, pitchEnvironmentTarget.avgRating, Handedness.L),
-                    vsR: PlayerChange.getPitcherChange(p.pitchRatings, pitchEnvironmentTarget.avgRating, Handedness.R),
+                    vsL: PlayerChange.getPitcherChange(pitchRatings, pitchEnvironmentTarget.avgRating, Handedness.L),
+                    vsR: PlayerChange.getPitcherChange(pitchRatings, pitchEnvironmentTarget.avgRating, Handedness.R)
                 },
-    
-                lineupIndex: undefined,
 
+                lineupIndex: undefined,
                 isPitcherOfRecord: isStartingPitcher
-                
-                
             })
         }
 
@@ -2180,7 +2204,8 @@ class GameInfo {
             team._id,
             color1,
             color2,
-            startingId
+            startingId,
+            homeAway === HomeAway.HOME ? pitchEnvironmentTarget.homeFieldAdvantage : 0
         )
 
         const pitcherGP = gamePlayers.find(gp => gp._id === startingPitcher._id)

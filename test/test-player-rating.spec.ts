@@ -85,9 +85,13 @@ const createTuning = (mutate?: (tuning: RatingTuning) => void): RatingTuning => 
     return tuning
 }
 
+const homeFieldAdvantage = await downloaderService.getSeasonHomeFieldAdvantage(season)
+
+
 const pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(
     season,
-    players
+    players,
+    homeFieldAdvantage
 )
 
 

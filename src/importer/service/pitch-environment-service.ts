@@ -16,12 +16,17 @@ class PitchEnvironmentService {
         private baselineGameService:BaselineGameService
     ) { }
 
-    static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>): PitchEnvironmentTarget {
+    static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>, homeFieldAdvantage: number): PitchEnvironmentTarget {
         const allPlayers = Array.from(players.values())
 
         if (allPlayers.length === 0) {
             throw new Error(`No player import rows found for season ${season}`)
         }
+
+        if (!Number.isFinite(homeFieldAdvantage)) {
+            throw new Error(`Invalid home field advantage for season ${season}: ${homeFieldAdvantage}`)
+        }
+
 
         const round = (num: number, digits: number): number => Number(num.toFixed(digits))
         const scaleTo = (value: number, fromDenominator: number, toDenominator: number): number => Math.round(safeDiv(value * toDenominator, fromDenominator))
@@ -413,6 +418,7 @@ class PitchEnvironmentService {
         const target: PitchEnvironmentTarget = {
             avgRating: 100,
             season,
+            homeFieldAdvantage,
 
             pitch: {
                 inZonePercent: round(safeDiv(hitterTotals.inZonePitches, hitterTotals.pitchesSeen) * 100, 1),
@@ -545,25 +551,11 @@ class PitchEnvironmentService {
 
                     fouls: scaleTo(hitterTotals.fouls, hitterTotals.pa, 1000),
                     ballsInPlay: scaleTo(hitterTotals.ballsInPlay, hitterTotals.pa, 1000),
+
                     physics: {
-                        exitVelocity: {
-                            count: hittingPhysicsTotals.exitVelocity.count,
-                            total: hittingPhysicsTotals.exitVelocity.total,
-                            totalSquared: hittingPhysicsTotals.exitVelocity.totalSquared,
-                            avg: hittingPhysicsTotals.exitVelocity.avg
-                        },
-                        launchAngle: {
-                            count: hittingPhysicsTotals.launchAngle.count,
-                            total: hittingPhysicsTotals.launchAngle.total,
-                            totalSquared: hittingPhysicsTotals.launchAngle.totalSquared,
-                            avg: hittingPhysicsTotals.launchAngle.avg
-                        },
-                        distance: {
-                            count: hittingPhysicsTotals.distance.count,
-                            total: hittingPhysicsTotals.distance.total,
-                            totalSquared: hittingPhysicsTotals.distance.totalSquared,
-                            avg: hittingPhysicsTotals.distance.avg
-                        },
+                        exitVelocity: { ...hittingPhysicsTotals.exitVelocity },
+                        launchAngle: { ...hittingPhysicsTotals.launchAngle },
+                        distance: { ...hittingPhysicsTotals.distance },
                         byTrajectory: {
                             groundBall: { ...hittingPhysicsTotals.byTrajectory.groundBall },
                             flyBall: { ...hittingPhysicsTotals.byTrajectory.flyBall },
@@ -576,8 +568,8 @@ class PitchEnvironmentService {
                 pitcher: {
                     games: 32,
                     starts: 32,
-
                     battersFaced: 1000,
+
                     outs: scaleTo(pitcherTotals.outs, pitcherTotals.battersFaced, 1000),
                     runsAllowed: scaleTo(pitcherTotals.runsAllowed, pitcherTotals.battersFaced, 1000),
                     earnedRunsAllowed: scaleTo(pitcherTotals.earnedRunsAllowed, pitcherTotals.battersFaced, 1000),
@@ -607,25 +599,11 @@ class PitchEnvironmentService {
 
                     foulsAllowed: scaleTo(pitcherTotals.foulsAllowed, pitcherTotals.battersFaced, 1000),
                     ballsInPlayAllowed: scaleTo(pitcherTotals.ballsInPlayAllowed, pitcherTotals.battersFaced, 1000),
+
                     physics: {
-                        velocity: {
-                            count: pitchingPhysicsTotals.velocity.count,
-                            total: pitchingPhysicsTotals.velocity.total,
-                            totalSquared: pitchingPhysicsTotals.velocity.totalSquared,
-                            avg: pitchingPhysicsTotals.velocity.avg
-                        },
-                        horizontalBreak: {
-                            count: pitchingPhysicsTotals.horizontalBreak.count,
-                            total: pitchingPhysicsTotals.horizontalBreak.total,
-                            totalSquared: pitchingPhysicsTotals.horizontalBreak.totalSquared,
-                            avg: pitchingPhysicsTotals.horizontalBreak.avg
-                        },
-                        verticalBreak: {
-                            count: pitchingPhysicsTotals.verticalBreak.count,
-                            total: pitchingPhysicsTotals.verticalBreak.total,
-                            totalSquared: pitchingPhysicsTotals.verticalBreak.totalSquared,
-                            avg: pitchingPhysicsTotals.verticalBreak.avg
-                        },
+                        velocity: { ...pitchingPhysicsTotals.velocity },
+                        horizontalBreak: { ...pitchingPhysicsTotals.horizontalBreak },
+                        verticalBreak: { ...pitchingPhysicsTotals.verticalBreak },
                         byPitchType: { ...pitchingPhysicsTotals.byPitchType }
                     }
                 },

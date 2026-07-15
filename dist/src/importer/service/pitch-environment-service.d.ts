@@ -7,7 +7,7 @@ declare class PitchEnvironmentService {
     private statService;
     private baselineGameService;
     constructor(simService: SimService, statService: StatService, baselineGameService: BaselineGameService);
-    static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>): PitchEnvironmentTarget;
+    static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>, homeFieldAdvantage: number): PitchEnvironmentTarget;
     private static finalizeBattedBallModels;
     private static finalizeBattedBallEvLaModel;
     private static finalizeBattedBallOutcomeModel;

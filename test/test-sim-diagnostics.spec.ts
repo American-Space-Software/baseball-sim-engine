@@ -57,12 +57,171 @@ const rngSequence = (values: number[]): (() => number) => {
     }
 }
 
+
+const homeFieldAdvantage = await downloaderservice.getSeasonHomeFieldAdvantage(season)
+
+
 describe("Baseball Sim Engine", async () => {
 
     it("should calculate pitch environment target for season", async () => {
-        pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
+        pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players, homeFieldAdvantage)
         // console.log("PITCH ENVIRONMENT TARGET", JSON.stringify(pitchEnvironment))
         assert.ok(pitchEnvironment)
+    })
+
+    it("home field advantage should reproduce the target home win percentage", () => {
+        const games = 10000
+
+        const neutralEnvironment = clone(pitchEnvironment)
+        const advantageEnvironment = clone(pitchEnvironment)
+
+        neutralEnvironment.homeFieldAdvantage = 0
+
+        neutralEnvironment.pitchEnvironmentTuning = clone(
+            pitchEnvironmentService.seedPitchEnvironmentTuning(neutralEnvironment)
+        )
+
+        advantageEnvironment.pitchEnvironmentTuning = clone(
+            pitchEnvironmentService.seedPitchEnvironmentTuning(advantageEnvironment)
+        )
+
+        type Winner = "home" | "away"
+
+        type SimulationSummary = {
+            games: number
+            homeFieldAdvantage: number
+            homeWins: number
+            awayWins: number
+            homeWinPercent: number
+            awayWinPercent: number
+            winners: Winner[]
+        }
+
+        const simulate = (environment: PitchEnvironmentTarget, label: string): SimulationSummary => {
+            let homeWins = 0
+            let awayWins = 0
+
+            const winners: Winner[] = []
+
+            for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+                const rng = seedrandom(`home-field-advantage-${gameIndex}`)
+
+                const game = baselineGameService.buildStartedBaselineGame(
+                    clone(environment),
+                    `${label}-${gameIndex}`
+                )
+
+                while (!game.isComplete) {
+                    simService.simPitch(game, rng)
+                }
+
+                if (game.score.home > game.score.away) {
+                    homeWins++
+                    winners.push("home")
+                } else {
+                    awayWins++
+                    winners.push("away")
+                }
+            }
+
+            return {
+                games,
+                homeFieldAdvantage: environment.homeFieldAdvantage,
+                homeWins,
+                awayWins,
+                homeWinPercent: homeWins / games,
+                awayWinPercent: awayWins / games,
+                winners
+            }
+        }
+
+        const neutral = simulate(neutralEnvironment, "home-field-neutral")
+        const advantage = simulate(advantageEnvironment, "home-field-target")
+
+        let unchangedWinners = 0
+        let changedToHomeWinner = 0
+        let changedToAwayWinner = 0
+
+        for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+            const neutralWinner = neutral.winners[gameIndex]
+            const advantageWinner = advantage.winners[gameIndex]
+
+            if (neutralWinner === advantageWinner) {
+                unchangedWinners++
+                continue
+            }
+
+            if (advantageWinner === "home") {
+                changedToHomeWinner++
+            } else {
+                changedToAwayWinner++
+            }
+        }
+
+        const changedWinners = changedToHomeWinner + changedToAwayWinner
+        const targetHomeWinPercent = 0.5 + advantageEnvironment.homeFieldAdvantage
+        const homeWinPercentDelta = advantage.homeWinPercent - neutral.homeWinPercent
+        const targetError = advantage.homeWinPercent - targetHomeWinPercent
+        const tolerance = 0.005
+
+        console.log("\n=== HOME FIELD ADVANTAGE EFFECT ===")
+        console.log(JSON.stringify({
+            neutral: {
+                games: neutral.games,
+                homeFieldAdvantage: neutral.homeFieldAdvantage,
+                homeWins: neutral.homeWins,
+                awayWins: neutral.awayWins,
+                homeWinPercent: neutral.homeWinPercent,
+                awayWinPercent: neutral.awayWinPercent
+            },
+            advantage: {
+                games: advantage.games,
+                homeFieldAdvantage: advantage.homeFieldAdvantage,
+                targetHomeWinPercent,
+                homeWins: advantage.homeWins,
+                awayWins: advantage.awayWins,
+                homeWinPercent: advantage.homeWinPercent,
+                awayWinPercent: advantage.awayWinPercent,
+                targetError
+            },
+            pairedComparison: {
+                unchangedWinners,
+                changedWinners,
+                changedToHomeWinner,
+                changedToAwayWinner,
+                netChangedToHomeWinner: changedToHomeWinner - changedToAwayWinner
+            },
+            delta: {
+                homeWins: advantage.homeWins - neutral.homeWins,
+                homeWinPercent: homeWinPercentDelta
+            }
+        }, null, 2))
+
+        assert.ok(
+            neutral.homeWinPercent > 0.47 &&
+            neutral.homeWinPercent < 0.53,
+            `Neutral home win percentage should be reasonably close to 50%, actual=${neutral.homeWinPercent}`
+        )
+
+        assert.ok(
+            advantage.homeWinPercent > neutral.homeWinPercent,
+            `Home field advantage should increase home win percentage neutral=${neutral.homeWinPercent} advantage=${advantage.homeWinPercent}`
+        )
+
+        assert.ok(
+            changedWinners > 0,
+            "Home field advantage should change at least one paired game result"
+        )
+
+        assert.ok(
+            changedToHomeWinner > changedToAwayWinner,
+            `Home field advantage should flip more games toward home changedToHome=${changedToHomeWinner} changedToAway=${changedToAwayWinner}`
+        )
+
+        assert.ok(
+            Math.abs(targetError) <= tolerance,
+            `Simulated home win percentage should be within ${tolerance} of target target=${targetHomeWinPercent} actual=${advantage.homeWinPercent} error=${targetError}`
+        )
     })
 
     it("diagnostic: expected vs actual batted ball outcome mix", async () => {

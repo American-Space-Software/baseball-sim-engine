@@ -873,6 +873,7 @@ interface RunningAdvancementTarget {
 interface PitchEnvironmentTarget {
     season: number;
     avgRating: number;
+    homeFieldAdvantage: number;
     pitch: {
         inZonePercent: number;
         strikePercent: number;

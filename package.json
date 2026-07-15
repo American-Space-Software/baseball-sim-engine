@@ -25,7 +25,7 @@
   "scripts": {
     
     "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
-    "test1":"node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/test-sim-roster-management.spec.ts",
+    "test1":"node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/test-sim-diagnostics.spec.ts",
 
     "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
     "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
@@ -33,7 +33,6 @@
     "build:watch": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts --watch",
 
     "tune:target": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts tune target",
-    "tune:ratings": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts tune ratings",
     "generate:ratings": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts generate ratings",
     "generate:all": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts generate all",
 

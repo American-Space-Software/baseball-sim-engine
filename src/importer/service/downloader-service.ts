@@ -27,6 +27,7 @@ class DownloaderService {
     async downloadSeasonGames(season: number, onGame: (gamePk: number, data: any) => Promise<void>, forceFullReimport = false): Promise<Set<number>> {
         const games = await this.getSeasonGames(season)
         const completedGamePks = new Set<number>()
+        const failedGames: { gamePk: number; gameDate: string; error: string }[] = []
 
         console.log(`Processing ${games.length} games for season ${season}`)
 
@@ -47,7 +48,10 @@ class DownloaderService {
                 )
 
                 if (!this.isGameComplete(result.data)) {
-                    console.log(`Skipped ${i + 1}/${games.length} (gamePk: ${gamePk}, status: ${this.getGameStatus(result.data)})`)
+                    console.log(
+                        `Skipped ${i + 1}/${games.length} ` +
+                        `(gamePk: ${gamePk}, status: ${this.getGameStatus(result.data)})`
+                    )
 
                     if (result.downloaded) {
                         await this.sleep(this.throttleMs)
@@ -59,17 +63,71 @@ class DownloaderService {
                 completedGamePks.add(gamePk)
                 await onGame(gamePk, result.data)
 
-                console.log(`Processed ${i + 1}/${games.length} (gamePk: ${gamePk}, date: ${gameDate})`)
+                console.log(
+                    `Processed ${i + 1}/${games.length} ` +
+                    `(gamePk: ${gamePk}, date: ${gameDate})`
+                )
 
                 if (result.downloaded) {
                     await this.sleep(this.throttleMs)
                 }
             } catch (err: any) {
-                console.error(`Failed game ${gamePk}:`, err?.message ?? err)
+                const error = String(err?.message ?? err)
+
+                failedGames.push({
+                    gamePk,
+                    gameDate,
+                    error
+                })
+
+                console.error(
+                    `Failed game ${gamePk} (${gameDate}):`,
+                    error
+                )
             }
         }
 
-        console.log(`Finished processing season ${season}: ${completedGamePks.size} completed games`)
+        const missingFiles: { gamePk: number; gameDate: string; filePath: string }[] = []
+
+        for (const game of games) {
+            const gamePk = Number(game.gamePk)
+            const gameDate = this.getGameDate(game)
+
+            if (!gamePk || !gameDate) continue
+            if (this.isFutureGameDate(gameDate)) continue
+
+            const filePath = this.getGameFilePath(season, gamePk)
+
+            if (!await this.fileExists(filePath)) {
+                missingFiles.push({
+                    gamePk,
+                    gameDate,
+                    filePath
+                })
+            }
+        }
+
+        if (failedGames.length > 0 || missingFiles.length > 0) {
+            throw new Error(
+                [
+                    `Season ${season} game synchronization failed.`,
+                    `Download failures: ${failedGames.length}`,
+                    ...failedGames.map(row =>
+                        `${row.gameDate} gamePk=${row.gamePk}: ${row.error}`
+                    ),
+                    `Missing files: ${missingFiles.length}`,
+                    ...missingFiles.map(row =>
+                        `${row.gameDate} gamePk=${row.gamePk}: ${row.filePath}`
+                    )
+                ].join("\n")
+            )
+        }
+
+        console.log(
+            `Finished processing season ${season}: ` +
+            `${completedGamePks.size} completed games, ` +
+            `${games.length} scheduled games verified`
+        )
 
         return completedGamePks
     }
@@ -223,19 +281,47 @@ class DownloaderService {
         return result
     }
 
+    async getSeasonHomeFieldAdvantage(season: number): Promise<number> {
+        const games = await this.getSeasonGames(season)
+
+        let completedGames = 0
+        let homeWins = 0
+
+        for (const game of games) {
+            const awayScore = Number(game?.teams?.away?.score)
+            const homeScore = Number(game?.teams?.home?.score)
+
+            if (!Number.isFinite(awayScore) || !Number.isFinite(homeScore)) {
+                continue
+            }
+
+            if (awayScore === homeScore) {
+                continue
+            }
+
+            completedGames++
+
+            if (homeScore > awayScore) {
+                homeWins++
+            }
+        }
+
+        if (completedGames === 0) {
+            throw new Error(`No completed regular-season games found for season ${season}`)
+        }
+
+        const homeWinPercent = homeWins / completedGames
+
+        return Number((homeWinPercent - 0.5).toFixed(4))
+    }
+    
     private async buildCurrentSeasonPlayerImports(season: number, resultsFilePath: string, normalizedPlayerIds: string[], filterPlayerIds?: Set<string>, forceFullReimport = false): Promise<Map<string, PlayerImportRaw>> {
-        const players =
-            new Map<string, PlayerImportRaw>()
+        const players = new Map<string, PlayerImportRaw>()
+        const playerGameCounts = new Map<string, number>()
+        const completedGamePks = new Set<number>()
+        const failedGames: { gamePk: number; gameDate: string; error: string }[] = []
 
-        const playerGameCounts =
-            new Map<string, number>()
-
-        const completedGamePks =
-            new Set<number>()
-
-        const games = await this.getRollingCurrentSeasonGames(
-            season
-        )
+        const games = await this.getRollingCurrentSeasonGames(season)
 
         console.log(
             `Processing ${games.length} games from seasons ${season - 1}-${season} for rolling ${season} player imports`
@@ -250,13 +336,12 @@ class DownloaderService {
             if (this.isFutureGameDate(gameDate)) continue
 
             try {
-                const result =
-                    await this.getOrDownloadGame(
-                        row.sourceSeason,
-                        gamePk,
-                        gameDate,
-                        forceFullReimport
-                    )
+                const result = await this.getOrDownloadGame(
+                    row.sourceSeason,
+                    gamePk,
+                    gameDate,
+                    forceFullReimport
+                )
 
                 if (!this.isGameComplete(result.data)) {
                     console.log(
@@ -264,40 +349,27 @@ class DownloaderService {
                     )
 
                     if (result.downloaded) {
-                        await this.sleep(
-                            this.throttleMs
-                        )
+                        await this.sleep(this.throttleMs)
                     }
 
                     continue
                 }
 
-                const participatingPlayerIds =
-                    this.getParticipatingPlayerIds(
-                        result.data
-                    )
-
-                const eligiblePlayerIds =
-                    new Set<string>()
+                const participatingPlayerIds = this.getParticipatingPlayerIds(result.data)
+                const eligiblePlayerIds = new Set<string>()
 
                 for (const playerId of participatingPlayerIds) {
-                    if (
-                        filterPlayerIds &&
-                        !filterPlayerIds.has(playerId)
-                    ) {
+                    if (filterPlayerIds && !filterPlayerIds.has(playerId)) {
                         continue
                     }
 
-                    const gamesAccumulated =
-                        playerGameCounts.get(playerId) ?? 0
+                    const gamesAccumulated = playerGameCounts.get(playerId) ?? 0
 
                     if (gamesAccumulated >= 162) {
                         continue
                     }
 
-                    eligiblePlayerIds.add(
-                        playerId
-                    )
+                    eligiblePlayerIds.add(playerId)
                 }
 
                 if (eligiblePlayerIds.size === 0) {
@@ -329,18 +401,14 @@ class DownloaderService {
                     )
                 }
 
-                completedGamePks.add(
-                    gamePk
-                )
+                completedGamePks.add(gamePk)
 
                 console.log(
                     `Processed ${i + 1}/${games.length} (gamePk: ${gamePk}, date: ${gameDate}, sourceSeason: ${row.sourceSeason}, eligiblePlayers: ${eligiblePlayerIds.size})`
                 )
 
                 if (result.downloaded) {
-                    await this.sleep(
-                        this.throttleMs
-                    )
+                    await this.sleep(this.throttleMs)
                 }
 
                 if (
@@ -353,31 +421,86 @@ class DownloaderService {
                     break
                 }
             } catch (err: any) {
+                const error = String(err?.message ?? err)
+
+                failedGames.push({
+                    gamePk,
+                    gameDate,
+                    error
+                })
+
                 console.error(
-                    `Failed game ${gamePk}:`,
-                    err?.message ?? err
+                    `Failed game ${gamePk} (${gameDate}):`,
+                    error
                 )
             }
         }
 
-        for (const player of players.values()) {
-            this.finalizePlayerImportRaw(
-                player
+        
+        if (failedGames.length > 0) {
+            throw new Error(
+                [
+                    `Failed to synchronize ${failedGames.length} game feeds for rolling season ${season}.`,
+                    ...failedGames.map(row =>
+                        `${row.gameDate} gamePk=${row.gamePk}: ${row.error}`
+                    )
+                ].join("\n")
             )
         }
 
-        const result =
-            this.clonePlayerImportMap(
-                players
+        const missingFiles: { gamePk: number; gameDate: string; sourceSeason: number; filePath: string }[] = []
+
+        for (const row of games) {
+            const gamePk = Number(row.game?.gamePk)
+            const gameDate = this.getGameDate(row.game)
+
+            if (!gamePk || !gameDate) continue
+            if (this.isFutureGameDate(gameDate)) continue
+
+            const filePath = this.getGameFilePath(row.sourceSeason, gamePk)
+
+            if (!await this.fileExists(filePath)) {
+                missingFiles.push({
+                    gamePk,
+                    gameDate,
+                    sourceSeason: row.sourceSeason,
+                    filePath
+                })
+            }
+        }
+
+        if (failedGames.length > 0 || missingFiles.length > 0) {
+            throw new Error(
+                [
+                    `Rolling season ${season} game synchronization failed.`,
+                    `Download failures: ${failedGames.length}`,
+                    ...failedGames.map(row =>
+                        `${row.gameDate} gamePk=${row.gamePk}: ${row.error}`
+                    ),
+                    `Missing files: ${missingFiles.length}`,
+                    ...missingFiles.map(row =>
+                        `${row.gameDate} gamePk=${row.gamePk} sourceSeason=${row.sourceSeason}: ${row.filePath}`
+                    )
+                ].join("\n")
             )
+        }
+
+
+
+
+
+        for (const player of players.values()) {
+            this.finalizePlayerImportRaw(player)
+        }
+
+        const result = this.clonePlayerImportMap(players)
 
         await this.writeResultsFile(
             resultsFilePath,
             season,
             normalizedPlayerIds,
             result,
-            Array.from(completedGamePks)
-                .sort((a, b) => a - b)
+            Array.from(completedGamePks).sort((a, b) => a - b)
         )
 
         console.log(

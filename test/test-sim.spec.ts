@@ -179,11 +179,14 @@ const makeGetHitQualityTestEnvironment = (): PitchEnvironmentTarget => {
     return target
 }
 
+const homeFieldAdvantage = await downloaderservice.getSeasonHomeFieldAdvantage(season)
+
+
 describe("Baseball Sim Engine", async () => {
 
 
     it("should calculate pitch environment target for season", async () => {
-        pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players)
+        pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players, homeFieldAdvantage)
         assert.ok(pitchEnvironment)
     })
     
