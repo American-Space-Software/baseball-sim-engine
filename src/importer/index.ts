@@ -101,7 +101,22 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
     const { pitchEnvironmentService, downloader } = tuningSupportService.createServices()
 
     const players = seasonPlayers ?? await downloader.buildSeasonPlayerImports(season, new Set([]))
-    const homeFieldAdvantage = await downloader.getSeasonHomeFieldAdvantage(season)
+
+    const currentSeason = new Date().getUTCFullYear()
+    const homeFieldReferenceSeason = season === currentSeason
+        ? season - 1
+        : season
+
+    const homeFieldAdvantage = await downloader.getSeasonHomeFieldAdvantage(
+        homeFieldReferenceSeason
+    )
+
+    log(
+        "HOME FIELD ADVANTAGE",
+        `targetSeason=${season}`,
+        `referenceSeason=${homeFieldReferenceSeason}`,
+        `value=${homeFieldAdvantage}`
+    )
 
     const pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(
         season,
