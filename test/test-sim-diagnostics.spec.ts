@@ -1,4 +1,8 @@
 import assert from "assert"
+
+import fs from "fs"
+import path from "path"
+
 import {
     StatService,
     simService,
@@ -28,45 +32,77 @@ import { DownloaderService } from "../src/importer/service/downloader-service.js
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 import { GameInfo } from "../src/sim/service/sim-service.js"
 
-const statService = new StatService()
-let pitchEnvironment: PitchEnvironmentTarget
-let tunedPitchEnvironment: PitchEnvironmentTarget
-
 const season = 2025
 const baseDataDir = "data"
-
-const baselineGameService = new BaselineGameService(simService)
-const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
-const downloaderservice = new DownloaderService("data", 1000)
-
-const players = await downloaderservice.buildSeasonPlayerImports(season, new Set([]))
-
 const evaluationSeed = 4
-const evaluationGames = 70
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
+const readJson = async <T>(filePath: string): Promise<T> => {
+    const text = await fs.promises.readFile(
+        filePath,
+        "utf8"
+    )
+
+    return JSON.parse(
+        text
+    ) as T
+}
+
+const pitchEnvironmentPath = path.join(
+    baseDataDir,
+    String(season),
+    "_pitch_environment_target.json"
+)
+
+const pitchEnvironment = await readJson<PitchEnvironmentTarget>(
+    pitchEnvironmentPath
+)
+
+const statService = new StatService()
+const baselineGameService = new BaselineGameService(simService)
+
+const pitchEnvironmentService = new PitchEnvironmentService(
+    simService,
+    statService,
+    baselineGameService
+)
 
 const rngSequence = (values: number[]): (() => number) => {
     let index = 0
 
     return () => {
-        const value = values[Math.min(index, values.length - 1)]
+        const value = values[
+            Math.min(
+                index,
+                values.length - 1
+            )
+        ]
+
         index++
+
         return value
     }
 }
 
-
-const homeFieldAdvantage = await downloaderservice.getSeasonHomeFieldAdvantage(season)
-
-
 describe("Baseball Sim Engine", async () => {
 
-    it("should calculate pitch environment target for season", async () => {
-        pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players, homeFieldAdvantage)
-        // console.log("PITCH ENVIRONMENT TARGET", JSON.stringify(pitchEnvironment))
-        assert.ok(pitchEnvironment)
+    it("should load the exported pitch environment target", () => {
+        assert.equal(
+            pitchEnvironment.season,
+            season
+        )
+
+        assert.ok(
+            Number.isFinite(
+                pitchEnvironment.homeFieldAdvantage
+            )
+        )
+
+        assert.ok(
+            pitchEnvironment.pitchEnvironmentTuning,
+            "Exported pitch environment is missing pitchEnvironmentTuning."
+        )
     })
 
     it("home field advantage should reproduce the target home win percentage", () => {
@@ -77,13 +113,6 @@ describe("Baseball Sim Engine", async () => {
 
         neutralEnvironment.homeFieldAdvantage = 0
 
-        neutralEnvironment.pitchEnvironmentTuning = clone(
-            pitchEnvironmentService.seedPitchEnvironmentTuning(neutralEnvironment)
-        )
-
-        advantageEnvironment.pitchEnvironmentTuning = clone(
-            pitchEnvironmentService.seedPitchEnvironmentTuning(advantageEnvironment)
-        )
 
         type Winner = "home" | "away"
 
@@ -159,9 +188,10 @@ describe("Baseball Sim Engine", async () => {
         }
 
         const changedWinners = changedToHomeWinner + changedToAwayWinner
-        const targetHomeWinPercent = 0.5 + advantageEnvironment.homeFieldAdvantage
+        const targetHomeWinPercentDelta = advantageEnvironment.homeFieldAdvantage
+        const targetHomeWinPercent = neutral.homeWinPercent + targetHomeWinPercentDelta
         const homeWinPercentDelta = advantage.homeWinPercent - neutral.homeWinPercent
-        const targetError = advantage.homeWinPercent - targetHomeWinPercent
+        const targetError = homeWinPercentDelta - targetHomeWinPercentDelta
         const tolerance = 0.005
 
         console.log("\n=== HOME FIELD ADVANTAGE EFFECT ===")
@@ -178,6 +208,7 @@ describe("Baseball Sim Engine", async () => {
                 games: advantage.games,
                 homeFieldAdvantage: advantage.homeFieldAdvantage,
                 targetHomeWinPercent,
+                targetHomeWinPercentDelta,
                 homeWins: advantage.homeWins,
                 awayWins: advantage.awayWins,
                 homeWinPercent: advantage.homeWinPercent,
@@ -220,7 +251,7 @@ describe("Baseball Sim Engine", async () => {
 
         assert.ok(
             Math.abs(targetError) <= tolerance,
-            `Simulated home win percentage should be within ${tolerance} of target target=${targetHomeWinPercent} actual=${advantage.homeWinPercent} error=${targetError}`
+            `Home win percentage increase should be within ${tolerance} of configured advantage targetDelta=${targetHomeWinPercentDelta} actualDelta=${homeWinPercentDelta} error=${targetError}`
         )
     })
 
@@ -228,10 +259,9 @@ describe("Baseball Sim Engine", async () => {
 
         const games = 300
 
-        const testPitchEnvironment = clone(pitchEnvironment)
-        const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
-
-        testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+        const testPitchEnvironment = clone(
+            pitchEnvironment
+        )
 
         const expected = testPitchEnvironment.battedBall.powerRollInput
 
@@ -378,17 +408,15 @@ describe("Baseball Sim Engine", async () => {
         assert.ok(powerRollBabip > 0)
     })
 
-
     it("diagnostic: run creation decomposition", async () => {
         const games = 150
         const samples = 3
         const totalGames = games * samples
         const teamGames = totalGames * 2
 
-        const testPitchEnvironment = clone(pitchEnvironment)
-        const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
-
-        testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+        const testPitchEnvironment = clone(
+            pitchEnvironment
+        )
 
         const totals = {
             runs: 0,
@@ -641,10 +669,9 @@ describe("Baseball Sim Engine", async () => {
         const samples = 3
         const totalGames = games * samples
 
-        const testPitchEnvironment = clone(pitchEnvironment)
-        const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
-
-        testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+        const testPitchEnvironment = clone(
+            pitchEnvironment
+        )
 
         const byPlayResult: Record<string, any> = {}
         const byBaseState: Record<string, any> = {}
@@ -878,10 +905,9 @@ describe("Baseball Sim Engine", async () => {
         const samples = 3
         const totalGames = games * samples
 
-        const testPitchEnvironment = clone(pitchEnvironment)
-        const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
-
-        testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+        const testPitchEnvironment = clone(
+            pitchEnvironment
+        )
 
         const byPlayResult: Record<string, any> = {}
         const byEventOutSignature: Record<string, number> = {}
@@ -1061,10 +1087,9 @@ describe("Baseball Sim Engine", async () => {
         const samples = 3
         const totalGames = games * samples
 
-        const testPitchEnvironment = clone(pitchEnvironment)
-        const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
-
-        testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+        const testPitchEnvironment = clone(
+            pitchEnvironment
+        )
 
         const rows: Record<string, any> = {}
 

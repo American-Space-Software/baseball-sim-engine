@@ -1,6 +1,6 @@
 import { Worker } from "worker_threads"
 import seedrandom from "seedrandom"
-import { PitchEnvironmentTarget, PitchEnvironmentTuning, PlayerImportRaw, RatingTuning } from "../sim/service/interfaces.js"
+import { PitchEnvironmentTarget, PitchEnvironmentTuning, PlayerImportRaw } from "../sim/service/interfaces.js"
 import { RollChartService } from "../sim/service/roll-chart-service.js"
 import { GameInfo, GamePlayers, SimRolls, SimService } from "../sim/service/sim-service.js"
 import { StatService } from "../sim/service/stat-service.js"
@@ -28,28 +28,21 @@ const log = (...args: any[]) => {
 }
 
 type PitchEnvironmentWorkerInput = {
-    kind: "pitchEnvironment"
     pitchEnvironment: PitchEnvironmentTarget
     candidate: PitchEnvironmentTuning
     gamesPerIteration: number
     rngSeed: string
 }
 
-type RatingWorkerInput = {
-    kind: "rating"
-    pitchEnvironment: PitchEnvironmentTarget
-    candidate: RatingTuning
-    players: PlayerImportRaw[]
-    gamesPerPlayer: number
-    rngSeed: string
-}
-
-type TuningWorkerInput = PitchEnvironmentWorkerInput | RatingWorkerInput
-
 type TuningWorkerSuccess = {
     ok: true
-    candidate: PitchEnvironmentTuning | RatingTuning
-    result: { actual: any, target: any, diff: any, score: number }
+    candidate: PitchEnvironmentTuning
+    result: {
+        actual: any
+        target: any
+        diff: any
+        score: number
+    }
 }
 
 type TuningWorkerFailure = {
@@ -57,6 +50,8 @@ type TuningWorkerFailure = {
     error: string
     stack?: string
 }
+
+
 
 type TuningWorkerOutput = TuningWorkerSuccess | TuningWorkerFailure
 
@@ -150,24 +145,59 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
     return fullPitchEnvironment
 }
 
-async function exportPlayerRatings(season: number, baseDataDir: string, ratingTuning?: RatingTuning, seasonPlayers?: Map<string, PlayerImportRaw>): Promise<any[]> {
-    
-    const seasonDataDir = path.join(baseDataDir, String(season))
-    const playerRatingsPath = path.join(seasonDataDir, "_player_ratings.json")
-    const pitchEnvironmentTargetPath = path.join(seasonDataDir, "_pitch_environment_target.json")
+async function exportPlayerRatings(season: number, baseDataDir: string, seasonPlayers?: Map<string, PlayerImportRaw>): Promise<any[]> {
+    const seasonDataDir = path.join(
+        baseDataDir,
+        String(season)
+    )
+
+    const playerRatingsPath = path.join(
+        seasonDataDir,
+        "_player_ratings.json"
+    )
+
+    const pitchEnvironmentTargetPath = path.join(
+        seasonDataDir,
+        "_pitch_environment_target.json"
+    )
 
     const readJson = async (filePath: string): Promise<any> => {
-        return JSON.parse(await fs.promises.readFile(filePath, "utf8"))
+        const text = await fs.promises.readFile(
+            filePath,
+            "utf8"
+        )
+
+        return JSON.parse(
+            text
+        )
     }
 
     const writeJson = async (filePath: string, data: any): Promise<void> => {
-        await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
-        await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), "utf8")
+        await fs.promises.mkdir(
+            path.dirname(filePath),
+            {
+                recursive: true
+            }
+        )
+
+        await fs.promises.writeFile(
+            filePath,
+            JSON.stringify(
+                data,
+                null,
+                2
+            ),
+            "utf8"
+        )
     }
 
     const fileExists = async (filePath: string): Promise<boolean> => {
         try {
-            await fs.promises.access(filePath, fs.constants.F_OK)
+            await fs.promises.access(
+                filePath,
+                fs.constants.F_OK
+            )
+
             return true
         } catch {
             return false
@@ -175,46 +205,66 @@ async function exportPlayerRatings(season: number, baseDataDir: string, ratingTu
     }
 
     if (!await fileExists(pitchEnvironmentTargetPath)) {
-        throw new Error(`Pitch environment target not found: ${pitchEnvironmentTargetPath}`)
+        throw new Error(
+            `Pitch environment target not found: ${pitchEnvironmentTargetPath}`
+        )
     }
 
     let players = seasonPlayers
 
     if (!players) {
-        const tuningSupportService = new TuningSupportService(baseDataDir)
-        const { downloader } = tuningSupportService.createServices()
+        const tuningSupportService =
+            new TuningSupportService(
+                baseDataDir
+            )
 
-        players = await downloader.buildSeasonPlayerImports(season, new Set([]))
+        const {
+            downloader
+        } = tuningSupportService.createServices()
+
+        players = await downloader.buildSeasonPlayerImports(
+            season,
+            new Set([])
+        )
     }
 
-    const pitchEnvironment: PitchEnvironmentTarget = await readJson(pitchEnvironmentTargetPath)
+    const pitchEnvironment =
+        await readJson(
+            pitchEnvironmentTargetPath
+        ) as PitchEnvironmentTarget
 
-    const playerRatings = Array.from(players.values()).map(playerImportRaw => {
-        const command = PlayerRatingService.createPlayerFromImportRaw(
-            pitchEnvironment,
-            playerImportRaw
-        )
+    const playerRatings =
+        Array.from(
+            players.values()
+        ).map(playerImportRaw => {
+            const command =
+                PlayerRatingService.createPlayerFromImportRaw(
+                    pitchEnvironment,
+                    playerImportRaw
+                )
 
-        Object.assign(command as any, {
-            ratingTuning: ratingTuning
+            const ratings =
+                PlayerRatingService.createPlayerFromStatsCommand(
+                    command
+                )
+
+            return {
+                playerId: playerImportRaw.playerId,
+                firstName: playerImportRaw.firstName,
+                lastName: playerImportRaw.lastName,
+                primaryPosition: playerImportRaw.primaryPosition,
+                age: playerImportRaw.age,
+                throws: playerImportRaw.throws,
+                hits: playerImportRaw.bats,
+                hittingRatings: ratings.hittingRatings,
+                pitchRatings: ratings.pitchRatings
+            }
         })
 
-        const ratings = PlayerRatingService.createPlayerFromStatsCommand(command)
-
-        return {
-            playerId: playerImportRaw.playerId,
-            firstName: playerImportRaw.firstName,
-            lastName: playerImportRaw.lastName,
-            primaryPosition: playerImportRaw.primaryPosition,
-            age: playerImportRaw.age,
-            throws: playerImportRaw.throws,
-            hits: playerImportRaw.bats,
-            hittingRatings: ratings.hittingRatings,
-            pitchRatings: ratings.pitchRatings
-        }
-    })
-
-    await writeJson(playerRatingsPath, playerRatings)
+    await writeJson(
+        playerRatingsPath,
+        playerRatings
+    )
 
     return playerRatings
 }
@@ -246,7 +296,6 @@ async function exportAll(season: number, baseDataDir: string, options?: any): Pr
     const playerRatings = await exportPlayerRatings(
         season,
         baseDataDir,
-        PlayerRatingService.seedRatingTuning(),
         players
     )
 
@@ -1349,22 +1398,76 @@ class TuningSupportService {
 
     constructor(private baseDataDir: string) {}
 
-    public createServices(): { pitchEnvironmentService: PitchEnvironmentService, playerRatingService: PlayerRatingService, downloader: DownloaderService, simService: SimService, statService: StatService, baselineGameService: BaselineGameService } {
-        const rollChartService = new RollChartService()
-        const statService = new StatService()
-        const simRolls = new SimRolls(rollChartService)
-        const gamePlayers = new GamePlayers()
-        const runnerService = new RunnerService(simRolls)
-        const gameInfo = new GameInfo(gamePlayers)
-        const substitutionService = new SubstitutionService()
-        const simService = new SimService(rollChartService, simRolls, runnerService, gameInfo, substitutionService, {} as PitchEnvironmentTarget)
-        const baselineGameService = new BaselineGameService(simService)
-        const downloader = new DownloaderService(this.baseDataDir, 1000)
-        const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
-        const playerRatingService = new PlayerRatingService(simService, statService, baselineGameService)
+public createServices(): {
+    pitchEnvironmentService: PitchEnvironmentService
+    downloader: DownloaderService
+    simService: SimService
+    statService: StatService
+    baselineGameService: BaselineGameService
+} {
+    const rollChartService =
+        new RollChartService()
 
-        return { pitchEnvironmentService, playerRatingService, downloader, simService, statService, baselineGameService }
+    const statService =
+        new StatService()
+
+    const simRolls =
+        new SimRolls(
+            rollChartService
+        )
+
+    const gamePlayers =
+        new GamePlayers()
+
+    const runnerService =
+        new RunnerService(
+            simRolls
+        )
+
+    const gameInfo =
+        new GameInfo(
+            gamePlayers
+        )
+
+    const substitutionService =
+        new SubstitutionService()
+
+    const simService =
+        new SimService(
+            rollChartService,
+            simRolls,
+            runnerService,
+            gameInfo,
+            substitutionService,
+            {} as PitchEnvironmentTarget
+        )
+
+    const baselineGameService =
+        new BaselineGameService(
+            simService
+        )
+
+    const downloader =
+        new DownloaderService(
+            this.baseDataDir,
+            1000
+        )
+
+    const pitchEnvironmentService =
+        new PitchEnvironmentService(
+            simService,
+            statService,
+            baselineGameService
+        )
+
+    return {
+        pitchEnvironmentService,
+        downloader,
+        simService,
+        statService,
+        baselineGameService
     }
+}
 
     public buildCandidatePitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning): PitchEnvironmentTarget {
         return JSON.parse(JSON.stringify({
@@ -1381,36 +1484,55 @@ class TuningSupportService {
         return pitchEnvironmentService.evaluatePitchEnvironment(candidatePitchEnvironment, rng, gamesPerIteration)
     }
 
-    public evaluateRatingCandidateLocal(pitchEnvironment: PitchEnvironmentTarget, candidate: RatingTuning, players: PlayerImportRaw[], gamesPerPlayer: number, rngSeed: string): { actual: any, target: any, diff: any, score: number } {
-        const { playerRatingService } = this.createServices()
-        const rng = seedrandom(rngSeed)
-
-        return playerRatingService.evaluatePlayerRatings(pitchEnvironment, candidate, players, rng, gamesPerPlayer)
-    }
-
-
-    public runPitchEnvironmentWorker(input: TuningWorkerInput): Promise<TuningWorkerSuccess> {
+    public runPitchEnvironmentWorker(input: PitchEnvironmentWorkerInput): Promise<TuningWorkerSuccess> {
         return new Promise((resolve, reject) => {
-            const worker = new Worker(new URL("./worker.js", import.meta.url), {
-                workerData: input,
-                execArgv: [...process.execArgv, "--no-warnings"]
-            })
+            const worker = new Worker(
+                new URL(
+                    "./worker.js",
+                    import.meta.url
+                ),
+                {
+                    workerData: input,
+                    execArgv: [
+                        ...process.execArgv,
+                        "--no-warnings"
+                    ]
+                }
+            )
 
             worker.once("message", (message: TuningWorkerOutput) => {
-                if (message.ok) {
-                    resolve(message)
+                if (message.ok === true) {
+                    resolve(
+                        message
+                    )
+
                     return
                 }
 
-                const failure = message as TuningWorkerFailure
-                reject(new Error(failure.stack ? `${failure.error}\n${failure.stack}` : failure.error))
+                const failure =
+                    message as TuningWorkerFailure
+
+                reject(
+                    new Error(
+                        failure.stack
+                            ? `${failure.error}\n${failure.stack}`
+                            : failure.error
+                    )
+                )
             })
 
-            worker.once("error", reject)
+            worker.once(
+                "error",
+                reject
+            )
 
             worker.once("exit", code => {
                 if (code !== 0) {
-                    reject(new Error(`Worker stopped with exit code ${code}`))
+                    reject(
+                        new Error(
+                            `Worker stopped with exit code ${code}`
+                        )
+                    )
                 }
             })
         })
@@ -1433,13 +1555,14 @@ class TuningSupportService {
                     return
                 }
 
-                results[index] = await this.runPitchEnvironmentWorker({
-                    kind: "pitchEnvironment",
-                    pitchEnvironment,
-                    candidate: candidates[index],
-                    gamesPerIteration,
-                    rngSeed: `${rngSeedBase}:${index}:${candidates[index]._id}`
-                })
+                results[index] =
+                    await this.runPitchEnvironmentWorker({
+                        pitchEnvironment,
+                        candidate: candidates[index],
+                        gamesPerIteration,
+                        rngSeed:
+                            `${rngSeedBase}:${index}:${candidates[index]._id}`
+                    })
             }
         }
 
@@ -1448,38 +1571,7 @@ class TuningSupportService {
         return results
     }
     
-    public async evaluateRatingCandidatesWithWorkers(pitchEnvironment: PitchEnvironmentTarget, candidates: RatingTuning[], players: PlayerImportRaw[], gamesPerPlayer: number, workers: number, rngSeedBase: string): Promise<TuningWorkerSuccess[]> {
-        if (candidates.length === 0) {
-            return []
-        }
 
-        const concurrency = Math.max(1, Math.min(workers, candidates.length))
-        const results: TuningWorkerSuccess[] = new Array(candidates.length)
-        let nextIndex = 0
-
-        const consume = async (): Promise<void> => {
-            while (true) {
-                const index = nextIndex++
-
-                if (index >= candidates.length) {
-                    return
-                }
-
-                results[index] = await this.runPitchEnvironmentWorker({
-                    kind: "rating",
-                    pitchEnvironment,
-                    candidate: candidates[index],
-                    players,
-                    gamesPerPlayer,
-                    rngSeed: `${rngSeedBase}:${index}:${candidates[index]._id}`
-                })
-            }
-        }
-
-        await Promise.all(new Array(concurrency).fill(0).map(() => consume()))
-
-        return results
-    }
 
 }
 
@@ -1505,7 +1597,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 
     const supportedCommands = [
         "tune target",
-        "tune ratings",
         "generate ratings",
         "generate all"
     ]
@@ -1517,7 +1608,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
                 "",
                 "Supported commands:",
                 "  tune target [season]",
-                "  tune ratings [season]",
                 "  generate ratings [season]",
                 "  generate all [season]"
             ].join("\n")
@@ -1533,15 +1623,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const options = {
         gamesPerIteration: 150,
         finalGamesPerIteration: 300,
-
-        ratingSearchGamesPerPlayer: 40,
-        finalGamesPerPlayer: 300,
-
         workers: NUMBER_OF_WORKERS,
-        samplesPerCandidate: 5,
-        ratingSamplesPerCandidate: 3,
-
-        sampleSize: 100
+        samplesPerCandidate: 5
     }
 
     const baseDataDir = "data"

@@ -6,8 +6,7 @@ import path from "path"
 import type {
     PitchEnvironmentTarget,
     Player,
-    PlayerImportRaw,
-    RatingTuning
+    PlayerImportRaw
 } from "../src/sim/service/interfaces.js"
 
 import { RollChartService } from "../src/sim/service/roll-chart-service.js"
@@ -15,15 +14,13 @@ import { GameInfo, GamePlayers, PlayerChange, SimRolls, SimService } from "../sr
 import { StatService } from "../src/sim/service/stat-service.js"
 import { RunnerService } from "../src/sim/service/runner-service.js"
 import { SubstitutionService } from "../src/sim/service/substitution-service.js"
-import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
 import { PlayerRatingService } from "../src/importer/service/player-rating-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 import { DownloaderService } from "../src/importer/service/downloader-service.js"
-import { Contact, Handedness, PitchCall, PlayResult, simService } from "../src/sim/index.js"
+import { Handedness, simService } from "../src/sim/index.js"
 
 const season = 2025
 const baseDataDir = "data"
-const gamesPerPlayer = 150
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
@@ -40,16 +37,6 @@ const fileExists = async (filePath: string): Promise<boolean> => {
     }
 }
 
-const ensureRatingTuning = async (): Promise<RatingTuning> => {
-    const ratingTuningPath = path.join(baseDataDir, String(season), "_ratings_tuning.json")
-
-    if (!(await fileExists(ratingTuningPath))) {
-        throw new Error(`Missing rating tuning file: ${ratingTuningPath}. Run npm run import:ratings ${season} first.`)
-    }
-
-    return readJson<RatingTuning>(ratingTuningPath)
-}
-
 const createServices = () => {
     const rollChartService = new RollChartService()
     const statService = new StatService()
@@ -58,40 +45,55 @@ const createServices = () => {
     const runnerService = new RunnerService(simRolls)
     const gameInfo = new GameInfo(gamePlayers)
     const substitutionService = new SubstitutionService()
-    const simService = new SimService(rollChartService, simRolls, runnerService, gameInfo, substitutionService, {} as PitchEnvironmentTarget)
-    const baselineGameService = new BaselineGameService(simService)
-    const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
-    const playerRatingService = new PlayerRatingService(simService, statService, baselineGameService)
+
+    const simService = new SimService(
+        rollChartService,
+        simRolls,
+        runnerService,
+        gameInfo,
+        substitutionService,
+        {} as PitchEnvironmentTarget
+    )
+
+    const baselineGameService = new BaselineGameService(
+        simService
+    )
+
+    const playerRatingService = new PlayerRatingService(
+        simService,
+        statService,
+        baselineGameService
+    )
 
     return {
-        pitchEnvironmentService,
         playerRatingService
     }
-}
-
+}   
 const baselineGameService = new BaselineGameService(simService)
 const downloaderService = new DownloaderService(baseDataDir, 1000)
-const players = await downloaderService.buildSeasonPlayerImports(season, new Set([]))
+
+const players = await downloaderService.buildSeasonPlayerImports(
+    season,
+    new Set([])
+)
+
 const services = createServices()
-const ratingTuning = await ensureRatingTuning()
 
-const createTuning = (mutate?: (tuning: RatingTuning) => void): RatingTuning => {
-    const tuning = clone(ratingTuning)
+const pitchEnvironmentPath = path.join(
+    baseDataDir,
+    String(season),
+    "_pitch_environment_target.json"
+)
 
-    if (mutate) {
-        mutate(tuning)
-    }
-
-    return tuning
+if (!await fileExists(pitchEnvironmentPath)) {
+    throw new Error(
+        `Missing pitch environment target: ${pitchEnvironmentPath}. ` +
+        `Run npm run generate:all ${season} first.`
+    )
 }
 
-const homeFieldAdvantage = await downloaderService.getSeasonHomeFieldAdvantage(season)
-
-
-const pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(
-    season,
-    players,
-    homeFieldAdvantage
+const pitchEnvironment = await readJson<PitchEnvironmentTarget>(
+    pitchEnvironmentPath
 )
 
 
@@ -152,7 +154,7 @@ class RatingTestHarness {
 
     static getRunningFullContextRows(): any[] {
         const importPlayer = this.createAverageHitterPlayer()
-        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const baseRatings = this.getRatings(importPlayer)
         const player = this.buildPlayerFromRatings(importPlayer, baseRatings, false)
         const rows: any[] = []
 
@@ -184,7 +186,7 @@ class RatingTestHarness {
 
     static getArmFullContextRows(): any[] {
         const importPlayer = this.createAverageHitterPlayer()
-        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const baseRatings = this.getRatings(importPlayer)
         const player = this.buildPlayerFromRatings(importPlayer, baseRatings, false)
         const rows: any[] = []
 
@@ -304,7 +306,7 @@ class RatingTestHarness {
 
         return names.map(name => {
             const player: any = this.findPlayer(name)
-            const ratings = this.getRatings(player, createTuning())
+            const ratings = this.getRatings(player)
             const hittingRatings = ratings.hittingRatings
 
             const pa = Number(player.hitting?.pa ?? 0)
@@ -369,10 +371,15 @@ class RatingTestHarness {
         return player
     }
 
-    static getRatings(player: PlayerImportRaw, ratingTuning: RatingTuning): { hittingRatings: any, pitchRatings: any } {
-        const command = PlayerRatingService.createPlayerFromImportRaw(pitchEnvironment, player)
-        Object.assign(command, { ratingTuning })
-        return PlayerRatingService.createPlayerFromStatsCommand(command)
+    static getRatings(player: PlayerImportRaw): { hittingRatings: any, pitchRatings: any } {
+        const command = PlayerRatingService.createPlayerFromImportRaw(
+            pitchEnvironment,
+            player
+        )
+
+        return PlayerRatingService.createPlayerFromStatsCommand(
+            command
+        )
     }
 
     static createAverageHitterPlayer(): PlayerImportRaw {
@@ -850,14 +857,14 @@ class RatingTestHarness {
 
         if (side === "hitter") {
             const hitter = this.createAverageHitterPlayer()
-            const baseRatings = this.getRatings(hitter, createTuning())
+            const baseRatings = this.getRatings(hitter)
             const ratings = this.forceHitterRatings(baseRatings, rating, stat as HitterElasticityStat)
             const change = PlayerChange.getHitterChange(ratings.hittingRatings, pitchEnvironment.avgRating, Handedness.R)
             return this.toPowerChartRates(rollChartService.buildHitterPowerRollInput(pitchEnvironment, change))
         }
 
         const pitcher = this.createAveragePitcherPlayer()
-        const baseRatings = this.getRatings(pitcher, createTuning())
+        const baseRatings = this.getRatings(pitcher)
         const ratings = this.forcePitcherRatings(baseRatings, rating, stat as PitcherElasticityStat)
         const change = PlayerChange.getPitcherChange(ratings.pitchRatings, pitchEnvironment.avgRating, Handedness.R)
         return this.toPowerChartRates(rollChartService.buildPitcherPowerRollInput(pitchEnvironment, change))
@@ -918,9 +925,9 @@ class RatingTestHarness {
 
     static getUnderlyingChangeRows(): any[] {
         const hitter = this.createAverageHitterPlayer()
-        const hitterBase = this.getRatings(hitter, createTuning())
+        const hitterBase = this.getRatings(hitter)
         const pitcher = this.createAveragePitcherPlayer()
-        const pitcherBase = this.getRatings(pitcher, createTuning())
+        const pitcherBase = this.getRatings(pitcher)
         const rows: any[] = []
 
         for (const rating of this.ratingLevels) {
@@ -1020,7 +1027,7 @@ class RatingTestHarness {
 
     static simTeamHitterFullContextGames(stat: HitterElasticityStat, rating: number, seed: string, games = this.fullContextGamesPerRating): any {
         const importPlayer = this.createAverageHitterPlayer()
-        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const baseRatings = this.getRatings(importPlayer)
         const player = this.buildPlayerFromRatings(importPlayer, baseRatings, false)
         const rng = seedrandom(seed)
         let total: any = {}
@@ -1048,7 +1055,7 @@ class RatingTestHarness {
 
     static getSingleLeverHitterPaRows(stat: HitterElasticityStat): any[] {
         const importPlayer = this.createAverageHitterPlayer()
-        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const baseRatings = this.getRatings(importPlayer)
         const rows: any[] = []
 
         for (const rating of this.ratingLevels) {
@@ -1062,7 +1069,7 @@ class RatingTestHarness {
 
     static getSingleLeverPitcherPaRows(stat: PitcherElasticityStat): any[] {
         const importPlayer = this.createAveragePitcherPlayer()
-        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const baseRatings = this.getRatings(importPlayer)
         const rows: any[] = []
 
         for (const rating of this.ratingLevels) {
@@ -1091,7 +1098,7 @@ class RatingTestHarness {
 
     static getDefenseFullContextRows(): any[] {
         const importPlayer = this.createAverageHitterPlayer()
-        const baseRatings = this.getRatings(importPlayer, createTuning())
+        const baseRatings = this.getRatings(importPlayer)
         const player = this.buildPlayerFromRatings(importPlayer, baseRatings, false)
         const rows: any[] = []
 
@@ -1287,10 +1294,9 @@ class RatingTestHarness {
 
     static getRealPlayerDiagnostic(name: string): any {
         const player = this.findPlayer(name)
-        const ratings = this.getRatings(player, createTuning())
+        const ratings = this.getRatings(player)
         const result = services.playerRatingService.evaluatePlayerRatings(
             pitchEnvironment,
-            createTuning(),
             [player],
             seedrandom(`real-player-diagnostic:${name}`),
             this.realPlayerGames

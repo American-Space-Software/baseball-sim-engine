@@ -964,23 +964,72 @@ class PlayerRatingService {
         return false
     }    
 
-    public evaluatePlayerRatings(pitchEnvironment: PitchEnvironmentTarget, ratingTuning: RatingTuning, players: PlayerImportRaw[], rng: Function, gamesPerPlayer: number = 30): { actual: any, target: any, diff: any, score: number, results: any[] } {
-        const results = players.map(playerImportRaw => this.evaluatePlayerRating(pitchEnvironment, ratingTuning, playerImportRaw, rng, gamesPerPlayer))
-        const validResults = results.filter(result => Number.isFinite(Number(result.score)))
+    public evaluatePlayerRatings(pitchEnvironment: PitchEnvironmentTarget, players: PlayerImportRaw[], rng: Function, gamesPerPlayer: number = 30): { actual: any, target: any, diff: any, score: number, results: any[] } {
+        const results = players.map(playerImportRaw =>
+            this.evaluatePlayerRating(
+                pitchEnvironment,
+                playerImportRaw,
+                rng,
+                gamesPerPlayer
+            )
+        )
 
-        const hitterResults = this.getRatingResultBlocks(validResults, "hitter")
-        const pitcherResults = this.getRatingResultBlocks(validResults, "pitcher")
+        const validResults = results.filter(result =>
+            Number.isFinite(
+                Number(result.score)
+            )
+        )
 
-        const hitterActual = this.averageRatingMetricBlock(hitterResults.map(result => result.actual))
-        const hitterTarget = this.averageRatingMetricBlock(hitterResults.map(result => result.target))
-        const hitterDiff = this.getRatingEvaluationDiff(hitterActual, hitterTarget)
+        const hitterResults = this.getRatingResultBlocks(
+            validResults,
+            "hitter"
+        )
 
-        const pitcherActual = this.averageRatingMetricBlock(pitcherResults.map(result => result.actual))
-        const pitcherTarget = this.averageRatingMetricBlock(pitcherResults.map(result => result.target))
-        const pitcherDiff = this.getRatingEvaluationDiff(pitcherActual, pitcherTarget)
+        const pitcherResults = this.getRatingResultBlocks(
+            validResults,
+            "pitcher"
+        )
+
+        const hitterActual = this.averageRatingMetricBlock(
+            hitterResults.map(result =>
+                result.actual
+            )
+        )
+
+        const hitterTarget = this.averageRatingMetricBlock(
+            hitterResults.map(result =>
+                result.target
+            )
+        )
+
+        const hitterDiff = this.getRatingEvaluationDiff(
+            hitterActual,
+            hitterTarget
+        )
+
+        const pitcherActual = this.averageRatingMetricBlock(
+            pitcherResults.map(result =>
+                result.actual
+            )
+        )
+
+        const pitcherTarget = this.averageRatingMetricBlock(
+            pitcherResults.map(result =>
+                result.target
+            )
+        )
+
+        const pitcherDiff = this.getRatingEvaluationDiff(
+            pitcherActual,
+            pitcherTarget
+        )
 
         const score = validResults.length > 0
-            ? validResults.reduce((sum, result) => sum + Number(result.score), 0) / validResults.length
+            ? validResults.reduce(
+                (sum, result) =>
+                    sum + Number(result.score),
+                0
+            ) / validResults.length
             : Number.MAX_SAFE_INTEGER
 
         return {
@@ -988,67 +1037,110 @@ class PlayerRatingService {
                 playerCount: results.length,
                 hitterCount: hitterResults.length,
                 pitcherCount: pitcherResults.length,
-                twoWayCount: results.filter(result => result.role === "twoWay").length,
-                hitterScore: this.averageScore(hitterResults),
-                pitcherScore: this.averageScore(pitcherResults),
+                twoWayCount: results.filter(
+                    result =>
+                        result.role === "twoWay"
+                ).length,
+                hitterScore: this.averageScore(
+                    hitterResults
+                ),
+                pitcherScore: this.averageScore(
+                    pitcherResults
+                ),
                 hitter: hitterActual,
                 pitcher: pitcherActual
             },
+
             target: {
                 hitter: hitterTarget,
                 pitcher: pitcherTarget
             },
+
             diff: {
                 hitter: hitterDiff,
                 pitcher: pitcherDiff
             },
+
             score,
             results
         }
     }
 
-    private evaluatePlayerRating(pitchEnvironment: PitchEnvironmentTarget, ratingTuning: RatingTuning, playerImportRaw: PlayerImportRaw, rng: Function, gamesPerPlayer: number): any {
-        const command = PlayerRatingService.createPlayerFromImportRaw(pitchEnvironment, playerImportRaw)
+    private evaluatePlayerRating(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, rng: Function, gamesPerPlayer: number): any {
+        const command =
+            PlayerRatingService.createPlayerFromImportRaw(
+                pitchEnvironment,
+                playerImportRaw
+            )
 
-        ;(command as any).ratingTuning = ratingTuning
+        const ratings =
+            PlayerRatingService.createPlayerFromStatsCommand(
+                command
+            )
 
-        const ratings = PlayerRatingService.createPlayerFromStatsCommand(command)
-        const role = this.getPlayerEvaluationRole(playerImportRaw)
+        const role =
+            this.getPlayerEvaluationRole(
+                playerImportRaw
+            )
 
         if (role === "pitcher") {
-            return this.evaluatePitcherRating(pitchEnvironment, playerImportRaw, ratings, rng, gamesPerPlayer)
-        }
-
-        if (role === "twoWay") {
-            const hitterResult = this.evaluateHitterRating(pitchEnvironment, playerImportRaw, ratings, rng, gamesPerPlayer)
-            const pitcherResult = this.evaluatePitcherRating(pitchEnvironment, playerImportRaw, ratings, rng, gamesPerPlayer)
-
-            return {
-                playerId: playerImportRaw.playerId,
-                name: `${playerImportRaw.firstName} ${playerImportRaw.lastName}`,
-                role,
-                actual: {
-                    hitter: hitterResult.actual,
-                    pitcher: pitcherResult.actual
-                },
-                target: {
-                    hitter: hitterResult.target,
-                    pitcher: pitcherResult.target
-                },
-                diff: {
-                    hitter: hitterResult.diff,
-                    pitcher: pitcherResult.diff
-                },
-                score: (hitterResult.score + pitcherResult.score) / 2,
+            return this.evaluatePitcherRating(
+                pitchEnvironment,
+                playerImportRaw,
                 ratings,
-                diagnostic: {
-                    hitter: hitterResult.diagnostic,
-                    pitcher: pitcherResult.diagnostic
-                }
-            }
+                rng,
+                gamesPerPlayer
+            )
         }
 
-        return this.evaluateHitterRating(pitchEnvironment, playerImportRaw, ratings, rng, gamesPerPlayer)
+        if (role === "hitter") {
+            return this.evaluateHitterRating(
+                pitchEnvironment,
+                playerImportRaw,
+                ratings,
+                rng,
+                gamesPerPlayer
+            )
+        }
+
+        const hitter =
+            this.evaluateHitterRating(
+                pitchEnvironment,
+                playerImportRaw,
+                ratings,
+                rng,
+                gamesPerPlayer
+            )
+
+        const pitcher =
+            this.evaluatePitcherRating(
+                pitchEnvironment,
+                playerImportRaw,
+                ratings,
+                rng,
+                gamesPerPlayer
+            )
+
+        return {
+            role,
+            actual: {
+                hitter: hitter.actual,
+                pitcher: pitcher.actual
+            },
+            target: {
+                hitter: hitter.target,
+                pitcher: pitcher.target
+            },
+            diff: {
+                hitter: hitter.diff,
+                pitcher: pitcher.diff
+            },
+            score:
+                (
+                    Number(hitter.score) +
+                    Number(pitcher.score)
+                ) / 2
+        }
     }
 
     private evaluateHitterRating(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, ratings: { hittingRatings: HittingRatings, pitchRatings: PitchRatings }, rng: Function, gamesPerPlayer: number): any {

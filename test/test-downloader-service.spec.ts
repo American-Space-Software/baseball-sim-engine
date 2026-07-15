@@ -1,62 +1,87 @@
 import assert from "assert"
-
+import fs from "fs"
+import os from "os"
 import path from "path"
-
 
 import { DownloaderService } from "../src/importer/service/downloader-service.js"
 
 describe("Downloader Service", function () {
+    let baseDataDir: string
 
-
-    it("combines the current and previous season schedules newest-first for current-season ratings", async () => {
-        const currentSeason =
-            new Date().getUTCFullYear()
-
-        const service =
-            new DownloaderService(
-                path.resolve("data"),
-                0
+    beforeEach(async function () {
+        baseDataDir = await fs.promises.mkdtemp(
+            path.join(
+                os.tmpdir(),
+                "baseball-sim-engine-downloader-"
             )
+        )
+    })
 
-        const subject =
-            service as any
+    afterEach(async function () {
+        await fs.promises.rm(
+            baseDataDir,
+            {
+                recursive: true,
+                force: true
+            }
+        )
+    })
 
-        subject.getSeasonGames = async (season: number): Promise<any[]> => {
-            if (season === currentSeason - 1) {
+    it("combines the current and previous season schedules newest-first before the cutoff date", async function () {
+        const season = 2026
+        const cutoffDate = "2026-04-03"
+
+        const service = new DownloaderService(
+            baseDataDir,
+            0
+        )
+
+        const subject = service as any
+
+        subject.getSeasonGames = async (requestedSeason: number): Promise<any[]> => {
+            if (requestedSeason === season - 1) {
                 return [
                     {
                         gamePk: 101,
-                        officialDate: `${currentSeason - 1}-09-01`
+                        officialDate: "2025-09-01"
                     },
                     {
                         gamePk: 102,
-                        officialDate: `${currentSeason - 1}-09-02`
+                        officialDate: "2025-09-02"
                     }
                 ]
             }
 
-            if (season === currentSeason) {
+            if (requestedSeason === season) {
                 return [
                     {
                         gamePk: 201,
-                        officialDate: `${currentSeason}-04-01`
+                        officialDate: "2026-04-01"
                     },
                     {
                         gamePk: 202,
-                        officialDate: `${currentSeason}-04-02`
+                        officialDate: "2026-04-02"
+                    },
+                    {
+                        gamePk: 203,
+                        officialDate: "2026-04-03"
+                    },
+                    {
+                        gamePk: 204,
+                        officialDate: "2026-04-04"
                     }
                 ]
             }
 
             throw new Error(
-                `Unexpected season ${season}.`
+                `Unexpected season ${requestedSeason}.`
             )
         }
 
-        const games =
-            await subject.getRollingCurrentSeasonGames(
-                currentSeason
-            )
+        const games = await subject.getRollingGamesBeforeDate(
+            season,
+            cutoffDate
+        )
 
         assert.deepEqual(
             games.map((row: any) => ({
@@ -66,76 +91,93 @@ describe("Downloader Service", function () {
             })),
             [
                 {
-                    sourceSeason: currentSeason,
+                    sourceSeason: season,
                     gamePk: 202,
-                    gameDate: `${currentSeason}-04-02`
+                    gameDate: "2026-04-02"
                 },
                 {
-                    sourceSeason: currentSeason,
+                    sourceSeason: season,
                     gamePk: 201,
-                    gameDate: `${currentSeason}-04-01`
+                    gameDate: "2026-04-01"
                 },
                 {
-                    sourceSeason: currentSeason - 1,
+                    sourceSeason: season - 1,
                     gamePk: 102,
-                    gameDate: `${currentSeason - 1}-09-02`
+                    gameDate: "2025-09-02"
                 },
                 {
-                    sourceSeason: currentSeason - 1,
+                    sourceSeason: season - 1,
                     gamePk: 101,
-                    gameDate: `${currentSeason - 1}-09-01`
+                    gameDate: "2025-09-01"
                 }
             ]
         )
     })
 
+    it("limits each player to their latest 162 games while continuing backward for players with fewer games", async function () {
+        const season = new Date().getUTCFullYear()
 
-    it("limits each player to their latest 162 games while continuing backward for players with fewer games", async () => {
-        const currentSeason =
-            new Date().getUTCFullYear()
+        const service = new DownloaderService(
+            baseDataDir,
+            0
+        )
 
-        const service =
-            new DownloaderService(
-                path.resolve("data"),
-                0
+        const subject = service as any
+
+        const accumulatedGamePksByPlayer = new Map<string, number[]>()
+
+        subject.getRollingGamesBeforeDate = async (
+            requestedSeason: number,
+            cutoffDate: string
+        ): Promise<any[]> => {
+            assert.equal(
+                requestedSeason,
+                season
             )
 
-        const subject =
-            service as any
+            assert.match(
+                cutoffDate,
+                /^\d{4}-\d{2}-\d{2}$/
+            )
 
-        const accumulatedGamePksByPlayer =
-            new Map<string, number[]>()
-
-        subject.getRollingCurrentSeasonGames = async (): Promise<any[]> => {
             return Array.from(
                 {
                     length: 200
                 },
                 (_, index) => {
-                    const gamePk =
-                        200 - index
+                    const gamePk = 200 - index
 
                     return {
                         sourceSeason: gamePk > 100
-                            ? currentSeason
-                            : currentSeason - 1,
+                            ? season
+                            : season - 1,
+
                         game: {
                             gamePk,
-                            officialDate: `${currentSeason - 1}-01-01`
+                            officialDate: gamePk > 100
+                                ? `${season}-04-01`
+                                : `${season - 1}-09-01`
                         }
                     }
                 }
             )
         }
 
-        subject.getOrDownloadGame = async (_season: number, gamePk: number): Promise<any> => {
+        subject.getOrDownloadGame = async (_sourceSeason: number, gamePk: number): Promise<any> => {
             return {
                 downloaded: false,
+
                 data: {
                     gamePk,
+
                     playerIds: gamePk <= 50
-                        ? ["player-a", "player-b"]
-                        : ["player-a"]
+                        ? [
+                            "player-a",
+                            "player-b"
+                        ]
+                        : [
+                            "player-a"
+                        ]
                 }
             }
         }
@@ -159,7 +201,8 @@ describe("Downloader Service", function () {
         ): void => {
             for (const playerId of eligiblePlayerIds) {
                 const accumulatedGamePks =
-                    accumulatedGamePksByPlayer.get(playerId) ?? []
+                    accumulatedGamePksByPlayer.get(playerId) ??
+                    []
 
                 accumulatedGamePks.push(
                     gamePk
@@ -186,14 +229,18 @@ describe("Downloader Service", function () {
         subject.writeResultsFile = async (): Promise<void> => {}
 
         await service.buildSeasonPlayerImports(
-            currentSeason
+            season,
+            undefined,
+            true
         )
 
         const playerAGames =
-            accumulatedGamePksByPlayer.get("player-a") ?? []
+            accumulatedGamePksByPlayer.get("player-a") ??
+            []
 
         const playerBGames =
-            accumulatedGamePksByPlayer.get("player-b") ?? []
+            accumulatedGamePksByPlayer.get("player-b") ??
+            []
 
         assert.equal(
             playerAGames.length,
@@ -234,6 +281,5 @@ describe("Downloader Service", function () {
             playerBGames.includes(38),
             true
         )
-    })    
-
+    })
 })

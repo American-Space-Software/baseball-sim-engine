@@ -47,7 +47,7 @@ declare class PlayerRatingService {
         score: number;
     }): void;
     isRatingCloseEnough(diff: any): boolean;
-    evaluatePlayerRatings(pitchEnvironment: PitchEnvironmentTarget, ratingTuning: RatingTuning, players: PlayerImportRaw[], rng: Function, gamesPerPlayer?: number): {
+    evaluatePlayerRatings(pitchEnvironment: PitchEnvironmentTarget, players: PlayerImportRaw[], rng: Function, gamesPerPlayer?: number): {
         actual: any;
         target: any;
         diff: any;
