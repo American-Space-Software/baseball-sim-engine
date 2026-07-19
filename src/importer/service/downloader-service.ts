@@ -133,33 +133,42 @@ class DownloaderService {
     }
 
     async buildSeasonPlayerImports(season: number, filterPlayerIds?: Set<string>, forceFullReimport = false): Promise<Map<string, PlayerImportRaw>> {
-        const cutoffDate = this.isCurrentSeason(season)
+        const cutoffDate = this.isCurrentSeason(
+            season
+        )
             ? this.getTomorrowUtcDate()
             : `${season + 1}-01-01`
 
         return await this.buildRollingPlayerImports(
             season,
             cutoffDate,
-            this.getResultsFilePath(season),
             filterPlayerIds,
-            forceFullReimport
+            forceFullReimport,
+            this.getResultsFilePath(
+                season
+            )
         )
     }
 
-    private async buildRollingPlayerImports(season: number, cutoffDate: string, resultsFilePath: string, filterPlayerIds?: Set<string>, forceFullReimport = false): Promise<Map<string, PlayerImportRaw>> {
-        const effectiveFilterPlayerIds = filterPlayerIds && filterPlayerIds.size > 0
-            ? new Set(
-                Array.from(filterPlayerIds).map(
-                    playerId => String(playerId)
+    private async buildRollingPlayerImports(season: number, cutoffDate: string, filterPlayerIds?: Set<string>, forceFullReimport = false, resultsFilePath?: string): Promise<Map<string, PlayerImportRaw>> {
+        const effectiveFilterPlayerIds =
+            filterPlayerIds &&
+            filterPlayerIds.size > 0
+                ? new Set(
+                    Array.from(filterPlayerIds).map(
+                        playerId => String(playerId)
+                    )
                 )
-            )
-            : undefined
+                : undefined
 
         const normalizedPlayerIds = this.normalizePlayerIds(
             effectiveFilterPlayerIds
         )
 
-        if (!forceFullReimport) {
+        if (
+            resultsFilePath &&
+            !forceFullReimport
+        ) {
             const cachedResults = await this.readResultsFile(
                 resultsFilePath
             )
@@ -252,11 +261,13 @@ class DownloaderService {
                     continue
                 }
 
-                const participatingPlayerIds = this.getParticipatingPlayerIds(
-                    result.data
-                )
+                const participatingPlayerIds =
+                    this.getParticipatingPlayerIds(
+                        result.data
+                    )
 
-                const eligiblePlayerIds = new Set<string>()
+                const eligiblePlayerIds =
+                    new Set<string>()
 
                 for (const playerId of participatingPlayerIds) {
                     if (
@@ -266,9 +277,10 @@ class DownloaderService {
                         continue
                     }
 
-                    const gamesAccumulated = playerGameCounts.get(
-                        playerId
-                    ) ?? 0
+                    const gamesAccumulated =
+                        playerGameCounts.get(
+                            playerId
+                        ) ?? 0
 
                     if (gamesAccumulated >= 162) {
                         continue
@@ -304,7 +316,10 @@ class DownloaderService {
                 for (const playerId of eligiblePlayerIds) {
                     playerGameCounts.set(
                         playerId,
-                        (playerGameCounts.get(playerId) ?? 0) + 1
+                        (
+                            playerGameCounts.get(playerId) ??
+                            0
+                        ) + 1
                     )
                 }
 
@@ -343,7 +358,8 @@ class DownloaderService {
                 failedGames.push({
                     gamePk,
                     gameDate,
-                    sourceSeason: row.sourceSeason,
+                    sourceSeason:
+                        row.sourceSeason,
                     error
                 })
 
@@ -377,25 +393,30 @@ class DownloaderService {
 
         this.seasonImportCache.set(
             cacheKey,
-            this.clonePlayerImportMap(result)
-        )
-
-        await this.writeResultsFile(
-            resultsFilePath,
-            season,
-            normalizedPlayerIds,
-            result,
-            Array.from(completedGamePks).sort(
-                (a, b) => a - b
+            this.clonePlayerImportMap(
+                result
             )
         )
+
+        if (resultsFilePath) {
+            await this.writeResultsFile(
+                resultsFilePath,
+                season,
+                normalizedPlayerIds,
+                result,
+                Array.from(completedGamePks).sort(
+                    (a, b) =>
+                        a - b
+                )
+            )
+        }
 
         console.log(
             `Finished rolling ${season} player imports before ${cutoffDate}: ${result.size} players`
         )
 
         return result
-    }    
+    }  
 
     async buildPlayerImportsForDate(season: number, gameDate: string, filterPlayerIds?: Set<string>, forceFullReimport = false): Promise<Map<string, PlayerImportRaw>> {
         this.validateIsoDate(
@@ -411,10 +432,6 @@ class DownloaderService {
         return await this.buildRollingPlayerImports(
             season,
             gameDate,
-            this.getDatedResultsFilePath(
-                season,
-                gameDate
-            ),
             filterPlayerIds,
             forceFullReimport
         )
@@ -609,15 +626,6 @@ class DownloaderService {
         }
 
         return true
-    }
-
-    private getDatedResultsFilePath(season: number, cutoffDate: string): string {
-        return path.join(
-            this.baseDataDir,
-            String(season),
-            "rolling",
-            `${cutoffDate}.json`
-        )
     }
 
     private getRollingCacheKey(season: number, cutoffDate: string, playerIds: string[]): string {
@@ -995,11 +1003,52 @@ class DownloaderService {
         return new Promise(resolve => setTimeout(resolve, ms))
     }
 
+    public buildPlayerImportsFromGameFeeds(season: number, gameFeeds: PlayerImportGameFeed[]): Map<string, PlayerImportRaw> {
+        const players = new Map<string, PlayerImportRaw>()
 
+        for (const gameFeed of gameFeeds) {
+            if (
+                !gameFeed.gamePk ||
+                !gameFeed.data ||
+                gameFeed.playerIds.length === 0
+            ) {
+                continue
+            }
+
+            this.accumulateGameIntoSeasonPlayerImports(
+                season,
+                gameFeed.gamePk,
+                gameFeed.data,
+                players,
+                new Set(
+                    gameFeed.playerIds.map(playerId =>
+                        String(playerId)
+                    )
+                )
+            )
+        }
+
+        for (const player of players.values()) {
+            this.finalizePlayerImportRaw(
+                player
+            )
+        }
+
+        return this.clonePlayerImportMap(
+            players
+        )
+    }
 
 
 }
 
+interface PlayerImportGameFeed {
+    sourceSeason: number
+    gamePk: number
+    data: any
+    playerIds: string[]
+}
+
 export {
-    DownloaderService
+    DownloaderService, PlayerImportGameFeed
 }

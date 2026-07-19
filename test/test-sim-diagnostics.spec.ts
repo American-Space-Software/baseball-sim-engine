@@ -24,7 +24,8 @@ import type {
     RunnerEvent,
     RunnerResult,
     RollChart,
-    PitchZone
+    PitchZone,
+    StadiumEnvironment
 } from "../src/sim/index.js"
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
@@ -85,6 +86,30 @@ const rngSequence = (values: number[]): (() => number) => {
     }
 }
 
+const createStadiumEnvironment  = (team: string, venue: string, yearRange: string, singlesParkFactor: number, doublesParkFactor: number, triplesParkFactor: number, homeRunParkFactor: number, walkParkFactor: number, strikeoutParkFactor: number): StadiumEnvironment => {
+    
+    const toMultiplier = (value: number, label: string): number => {
+        if (!Number.isFinite(value) || value <= 0) {
+            throw new Error(`Invalid ${label} park factor ${value}.`)
+        }
+
+        return value / 100
+    }
+
+    return {
+        team,
+        venue,
+        yearRange,
+        singles: toMultiplier(singlesParkFactor, "singles"),
+        doubles: toMultiplier(doublesParkFactor, "doubles"),
+        triples: toMultiplier(triplesParkFactor, "triples"),
+        hr: toMultiplier(homeRunParkFactor, "home runs"),
+        walks: toMultiplier(walkParkFactor, "walks"),
+        strikeouts: toMultiplier(strikeoutParkFactor, "strikeouts")
+    }
+    
+}
+
 describe("Baseball Sim Engine", async () => {
 
     it("should load the exported pitch environment target", () => {
@@ -103,6 +128,561 @@ describe("Baseball Sim Engine", async () => {
             pitchEnvironment.pitchEnvironmentTuning,
             "Exported pitch environment is missing pitchEnvironmentTuning."
         )
+    })
+
+    it("omitting stadium environment should preserve baseline game results", () => {
+        const games = 100
+
+        for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+
+            const seed = `stadium-environment-optional-${gameIndex}`
+            const baseline = baselineGameService.buildStartedBaselineGame(
+                clone(pitchEnvironment),
+                `stadium-environment-baseline-${gameIndex}`
+            )
+
+            const omitted = baselineGameService.buildStartedBaselineGame(
+                clone(pitchEnvironment),
+                `stadium-environment-omitted-${gameIndex}`,
+                false,
+                undefined
+            )
+
+            const baselineRng = seedrandom(seed)
+            const omittedRng = seedrandom(seed)
+
+            while (!baseline.isComplete) {
+                simService.simPitch(baseline, baselineRng)
+            }
+
+            while (!omitted.isComplete) {
+                simService.simPitch(omitted, omittedRng)
+            }
+
+            assert.deepEqual(
+                omitted.score,
+                baseline.score,
+                `Omitting stadiumEnvironment changed game ${gameIndex}.`
+            )
+
+            assert.deepEqual(
+                GameInfo.getPlays(omitted).map(play => ({
+                    result: play.result,
+                    contact: play.contact,
+                    officialPlayResult: play.officialPlayResult
+                })),
+                GameInfo.getPlays(baseline).map(play => ({
+                    result: play.result,
+                    contact: play.contact,
+                    officialPlayResult: play.officialPlayResult
+                })),
+                `Omitting stadiumEnvironment changed the play sequence for game ${gameIndex}.`
+            )
+        }
+    })
+
+    it("hitter-friendly stadium factors should increase offensive outcomes", () => {
+        const games = 500
+
+        const hitterFriendlyStadium: StadiumEnvironment = {
+            team: "Test Team",
+            venue: "Hitter Friendly Park",
+            yearRange: "test",
+            singles: 1.15,
+            doubles: 1.25,
+            triples: 1.5,
+            hr: 1.25,
+            walks: 1.1,
+            strikeouts: 0.9
+        }
+
+        const totals = {
+            neutral: {
+                runs: 0,
+                singles: 0,
+                doubles: 0,
+                triples: 0,
+                homeRuns: 0,
+                walks: 0,
+                strikeouts: 0
+            },
+            stadium: {
+                runs: 0,
+                singles: 0,
+                doubles: 0,
+                triples: 0,
+                homeRuns: 0,
+                walks: 0,
+                strikeouts: 0
+            }
+        }
+
+        const accumulate = (game: Game, target: typeof totals.neutral): void => {
+            target.runs += game.score.away + game.score.home
+
+            for (const play of GameInfo.getPlays(game)) {
+                if (play.result === PlayResult.SINGLE) target.singles++
+                if (play.result === PlayResult.DOUBLE) target.doubles++
+                if (play.result === PlayResult.TRIPLE) target.triples++
+                if (play.result === PlayResult.HR) target.homeRuns++
+                if (play.result === PlayResult.BB) target.walks++
+                if (play.result === PlayResult.STRIKEOUT) target.strikeouts++
+            }
+        }
+
+        for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+            const seed = `stadium-environment-effect-${gameIndex}`
+
+            const neutralGame = baselineGameService.buildStartedBaselineGame(
+                clone(pitchEnvironment),
+                `stadium-neutral-${gameIndex}`,
+                false
+            )
+
+            const stadiumGame = baselineGameService.buildStartedBaselineGame(
+                clone(pitchEnvironment),
+                `stadium-hitter-friendly-${gameIndex}`,
+                false,
+                hitterFriendlyStadium
+            )
+
+            const neutralRng = seedrandom(seed)
+            const stadiumRng = seedrandom(seed)
+
+            while (!neutralGame.isComplete) {
+                simService.simPitch(neutralGame, neutralRng)
+            }
+
+            while (!stadiumGame.isComplete) {
+                simService.simPitch(stadiumGame, stadiumRng)
+            }
+
+            accumulate(neutralGame, totals.neutral)
+            accumulate(stadiumGame, totals.stadium)
+        }
+
+        const neutralExtraBaseHits =
+            totals.neutral.doubles +
+            totals.neutral.triples +
+            totals.neutral.homeRuns
+
+        const stadiumExtraBaseHits =
+            totals.stadium.doubles +
+            totals.stadium.triples +
+            totals.stadium.homeRuns
+
+        console.log("\n=== STADIUM ENVIRONMENT EFFECT ===")
+        console.log(JSON.stringify({
+            games,
+            stadiumEnvironment: hitterFriendlyStadium,
+            neutral: totals.neutral,
+            stadium: totals.stadium,
+            delta: {
+                runs: totals.stadium.runs - totals.neutral.runs,
+                singles: totals.stadium.singles - totals.neutral.singles,
+                extraBaseHits: stadiumExtraBaseHits - neutralExtraBaseHits,
+                homeRuns: totals.stadium.homeRuns - totals.neutral.homeRuns,
+                walks: totals.stadium.walks - totals.neutral.walks,
+                strikeouts: totals.stadium.strikeouts - totals.neutral.strikeouts
+            }
+        }, null, 2))
+
+        assert.ok(
+            totals.stadium.runs > totals.neutral.runs,
+            `Hitter-friendly stadium should increase runs neutral=${totals.neutral.runs} stadium=${totals.stadium.runs}`
+        )
+
+        assert.ok(
+            stadiumExtraBaseHits > neutralExtraBaseHits,
+            `Hitter-friendly stadium should increase extra-base hits neutral=${neutralExtraBaseHits} stadium=${stadiumExtraBaseHits}`
+        )
+
+        assert.ok(
+            totals.stadium.homeRuns > totals.neutral.homeRuns,
+            `Hitter-friendly stadium should increase home runs neutral=${totals.neutral.homeRuns} stadium=${totals.stadium.homeRuns}`
+        )
+
+        assert.ok(
+            totals.stadium.strikeouts < totals.neutral.strikeouts,
+            `Hitter-friendly stadium should reduce strikeouts neutral=${totals.neutral.strikeouts} stadium=${totals.stadium.strikeouts}`
+        )
+    })
+
+    it("pitcher-friendly stadium factors should reduce offensive outcomes", () => {
+        const games = 500
+
+        const pitcherFriendlyStadium: StadiumEnvironment = {
+            team: "Test Team",
+            venue: "Pitcher Friendly Park",
+            yearRange: "test",
+            singles: 0.9,
+            doubles: 0.8,
+            triples: 0.75,
+            hr: 0.75,
+            walks: 0.9,
+            strikeouts: 1.1
+        }
+
+        const totals = {
+            neutral: {
+                runs: 0,
+                hits: 0,
+                extraBaseHits: 0,
+                homeRuns: 0,
+                walks: 0,
+                strikeouts: 0
+            },
+            stadium: {
+                runs: 0,
+                hits: 0,
+                extraBaseHits: 0,
+                homeRuns: 0,
+                walks: 0,
+                strikeouts: 0
+            }
+        }
+
+        const accumulate = (game: Game, target: typeof totals.neutral): void => {
+            target.runs += game.score.away + game.score.home
+
+            for (const play of GameInfo.getPlays(game)) {
+                if (
+                    play.result === PlayResult.SINGLE ||
+                    play.result === PlayResult.DOUBLE ||
+                    play.result === PlayResult.TRIPLE ||
+                    play.result === PlayResult.HR
+                ) {
+                    target.hits++
+                }
+
+                if (
+                    play.result === PlayResult.DOUBLE ||
+                    play.result === PlayResult.TRIPLE ||
+                    play.result === PlayResult.HR
+                ) {
+                    target.extraBaseHits++
+                }
+
+                if (play.result === PlayResult.HR) target.homeRuns++
+                if (play.result === PlayResult.BB) target.walks++
+                if (play.result === PlayResult.STRIKEOUT) target.strikeouts++
+            }
+        }
+
+        for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+            const seed = `pitcher-friendly-stadium-${gameIndex}`
+
+            const neutralGame = baselineGameService.buildStartedBaselineGame(
+                clone(pitchEnvironment),
+                `pitcher-friendly-neutral-${gameIndex}`,
+                false
+            )
+
+            const stadiumGame = baselineGameService.buildStartedBaselineGame(
+                clone(pitchEnvironment),
+                `pitcher-friendly-adjusted-${gameIndex}`,
+                false,
+                pitcherFriendlyStadium
+            )
+
+            const neutralRng = seedrandom(seed)
+            const stadiumRng = seedrandom(seed)
+
+            while (!neutralGame.isComplete) {
+                simService.simPitch(neutralGame, neutralRng)
+            }
+
+            while (!stadiumGame.isComplete) {
+                simService.simPitch(stadiumGame, stadiumRng)
+            }
+
+            accumulate(neutralGame, totals.neutral)
+            accumulate(stadiumGame, totals.stadium)
+        }
+
+        console.log("\n=== PITCHER-FRIENDLY STADIUM EFFECT ===")
+        console.log(JSON.stringify({
+            games,
+            stadiumEnvironment: pitcherFriendlyStadium,
+            neutral: totals.neutral,
+            stadium: totals.stadium,
+            delta: {
+                runs: totals.stadium.runs - totals.neutral.runs,
+                hits: totals.stadium.hits - totals.neutral.hits,
+                extraBaseHits: totals.stadium.extraBaseHits - totals.neutral.extraBaseHits,
+                homeRuns: totals.stadium.homeRuns - totals.neutral.homeRuns,
+                walks: totals.stadium.walks - totals.neutral.walks,
+                strikeouts: totals.stadium.strikeouts - totals.neutral.strikeouts
+            }
+        }, null, 2))
+
+        assert.ok(
+            totals.stadium.runs < totals.neutral.runs,
+            `Pitcher-friendly stadium should reduce runs neutral=${totals.neutral.runs} stadium=${totals.stadium.runs}`
+        )
+
+        assert.ok(
+            totals.stadium.extraBaseHits < totals.neutral.extraBaseHits,
+            `Pitcher-friendly stadium should reduce extra-base hits neutral=${totals.neutral.extraBaseHits} stadium=${totals.stadium.extraBaseHits}`
+        )
+
+        assert.ok(
+            totals.stadium.homeRuns < totals.neutral.homeRuns,
+            `Pitcher-friendly stadium should reduce home runs neutral=${totals.neutral.homeRuns} stadium=${totals.stadium.homeRuns}`
+        )
+
+        assert.ok(
+            totals.stadium.walks < totals.neutral.walks,
+            `Pitcher-friendly stadium should reduce walks neutral=${totals.neutral.walks} stadium=${totals.stadium.walks}`
+        )
+
+        assert.ok(
+            totals.stadium.strikeouts > totals.neutral.strikeouts,
+            `Pitcher-friendly stadium should increase strikeouts neutral=${totals.neutral.strikeouts} stadium=${totals.stadium.strikeouts}`
+        )
+    })
+
+    it("stadium power factors should reproduce the requested outcome probability ratios", () => {
+        const neutral = clone(pitchEnvironment.battedBall.powerRollInput)
+        const stadium = createStadiumEnvironment("Rockies", "Coors Field", "2024-2026", 116, 124, 202, 106, 100, 90)
+
+        const game = baselineGameService.buildStartedBaselineGame(
+            clone(pitchEnvironment),
+            "coors-power-roll-input",
+            false,
+            stadium
+        )
+
+        const adjusted = game.pitchEnvironmentTarget.battedBall.powerRollInput
+
+        const neutralTotal = neutral.out + neutral.singles + neutral.doubles + neutral.triples + neutral.hr
+        const adjustedTotal = adjusted.out + adjusted.singles + adjusted.doubles + adjusted.triples + adjusted.hr
+
+        const ratios = {
+            singles: (adjusted.singles / adjustedTotal) / (neutral.singles / neutralTotal),
+            doubles: (adjusted.doubles / adjustedTotal) / (neutral.doubles / neutralTotal),
+            triples: (adjusted.triples / adjustedTotal) / (neutral.triples / neutralTotal),
+            homeRuns: (adjusted.hr / adjustedTotal) / (neutral.hr / neutralTotal)
+        }
+
+        console.log("\n=== STADIUM POWER FACTOR TRANSFORMATION ===")
+        console.log(JSON.stringify({
+            neutral,
+            adjusted,
+            ratios,
+            sourceTargets: {
+                singles: stadium.singles,
+                doubles: stadium.doubles,
+                triples: stadium.triples,
+                homeRuns: stadium.hr
+            }
+        }, null, 2))
+
+        assert.equal(adjustedTotal, neutralTotal, "Stadium adjustment should preserve the power-roll chart total")
+
+        assert.ok(
+            Math.abs(ratios.singles - stadium.singles) <= 0.01,
+            `Singles power-roll ratio should match stadium factor target=${stadium.singles} actual=${ratios.singles}`
+        )
+
+        assert.ok(
+            Math.abs(ratios.doubles - stadium.doubles) <= 0.01,
+            `Doubles power-roll ratio should match stadium factor target=${stadium.doubles} actual=${ratios.doubles}`
+        )
+
+        assert.ok(
+            Math.abs(ratios.triples - stadium.triples) <= 0.03,
+            `Triples power-roll ratio should match stadium factor within chart rounding target=${stadium.triples} actual=${ratios.triples}`
+        )
+
+        assert.ok(
+            Math.abs(ratios.homeRuns - stadium.hr) <= 0.01,
+            `Home-run power-roll ratio should match stadium factor target=${stadium.hr} actual=${ratios.homeRuns}`
+        )
+
+        assert.ok(
+            adjusted.out < neutral.out,
+            `Hitter-friendly power factors should transfer probability from outs neutral=${neutral.out} adjusted=${adjusted.out}`
+        )
+    })
+
+    it("neutral stadium factors should preserve baseline game results", () => {
+        const games = 100
+
+        const neutralStadium: StadiumEnvironment = {
+            team: "Test Team",
+            venue: "Neutral Park",
+            yearRange: "test",
+            singles: 1,
+            doubles: 1,
+            triples: 1,
+            hr: 1,
+            walks: 1,
+            strikeouts: 1
+        }
+
+        for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+            const seed = `neutral-stadium-${gameIndex}`
+
+            const baseline = baselineGameService.buildStartedBaselineGame(
+                clone(pitchEnvironment),
+                `neutral-stadium-baseline-${gameIndex}`,
+                false
+            )
+
+            const neutral = baselineGameService.buildStartedBaselineGame(
+                clone(pitchEnvironment),
+                `neutral-stadium-adjusted-${gameIndex}`,
+                false,
+                neutralStadium
+            )
+
+            const baselineRng = seedrandom(seed)
+            const neutralRng = seedrandom(seed)
+
+            while (!baseline.isComplete) {
+                simService.simPitch(baseline, baselineRng)
+            }
+
+            while (!neutral.isComplete) {
+                simService.simPitch(neutral, neutralRng)
+            }
+
+            assert.deepEqual(
+                neutral.score,
+                baseline.score,
+                `Neutral stadium factors changed game ${gameIndex}.`
+            )
+
+            assert.deepEqual(
+                GameInfo.getPlays(neutral).map(play => ({
+                    result: play.result,
+                    contact: play.contact,
+                    officialPlayResult: play.officialPlayResult
+                })),
+                GameInfo.getPlays(baseline).map(play => ({
+                    result: play.result,
+                    contact: play.contact,
+                    officialPlayResult: play.officialPlayResult
+                })),
+                `Neutral stadium factors changed the play sequence for game ${gameIndex}.`
+            )
+        }
+    })
+
+    it("diagnostic: published MLB stadium factors should produce valid stadium environments and power-roll adjustments", () => {
+        const sourceRows = [
+            { rank: 1, team: "", venue: "Estadio Alfredo Harp Helu", yearRange: "2023-2025", parkFactor: 128, runs: 164, singles: 100, doubles: 113, triples: 166, homeRuns: 223, walks: 106, strikeouts: 106, plateAppearances: 1269 },
+            { rank: 2, team: "Rockies", venue: "Coors Field", yearRange: "2023-2025", parkFactor: 112, runs: 125, singles: 116, doubles: 120, triples: 201, homeRuns: 105, walks: 101, strikeouts: 90, plateAppearances: 56521 },
+            { rank: 3, team: "Red Sox", venue: "Fenway Park", yearRange: "2023-2025", parkFactor: 105, runs: 110, singles: 107, doubles: 122, triples: 93, homeRuns: 89, walks: 97, strikeouts: 96, plateAppearances: 56758 },
+            { rank: 4, team: "D-backs", venue: "Chase Field", yearRange: "2023-2025", parkFactor: 103, runs: 106, singles: 103, doubles: 115, triples: 204, homeRuns: 88, walks: 99, strikeouts: 94, plateAppearances: 57885 },
+            { rank: 5, team: "Twins", venue: "Target Field", yearRange: "2023-2025", parkFactor: 103, runs: 106, singles: 100, doubles: 111, triples: 96, homeRuns: 102, walks: 100, strikeouts: 103, plateAppearances: 56677 },
+            { rank: 6, team: "Reds", venue: "Great American Ball Park", yearRange: "2023-2025", parkFactor: 103, runs: 106, singles: 96, doubles: 99, triples: 76, homeRuns: 123, walks: 103, strikeouts: 102, plateAppearances: 55472 },
+            { rank: 7, team: "Dodgers", venue: "UNIQLO Field at Dodger Stadium", yearRange: "2023-2025", parkFactor: 101, runs: 102, singles: 92, doubles: 96, triples: 64, homeRuns: 127, walks: 101, strikeouts: 99, plateAppearances: 60332 },
+            { rank: 8, team: "Marlins", venue: "loanDepot park", yearRange: "2023-2025", parkFactor: 101, runs: 102, singles: 105, doubles: 107, triples: 117, homeRuns: 90, walks: 97, strikeouts: 97, plateAppearances: 56592 },
+            { rank: 9, team: "Braves", venue: "Truist Park", yearRange: "2023-2025", parkFactor: 101, runs: 102, singles: 104, doubles: 94, triples: 91, homeRuns: 105, walks: 99, strikeouts: 106, plateAppearances: 56308 },
+            { rank: 10, team: "Royals", venue: "Kauffman Stadium", yearRange: "2023-2025", parkFactor: 101, runs: 102, singles: 103, doubles: 113, triples: 182, homeRuns: 85, walks: 100, strikeouts: 89, plateAppearances: 55643 },
+            { rank: 11, team: "Angels", venue: "Angel Stadium", yearRange: "2023-2025", parkFactor: 101, runs: 102, singles: 98, doubles: 90, triples: 97, homeRuns: 113, walks: 103, strikeouts: 105, plateAppearances: 55342 },
+            { rank: 12, team: "Tigers", venue: "Comerica Park", yearRange: "2023-2025", parkFactor: 101, runs: 102, singles: 100, doubles: 95, triples: 143, homeRuns: 99, walks: 100, strikeouts: 98, plateAppearances: 55445 },
+            { rank: 13, team: "Nationals", venue: "Nationals Park", yearRange: "2023-2025", parkFactor: 101, runs: 102, singles: 109, doubles: 98, triples: 98, homeRuns: 94, walks: 94, strikeouts: 90, plateAppearances: 54984 },
+            { rank: 14, team: "Phillies", venue: "Citizens Bank Park", yearRange: "2023-2025", parkFactor: 101, runs: 102, singles: 99, doubles: 96, triples: 100, homeRuns: 115, walks: 96, strikeouts: 104, plateAppearances: 56613 },
+            { rank: 15, team: "Yankees", venue: "Yankee Stadium", yearRange: "2023-2025", parkFactor: 100, runs: 100, singles: 91, doubles: 90, triples: 63, homeRuns: 119, walks: 111, strikeouts: 101, plateAppearances: 59620 },
+            { rank: 16, team: "Cardinals", venue: "Busch Stadium", yearRange: "2023-2025", parkFactor: 100, runs: 100, singles: 107, doubles: 105, triples: 80, homeRuns: 87, walks: 96, strikeouts: 91, plateAppearances: 54960 },
+            { rank: 17, team: "Astros", venue: "Daikin Park", yearRange: "2023-2025", parkFactor: 100, runs: 100, singles: 100, doubles: 96, triples: 87, homeRuns: 105, walks: 100, strikeouts: 102, plateAppearances: 55927 },
+            { rank: 18, team: "Orioles", venue: "Oriole Park at Camden Yards", yearRange: "2023-2025", parkFactor: 100, runs: 100, singles: 104, doubles: 98, triples: 119, homeRuns: 106, walks: 91, strikeouts: 99, plateAppearances: 55788 },
+            { rank: 19, team: "Blue Jays", venue: "Rogers Centre", yearRange: "2023-2025", parkFactor: 100, runs: 100, singles: 97, doubles: 105, triples: 68, homeRuns: 104, walks: 100, strikeouts: 97, plateAppearances: 57292 },
+            { rank: 20, team: "White Sox", venue: "Rate Field", yearRange: "2023-2025", parkFactor: 99, runs: 98, singles: 101, doubles: 92, triples: 70, homeRuns: 96, walks: 103, strikeouts: 100, plateAppearances: 57335 },
+            { rank: 21, team: "Pirates", venue: "PNC Park", yearRange: "2023-2025", parkFactor: 99, runs: 98, singles: 103, doubles: 115, triples: 83, homeRuns: 76, walks: 100, strikeouts: 96, plateAppearances: 55939 },
+            { rank: 22, team: "Mets", venue: "Citi Field", yearRange: "2023-2025", parkFactor: 98, runs: 96, singles: 93, doubles: 89, triples: 72, homeRuns: 104, walks: 110, strikeouts: 102, plateAppearances: 57064 },
+            { rank: 23, team: "Brewers", venue: "American Family Field", yearRange: "2023-2025", parkFactor: 97, runs: 94, singles: 94, doubles: 87, triples: 89, homeRuns: 106, walks: 106, strikeouts: 109, plateAppearances: 57434 },
+            { rank: 24, team: "Cubs", venue: "Wrigley Field", yearRange: "2023-2025", parkFactor: 97, runs: 94, singles: 98, doubles: 86, triples: 116, homeRuns: 99, walks: 100, strikeouts: 103, plateAppearances: 55966 },
+            { rank: 25, team: "", venue: "Tropicana Field", yearRange: "2023-2025", parkFactor: 97, runs: 94, singles: 94, doubles: 95, triples: 127, homeRuns: 99, walks: 97, strikeouts: 109, plateAppearances: 36772 },
+            { rank: 26, team: "Rangers", venue: "Globe Life Field", yearRange: "2023-2025", parkFactor: 97, runs: 94, singles: 97, doubles: 95, triples: 73, homeRuns: 104, walks: 100, strikeouts: 101, plateAppearances: 56720 },
+            { rank: 27, team: "Padres", venue: "Petco Park", yearRange: "2023-2025", parkFactor: 97, runs: 94, singles: 97, doubles: 92, triples: 63, homeRuns: 102, walks: 103, strikeouts: 102, plateAppearances: 57155 },
+            { rank: 28, team: "Giants", venue: "Oracle Park", yearRange: "2023-2025", parkFactor: 97, runs: 94, singles: 104, doubles: 102, triples: 122, homeRuns: 81, walks: 90, strikeouts: 97, plateAppearances: 55185 },
+            { rank: 29, team: "Guardians", venue: "Progressive Field", yearRange: "2023-2025", parkFactor: 97, runs: 94, singles: 98, doubles: 106, triples: 71, homeRuns: 85, walks: 100, strikeouts: 102, plateAppearances: 55909 },
+            { rank: 30, team: "", venue: "Journey Bank Ballpark", yearRange: "2023-2025", parkFactor: 95, runs: 90, singles: 125, doubles: 109, triples: 0, homeRuns: 45, walks: 93, strikeouts: 95, plateAppearances: 878 },
+            { rank: 31, team: "Mariners", venue: "T-Mobile Park", yearRange: "2023-2025", parkFactor: 91, runs: 83, singles: 90, doubles: 89, triples: 52, homeRuns: 93, walks: 96, strikeouts: 116, plateAppearances: 55729 },
+            { rank: 32, team: "", venue: "Tokyo Dome", yearRange: "2023-2025", parkFactor: 89, runs: 79, singles: 69, doubles: 118, triples: 0, homeRuns: 49, walks: 173, strikeouts: 114, plateAppearances: 581 }
+        ]
+
+        const neutral = clone(pitchEnvironment.battedBall.powerRollInput)
+        const neutralTotal = neutral.out + neutral.singles + neutral.doubles + neutral.triples + neutral.hr
+
+        const results = sourceRows.map(row => {
+            const stadiumEnvironment = createStadiumEnvironment(
+                row.team,
+                row.venue,
+                row.yearRange,
+                row.singles,
+                row.doubles,
+                row.triples === 0 ? 100 : row.triples,
+                row.homeRuns,
+                row.walks,
+                row.strikeouts
+            )
+
+            const game = baselineGameService.buildStartedBaselineGame(
+                clone(pitchEnvironment),
+                `stadium-power-factor-${row.rank}`,
+                false,
+                stadiumEnvironment
+            )
+
+            const adjusted = game.pitchEnvironmentTarget.battedBall.powerRollInput
+            const adjustedTotal = adjusted.out + adjusted.singles + adjusted.doubles + adjusted.triples + adjusted.hr
+
+            assert.equal(
+                adjustedTotal,
+                neutralTotal,
+                `${row.venue} should preserve the power-roll chart total`
+            )
+
+            assert.ok(
+                Object.values(adjusted).every(value => Number.isFinite(value) && value >= 0),
+                `${row.venue} should produce finite non-negative power-roll values`
+            )
+
+            return {
+                rank: row.rank,
+                team: row.team,
+                venue: row.venue,
+                yearRange: row.yearRange,
+                parkFactor: row.parkFactor,
+                runs: row.runs,
+                plateAppearances: row.plateAppearances,
+                sourceFactors: {
+                    singles: stadiumEnvironment.singles,
+                    doubles: stadiumEnvironment.doubles,
+                    triples: stadiumEnvironment.triples,
+                    homeRuns: stadiumEnvironment.hr,
+                    walks: stadiumEnvironment.walks,
+                    strikeouts: stadiumEnvironment.strikeouts
+                },
+                adjustedPowerRollInput: adjusted,
+                actualPowerRatios: {
+                    singles: (adjusted.singles / adjustedTotal) / (neutral.singles / neutralTotal),
+                    doubles: (adjusted.doubles / adjustedTotal) / (neutral.doubles / neutralTotal),
+                    triples: (adjusted.triples / adjustedTotal) / (neutral.triples / neutralTotal),
+                    homeRuns: (adjusted.hr / adjustedTotal) / (neutral.hr / neutralTotal)
+                },
+                deltas: {
+                    singles: ((adjusted.singles / adjustedTotal) / (neutral.singles / neutralTotal)) - stadiumEnvironment.singles,
+                    doubles: ((adjusted.doubles / adjustedTotal) / (neutral.doubles / neutralTotal)) - stadiumEnvironment.doubles,
+                    triples: ((adjusted.triples / adjustedTotal) / (neutral.triples / neutralTotal)) - stadiumEnvironment.triples,
+                    homeRuns: ((adjusted.hr / adjustedTotal) / (neutral.hr / neutralTotal)) - stadiumEnvironment.hr
+                }
+            }
+        })
+
+        assert.equal(results.length, sourceRows.length)
+        assert.equal(new Set(results.map(result => result.venue)).size, results.length)
+
+        console.log("\n=== PUBLISHED MLB STADIUM FACTOR DIAGNOSTIC ===")
+        console.log(JSON.stringify({
+            neutralPowerRollInput: neutral,
+            stadiums: results
+        }, null, 2))
     })
 
     it("home field advantage should reproduce the target home win percentage", () => {
@@ -1591,680 +2171,680 @@ describe("Baseball Sim Engine", async () => {
         assert.notEqual(contact, Contact.GROUNDBALL)
     })
     
-    // it("should print full tuning knob sensitivity ranges for offense and advancement", () => {
-    //     const games = 150
-    //     const samples = 3
-    //     const totalGames = games * samples
-
-    //     type KnobSpec = {
-    //         name: string
-    //         values: number[]
-    //         apply: (tuning: PitchEnvironmentTuning["tuning"], value: number) => void
-    //     }
-
-    //     const knobSpecs: KnobSpec[] = [
-    //         {
-    //             name: "advancementAggressionScale",
-    //             values: [-0.99, -0.5, 0, 0.5, 1, 2, 3, 4],
-    //             apply: (tuning, value) => {
-    //                 tuning.running.advancementAggressionScale = value
-    //             }
-    //         },
-    //         {
-    //             name: "stealAttemptAggressionScale",
-    //             values: [-0.75, -0.5, 0, 0.25, 0.5, 1, 1.5, 2],
-    //             apply: (tuning, value) => {
-    //                 tuning.running.stealAttemptAggressionScale = value
-    //             }
-    //         },
-    //         {
-    //             name: "walkRateScale",
-    //             values: [-0.05, -0.025, 0, 0.025, 0.05, 0.075, 0.1],
-    //             apply: (tuning, value) => {
-    //                 tuning.swing.walkRateScale = value
-    //             }
-    //         },
-    //         {
-    //             name: "outOutcomeScale",
-    //             values: [-0.25, -0.15, -0.075, 0, 0.075, 0.15, 0.25],
-    //             apply: (tuning, value) => {
-    //                 tuning.contactQuality.outOutcomeScale = value
-    //             }
-    //         },
-    //         {
-    //             name: "doubleOutcomeScale",
-    //             values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
-    //             apply: (tuning, value) => {
-    //                 tuning.contactQuality.doubleOutcomeScale = value
-    //             }
-    //         },
-    //         {
-    //             name: "tripleOutcomeScale",
-    //             values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
-    //             apply: (tuning, value) => {
-    //                 tuning.contactQuality.tripleOutcomeScale = value
-    //             }
-    //         },
-    //         {
-    //             name: "homeRunOutcomeScale",
-    //             values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
-    //             apply: (tuning, value) => {
-    //                 tuning.contactQuality.homeRunOutcomeScale = value
-    //             }
-    //         },
-    //         {
-    //             name: "pitchQualityContactEffect",
-    //             values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
-    //             apply: (tuning, value) => {
-    //                 tuning.contact.pitchQualityContactEffect = value
-    //                 tuning.contact.contactSkillEffect = value
-    //             }
-    //         },
-    //         {
-    //             name: "fullTeamDefenseBonus",
-    //             values: [-200, -100, -50, 0, 50, 100, 200],
-    //             apply: (tuning, value) => {
-    //                 tuning.meta.fullTeamDefenseBonus = value
-    //             }
-    //         },
-    //         {
-    //             name: "fullFielderDefenseBonus",
-    //             values: [-200, -100, -50, 0, 50, 100, 200],
-    //             apply: (tuning, value) => {
-    //                 tuning.meta.fullFielderDefenseBonus = value
-    //             }
-    //         }
-    //     ]
-
-    //     const getBaseStateKey = (first?: string, second?: string, third?: string): string => {
-    //         return `${first ? "1" : "_"}${second ? "2" : "_"}${third ? "3" : "_"}`
-    //     }
-
-    //     const baseText = (base: BaseResult | undefined): string => {
-    //         return base === undefined ? "NONE" : String(base)
-    //     }
-
-    //     const getRow = (map: Map<string, any>, key: string, factory: () => any): any => {
-    //         if (!map.has(key)) {
-    //             map.set(key, factory())
-    //         }
-
-    //         return map.get(key)
-    //     }
-
-    //     const getOrderedRunnerEvents = (events: RunnerEvent[]): RunnerEvent[] => {
-    //         const baseRank = (base: BaseResult | undefined): number => {
-    //             if (base === BaseResult.HOME) return 0
-    //             if (base === BaseResult.FIRST) return 1
-    //             if (base === BaseResult.SECOND) return 2
-    //             if (base === BaseResult.THIRD) return 3
-    //             return -1
-    //         }
-
-    //         return events.slice().sort((a, b) => {
-    //             const pitchDiff = (a.pitchIndex ?? 0) - (b.pitchIndex ?? 0)
-
-    //             if (pitchDiff !== 0) {
-    //                 return pitchDiff
-    //             }
-
-    //             return baseRank(a.movement?.start) - baseRank(b.movement?.start)
-    //         })
-    //     }
-
-    //     const evaluate = (label: string, apply?: (tuning: PitchEnvironmentTuning["tuning"]) => void) => {
-    //         const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
-    //         const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
-
-    //         testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
-
-    //         if (apply) {
-    //             apply(testPitchEnvironment.pitchEnvironmentTuning.tuning!)
-    //         }
-
-    //         const totals = {
-    //             label,
-    //             gamesEach: games,
-    //             samples,
-    //             totalGames,
-    //             pa: 0,
-    //             ab: 0,
-    //             runs: 0,
-    //             hits: 0,
-    //             singles: 0,
-    //             doubles: 0,
-    //             triples: 0,
-    //             hr: 0,
-    //             bb: 0,
-    //             hbp: 0,
-    //             so: 0,
-    //             outs: 0,
-    //             lob: 0,
-    //             scoreRuns: 0,
-    //             linescoreRuns: 0,
-    //             eventRuns: 0,
-    //             runnersOnPa: 0,
-    //             basesEmptyPa: 0,
-    //             runnerOutsOnBases: 0,
-    //             gidpLike: 0,
-    //             sbAttempts: 0,
-    //             sb: 0,
-    //             cs: 0,
-    //             wildPitchAdvances: 0,
-    //             passedBallAdvances: 0
-    //         }
-
-    //         const advancement = {
-    //             single1BTo3BRiskAttempts: 0,
-    //             single1BTo3BSafe: 0,
-    //             single1BTo3BOut: 0,
-    //             single2BToHomeRiskAttempts: 0,
-    //             single2BToHomeSafe: 0,
-    //             single2BToHomeOut: 0,
-    //             double1BToHomeRiskAttempts: 0,
-    //             double1BToHomeSafe: 0,
-    //             double1BToHomeOut: 0,
-    //             out3BToHomeAttempts: 0,
-    //             out3BToHomeSafe: 0,
-    //             out3BToHomeOut: 0,
-    //             automaticSecondToHomeOnDouble: 0,
-    //             automaticThirdToHomeOnSingle: 0,
-    //             automaticThirdToHomeOnDouble: 0
-    //         }
-
-    //         const baseStates = new Map<string, any>()
-    //         const playResults = new Map<string, any>()
-    //         const chainRows = new Map<string, any>()
-
-    //         for (let sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
-    //             const rng = seedrandom(`knob-sensitivity-${label}-sample-${sampleIndex}`)
-
-    //             for (let gameIndex = 0; gameIndex < games; gameIndex++) {
-    //                 const game = baselineGameService.buildStartedBaselineGame(
-    //                     clone(testPitchEnvironment),
-    //                     `knob-sensitivity-${label}-sample-${sampleIndex}-${gameIndex}`
-    //                 )
-
-    //                 while (!game.isComplete) {
-    //                     simService.simPitch(game, rng)
-    //                 }
-
-    //                 totals.scoreRuns += game.score.away + game.score.home
-    //                 totals.runs += game.score.away + game.score.home
-
-    //                 for (const halfInning of game.halfInnings) {
-    //                     totals.linescoreRuns += halfInning.linescore.runs ?? 0
-    //                     totals.lob += halfInning.linescore.leftOnBase ?? 0
-
-    //                     for (const play of halfInning.plays) {
-    //                         if (!play.count?.end) continue
-
-    //                         const start: RunnerResult = play.runner?.result?.start
-    //                         const events: RunnerEvent[] = play.runner?.events ?? []
-    //                         const startedWithRunners = !!start.first || !!start.second || !!start.third
-    //                         const baseStateKey = `${play.count?.start?.outs ?? 0}:${getBaseStateKey(start.first, start.second, start.third)}`
-    //                         const playResultKey = String(play.result)
-    //                         const runsOnPlay = events.filter(event => event.isScoringEvent).length
-    //                         const outsOnPlay = events.filter(event => event.movement?.isOut).length
-    //                         const runnerOutsOnBases = events.filter(event => event.movement?.isOut && event.movement?.start !== BaseResult.HOME && !event.isCS).length
-
-    //                         totals.pa++
-    //                         totals.eventRuns += runsOnPlay
-    //                         totals.outs += outsOnPlay
-    //                         totals.runnerOutsOnBases += runnerOutsOnBases
-
-    //                         if (startedWithRunners) {
-    //                             totals.runnersOnPa++
-    //                         } else {
-    //                             totals.basesEmptyPa++
-    //                         }
-
-    //                         if (play.result !== PlayResult.BB && play.result !== PlayResult.HIT_BY_PITCH) {
-    //                             totals.ab++
-    //                         }
-
-    //                         if (play.result === PlayResult.BB) totals.bb++
-    //                         if (play.result === PlayResult.HIT_BY_PITCH) totals.hbp++
-    //                         if (play.result === PlayResult.STRIKEOUT) totals.so++
-
-    //                         if (play.result === PlayResult.SINGLE) {
-    //                             totals.hits++
-    //                             totals.singles++
-    //                         }
-
-    //                         if (play.result === PlayResult.DOUBLE) {
-    //                             totals.hits++
-    //                             totals.doubles++
-    //                         }
-
-    //                         if (play.result === PlayResult.TRIPLE) {
-    //                             totals.hits++
-    //                             totals.triples++
-    //                         }
-
-    //                         if (play.result === PlayResult.HR) {
-    //                             totals.hits++
-    //                             totals.hr++
-    //                         }
-
-    //                         if (play.result === PlayResult.OUT && play.contact === Contact.GROUNDBALL && events.filter(event => event.movement?.isOut && !event.isCS).length >= 2) {
-    //                             totals.gidpLike++
-    //                         }
-
-    //                         totals.sbAttempts += events.filter(event => event.isSBAttempt).length
-    //                         totals.sb += events.filter(event => event.isSB).length
-    //                         totals.cs += events.filter(event => event.isCS).length
-    //                         totals.wildPitchAdvances += events.filter(event => event.isWP).length
-    //                         totals.passedBallAdvances += events.filter(event => event.isPB).length
-
-    //                         const baseStateRow = getRow(baseStates, baseStateKey, () => ({
-    //                             key: baseStateKey,
-    //                             pa: 0,
-    //                             runs: 0,
-    //                             hits: 0,
-    //                             bb: 0,
-    //                             outs: 0,
-    //                             runnerOutsOnBases: 0
-    //                         }))
-
-    //                         baseStateRow.pa++
-    //                         baseStateRow.runs += runsOnPlay
-    //                         baseStateRow.outs += outsOnPlay
-    //                         baseStateRow.runnerOutsOnBases += runnerOutsOnBases
-
-    //                         if (play.result === PlayResult.BB) {
-    //                             baseStateRow.bb++
-    //                         }
-
-    //                         if (play.result === PlayResult.SINGLE || play.result === PlayResult.DOUBLE || play.result === PlayResult.TRIPLE || play.result === PlayResult.HR) {
-    //                             baseStateRow.hits++
-    //                         }
-
-    //                         const playResultRow = getRow(playResults, playResultKey, () => ({
-    //                             key: playResultKey,
-    //                             pa: 0,
-    //                             runs: 0,
-    //                             outs: 0,
-    //                             runnerOutsOnBases: 0,
-    //                             runnersOn: 0,
-    //                             basesEmpty: 0
-    //                         }))
-
-    //                         playResultRow.pa++
-    //                         playResultRow.runs += runsOnPlay
-    //                         playResultRow.outs += outsOnPlay
-    //                         playResultRow.runnerOutsOnBases += runnerOutsOnBases
-
-    //                         if (startedWithRunners) {
-    //                             playResultRow.runnersOn++
-    //                         } else {
-    //                             playResultRow.basesEmpty++
-    //                         }
-
-    //                         const originalStartByRunner = new Map<string, BaseResult | undefined>()
-
-    //                         if (start.first) originalStartByRunner.set(start.first, BaseResult.FIRST)
-    //                         if (start.second) originalStartByRunner.set(start.second, BaseResult.SECOND)
-    //                         if (start.third) originalStartByRunner.set(start.third, BaseResult.THIRD)
-    //                         if (play.hitterId) originalStartByRunner.set(play.hitterId, BaseResult.HOME)
-
-    //                         const eventsByRunner = new Map<string, RunnerEvent[]>()
-
-    //                         for (const event of events) {
-    //                             const runnerId = event.runner?._id
-
-    //                             if (!runnerId) {
-    //                                 continue
-    //                             }
-
-    //                             if (!originalStartByRunner.has(runnerId)) {
-    //                                 originalStartByRunner.set(runnerId, event.movement?.start)
-    //                             }
-
-    //                             if (!eventsByRunner.has(runnerId)) {
-    //                                 eventsByRunner.set(runnerId, [])
-    //                             }
-
-    //                             eventsByRunner.get(runnerId)!.push(event)
-    //                         }
-
-    //                         for (const [runnerId, runnerEvents] of eventsByRunner.entries()) {
-    //                             const orderedEvents = getOrderedRunnerEvents(runnerEvents)
-    //                             const originalStart = originalStartByRunner.get(runnerId)
-    //                             const finalEvent = orderedEvents[orderedEvents.length - 1]
-    //                             const finalEnd = finalEvent?.movement?.end
-    //                             const isOut = orderedEvents.some(event => event.movement?.isOut)
-    //                             const scored = orderedEvents.some(event => event.isScoringEvent)
-    //                             const hasThrow = orderedEvents.some(event => event.throw)
-    //                             const hasSB = orderedEvents.some(event => event.isSB)
-    //                             const hasCS = orderedEvents.some(event => event.isCS)
-    //                             const hasWP = orderedEvents.some(event => event.isWP)
-    //                             const hasPB = orderedEvents.some(event => event.isPB)
-
-    //                             const chainKey = [
-    //                                 `play=${String(play.result)}`,
-    //                                 `contact=${String(play.contact)}`,
-    //                                 `shallow=${String(play.shallowDeep)}`,
-    //                                 `orig=${baseText(originalStart)}`,
-    //                                 `final=${baseText(finalEnd)}`,
-    //                                 `out=${isOut}`,
-    //                                 `scored=${scored}`,
-    //                                 `throw=${hasThrow}`,
-    //                                 `sb=${hasSB}`,
-    //                                 `cs=${hasCS}`,
-    //                                 `wp=${hasWP}`,
-    //                                 `pb=${hasPB}`,
-    //                                 `steps=${orderedEvents.length}`
-    //                             ].join("|")
-
-    //                             const chainRow = getRow(chainRows, chainKey, () => ({
-    //                                 key: chainKey,
-    //                                 count: 0,
-    //                                 runs: 0,
-    //                                 outs: 0,
-    //                                 throws: 0
-    //                             }))
-
-    //                             chainRow.count++
-
-    //                             if (scored) {
-    //                                 chainRow.runs++
-    //                             }
-
-    //                             if (isOut) {
-    //                                 chainRow.outs++
-    //                             }
-
-    //                             if (hasThrow) {
-    //                                 chainRow.throws++
-    //                             }
-
-    //                             if (play.result === PlayResult.SINGLE && originalStart === BaseResult.THIRD && scored) {
-    //                                 advancement.automaticThirdToHomeOnSingle++
-    //                             }
-
-    //                             if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.THIRD && scored) {
-    //                                 advancement.automaticThirdToHomeOnDouble++
-    //                             }
-
-    //                             if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.SECOND && scored) {
-    //                                 advancement.automaticSecondToHomeOnDouble++
-    //                             }
-
-    //                             if (play.result === PlayResult.SINGLE && originalStart === BaseResult.FIRST && orderedEvents.length > 1) {
-    //                                 advancement.single1BTo3BRiskAttempts++
-
-    //                                 if (isOut) {
-    //                                     advancement.single1BTo3BOut++
-    //                                 } else if (finalEnd === BaseResult.THIRD || finalEnd === BaseResult.HOME || scored) {
-    //                                     advancement.single1BTo3BSafe++
-    //                                 }
-    //                             }
-
-    //                             if (play.result === PlayResult.SINGLE && originalStart === BaseResult.SECOND && orderedEvents.length > 1) {
-    //                                 advancement.single2BToHomeRiskAttempts++
-
-    //                                 if (isOut) {
-    //                                     advancement.single2BToHomeOut++
-    //                                 } else if (finalEnd === BaseResult.HOME || scored) {
-    //                                     advancement.single2BToHomeSafe++
-    //                                 }
-    //                             }
-
-    //                             if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.FIRST && orderedEvents.length > 1) {
-    //                                 advancement.double1BToHomeRiskAttempts++
-
-    //                                 if (isOut) {
-    //                                     advancement.double1BToHomeOut++
-    //                                 } else if (finalEnd === BaseResult.HOME || scored) {
-    //                                     advancement.double1BToHomeSafe++
-    //                                 }
-    //                             }
-
-    //                             if (play.result === PlayResult.OUT && originalStart === BaseResult.THIRD && (orderedEvents.length > 1 || finalEnd === BaseResult.HOME || isOut)) {
-    //                                 advancement.out3BToHomeAttempts++
-
-    //                                 if (isOut) {
-    //                                     advancement.out3BToHomeOut++
-    //                                 } else if (finalEnd === BaseResult.HOME || scored) {
-    //                                     advancement.out3BToHomeSafe++
-    //                                 }
-    //                             }
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //         }
-
-    //         const ab = Math.max(1, totals.ab)
-    //         const pa = Math.max(1, totals.pa)
-    //         const bip = Math.max(1, totals.ab - totals.so - totals.hr)
-    //         const totalBases = totals.singles + (totals.doubles * 2) + (totals.triples * 3) + (totals.hr * 4)
-
-    //         const summary = {
-    //             label,
-    //             gamesEach: games,
-    //             samples,
-    //             totalGames,
-    //             teamRunsPerGame: totals.runs / totalGames / 2,
-    //             teamPaPerGame: totals.pa / totalGames / 2,
-    //             avg: totals.hits / ab,
-    //             obp: (totals.hits + totals.bb + totals.hbp) / pa,
-    //             slg: totalBases / ab,
-    //             ops: ((totals.hits + totals.bb + totals.hbp) / pa) + (totalBases / ab),
-    //             babip: (totals.hits - totals.hr) / bip,
-    //             bbPercent: totals.bb / pa,
-    //             soPercent: totals.so / pa,
-    //             singlePercent: totals.singles / pa,
-    //             doublePercent: totals.doubles / pa,
-    //             triplePercent: totals.triples / pa,
-    //             homeRunPercent: totals.hr / pa,
-    //             xbhPercent: (totals.doubles + totals.triples + totals.hr) / pa,
-    //             teamHomeRunsPerGame: totals.hr / totalGames / 2,
-    //             teamDoublesPerGame: totals.doubles / totalGames / 2,
-    //             teamSBAttemptsPerGame: totals.sbAttempts / totalGames / 2,
-    //             teamSBPerGame: totals.sb / totalGames / 2,
-    //             teamCSPerGame: totals.cs / totalGames / 2,
-    //             stealSuccessRate: totals.sbAttempts > 0 ? totals.sb / totals.sbAttempts : 0,
-    //             teamLOBPerGame: totals.lob / totalGames / 2,
-    //             runnersOnPAShare: totals.runnersOnPa / pa,
-    //             runnerOutsOnBasesPerGame: totals.runnerOutsOnBases / totalGames / 2,
-    //             gidpLikePerGame: totals.gidpLike / totalGames / 2,
-    //             wildPitchAdvancesPerGame: totals.wildPitchAdvances / totalGames / 2,
-    //             passedBallAdvancesPerGame: totals.passedBallAdvances / totalGames / 2,
-    //             scoreMinusLinescore: totals.scoreRuns - totals.linescoreRuns,
-    //             scoreMinusEvents: totals.scoreRuns - totals.eventRuns,
-    //             single1BTo3BRiskAttemptsPerGame: advancement.single1BTo3BRiskAttempts / totalGames / 2,
-    //             single1BTo3BRiskSafeRate: advancement.single1BTo3BRiskAttempts > 0 ? advancement.single1BTo3BSafe / advancement.single1BTo3BRiskAttempts : 0,
-    //             single1BTo3BRiskOutRate: advancement.single1BTo3BRiskAttempts > 0 ? advancement.single1BTo3BOut / advancement.single1BTo3BRiskAttempts : 0,
-    //             single2BToHomeRiskAttemptsPerGame: advancement.single2BToHomeRiskAttempts / totalGames / 2,
-    //             single2BToHomeRiskSafeRate: advancement.single2BToHomeRiskAttempts > 0 ? advancement.single2BToHomeSafe / advancement.single2BToHomeRiskAttempts : 0,
-    //             single2BToHomeRiskOutRate: advancement.single2BToHomeRiskAttempts > 0 ? advancement.single2BToHomeOut / advancement.single2BToHomeRiskAttempts : 0,
-    //             double1BToHomeRiskAttemptsPerGame: advancement.double1BToHomeRiskAttempts / totalGames / 2,
-    //             double1BToHomeRiskSafeRate: advancement.double1BToHomeRiskAttempts > 0 ? advancement.double1BToHomeSafe / advancement.double1BToHomeRiskAttempts : 0,
-    //             double1BToHomeRiskOutRate: advancement.double1BToHomeRiskAttempts > 0 ? advancement.double1BToHomeOut / advancement.double1BToHomeRiskAttempts : 0,
-    //             out3BToHomeAttemptsPerGame: advancement.out3BToHomeAttempts / totalGames / 2,
-    //             out3BToHomeSafeRate: advancement.out3BToHomeAttempts > 0 ? advancement.out3BToHomeSafe / advancement.out3BToHomeAttempts : 0,
-    //             out3BToHomeOutRate: advancement.out3BToHomeAttempts > 0 ? advancement.out3BToHomeOut / advancement.out3BToHomeAttempts : 0,
-    //             automaticSecondToHomeOnDoublePerGame: advancement.automaticSecondToHomeOnDouble / totalGames / 2,
-    //             automaticThirdToHomeOnSinglePerGame: advancement.automaticThirdToHomeOnSingle / totalGames / 2,
-    //             automaticThirdToHomeOnDoublePerGame: advancement.automaticThirdToHomeOnDouble / totalGames / 2
-    //         }
-
-    //         const topBaseStates = Array.from(baseStates.values())
-    //             .map(row => ({
-    //                 key: row.key,
-    //                 pa: row.pa,
-    //                 paShare: row.pa / pa,
-    //                 runsPerPA: row.runs / Math.max(1, row.pa),
-    //                 runnerOutsOnBasesPerPA: row.runnerOutsOnBases / Math.max(1, row.pa)
-    //             }))
-    //             .sort((a, b) => b.pa - a.pa)
-    //             .slice(0, 12)
-
-    //         const topPlayResults = Array.from(playResults.values())
-    //             .map(row => ({
-    //                 key: row.key,
-    //                 pa: row.pa,
-    //                 paShare: row.pa / pa,
-    //                 runsPerEvent: row.runs / Math.max(1, row.pa),
-    //                 runnerOutsOnBasesPerEvent: row.runnerOutsOnBases / Math.max(1, row.pa),
-    //                 runnersOnShare: row.runnersOn / Math.max(1, row.pa)
-    //             }))
-    //             .sort((a, b) => b.pa - a.pa)
-
-    //         const topChains = Array.from(chainRows.values())
-    //             .sort((a, b) => b.count - a.count)
-    //             .slice(0, 20)
-
-    //         return {
-    //             label,
-    //             tuning: testPitchEnvironment.pitchEnvironmentTuning?.tuning,
-    //             summary,
-    //             topBaseStates,
-    //             topPlayResults,
-    //             topChains
-    //         }
-    //     }
-
-    //     const baseline = evaluate("baseline-defaults")
-
-    //     console.log("\n=== BASELINE DEFAULT TUNING ===")
-    //     console.log(JSON.stringify(baseline.tuning, null, 2))
-
-    //     console.log("\n=== BASELINE DEFAULT SUMMARY ===")
-    //     console.log(JSON.stringify(baseline.summary, null, 2))
-
-    //     console.log("\n=== BASELINE PLAY RESULT RUN VALUE ===")
-    //     for (const row of baseline.topPlayResults) {
-    //         console.log(row)
-    //     }
-
-    //     console.log("\n=== BASELINE TOP BASE STATES ===")
-    //     for (const row of baseline.topBaseStates) {
-    //         console.log(row)
-    //     }
-
-    //     const allRows: any[] = []
-
-    //     for (const spec of knobSpecs) {
-    //         console.log(`\n=== KNOB SWEEP START ${spec.name} ===`)
-
-    //         const rows = spec.values.map(value => {
-    //             const result = evaluate(`${spec.name}=${value}`, tuning => {
-    //                 spec.apply(tuning, value)
-    //             })
-
-    //             const row = {
-    //                 knob: spec.name,
-    //                 value,
-    //                 ...result.summary,
-    //                 deltaRuns: result.summary.teamRunsPerGame - baseline.summary.teamRunsPerGame,
-    //                 deltaAVG: result.summary.avg - baseline.summary.avg,
-    //                 deltaOBP: result.summary.obp - baseline.summary.obp,
-    //                 deltaSLG: result.summary.slg - baseline.summary.slg,
-    //                 deltaOPS: result.summary.ops - baseline.summary.ops,
-    //                 deltaBABIP: result.summary.babip - baseline.summary.babip,
-    //                 deltaBBPercent: result.summary.bbPercent - baseline.summary.bbPercent,
-    //                 deltaSOPercent: result.summary.soPercent - baseline.summary.soPercent,
-    //                 deltaHRPercent: result.summary.homeRunPercent - baseline.summary.homeRunPercent,
-    //                 deltaDoublePercent: result.summary.doublePercent - baseline.summary.doublePercent,
-    //                 deltaSBPerGame: result.summary.teamSBPerGame - baseline.summary.teamSBPerGame,
-    //                 deltaSBAttemptsPerGame: result.summary.teamSBAttemptsPerGame - baseline.summary.teamSBAttemptsPerGame,
-    //                 deltaRunnerOutsOnBasesPerGame: result.summary.runnerOutsOnBasesPerGame - baseline.summary.runnerOutsOnBasesPerGame,
-    //                 deltaDouble1BToHomeRiskAttemptsPerGame: result.summary.double1BToHomeRiskAttemptsPerGame - baseline.summary.double1BToHomeRiskAttemptsPerGame,
-    //                 deltaSingle2BToHomeRiskAttemptsPerGame: result.summary.single2BToHomeRiskAttemptsPerGame - baseline.summary.single2BToHomeRiskAttemptsPerGame,
-    //                 deltaSingle1BTo3BRiskAttemptsPerGame: result.summary.single1BTo3BRiskAttemptsPerGame - baseline.summary.single1BTo3BRiskAttemptsPerGame
-    //             }
-
-    //             allRows.push(row)
-
-    //             console.log(JSON.stringify(row, null, 2))
-
-    //             if (spec.name === "advancementAggressionScale") {
-    //                 console.log(`\n=== ADVANCEMENT DETAIL ${spec.name}=${value} TOP PLAY RESULTS ===`)
-
-    //                 for (const playRow of result.topPlayResults) {
-    //                     console.log(playRow)
-    //                 }
-
-    //                 console.log(`\n=== ADVANCEMENT DETAIL ${spec.name}=${value} TOP CHAINS ===`)
-
-    //                 for (const chainRow of result.topChains) {
-    //                     console.log(chainRow)
-    //                 }
-    //             }
-
-    //             return row
-    //         })
-
-    //         const minRuns = rows.reduce((best, row) => row.teamRunsPerGame < best.teamRunsPerGame ? row : best, rows[0])
-    //         const maxRuns = rows.reduce((best, row) => row.teamRunsPerGame > best.teamRunsPerGame ? row : best, rows[0])
-    //         const minOps = rows.reduce((best, row) => row.ops < best.ops ? row : best, rows[0])
-    //         const maxOps = rows.reduce((best, row) => row.ops > best.ops ? row : best, rows[0])
-
-    //         console.log(`\n=== KNOB SWEEP SUMMARY ${spec.name} ===`)
-    //         console.log({
-    //             knob: spec.name,
-    //             runsRange: maxRuns.teamRunsPerGame - minRuns.teamRunsPerGame,
-    //             minRuns: {
-    //                 value: minRuns.value,
-    //                 teamRunsPerGame: minRuns.teamRunsPerGame,
-    //                 ops: minRuns.ops,
-    //                 avg: minRuns.avg,
-    //                 babip: minRuns.babip
-    //             },
-    //             maxRuns: {
-    //                 value: maxRuns.value,
-    //                 teamRunsPerGame: maxRuns.teamRunsPerGame,
-    //                 ops: maxRuns.ops,
-    //                 avg: maxRuns.avg,
-    //                 babip: maxRuns.babip
-    //             },
-    //             opsRange: maxOps.ops - minOps.ops,
-    //             minOps: {
-    //                 value: minOps.value,
-    //                 teamRunsPerGame: minOps.teamRunsPerGame,
-    //                 ops: minOps.ops
-    //             },
-    //             maxOps: {
-    //                 value: maxOps.value,
-    //                 teamRunsPerGame: maxOps.teamRunsPerGame,
-    //                 ops: maxOps.ops
-    //             }
-    //         })
-    //     }
-
-    //     console.log("\n=== ALL KNOB ROWS COMPACT ===")
-
-    //     for (const row of allRows) {
-    //         console.log([
-    //             row.knob,
-    //             `v=${row.value}`,
-    //             `R=${row.teamRunsPerGame.toFixed(3)}`,
-    //             `dR=${row.deltaRuns.toFixed(3)}`,
-    //             `AVG=${row.avg.toFixed(3)}`,
-    //             `OBP=${row.obp.toFixed(3)}`,
-    //             `SLG=${row.slg.toFixed(3)}`,
-    //             `OPS=${row.ops.toFixed(3)}`,
-    //             `BABIP=${row.babip.toFixed(3)}`,
-    //             `BB%=${row.bbPercent.toFixed(3)}`,
-    //             `SO%=${row.soPercent.toFixed(3)}`,
-    //             `HR%=${row.homeRunPercent.toFixed(3)}`,
-    //             `2B%=${row.doublePercent.toFixed(3)}`,
-    //             `SBA/G=${row.teamSBAttemptsPerGame.toFixed(3)}`,
-    //             `SB/G=${row.teamSBPerGame.toFixed(3)}`,
-    //             `ROOB/G=${row.runnerOutsOnBasesPerGame.toFixed(3)}`,
-    //             `1B3B/G=${row.single1BTo3BRiskAttemptsPerGame.toFixed(3)}`,
-    //             `2BH/G=${row.single2BToHomeRiskAttemptsPerGame.toFixed(3)}`,
-    //             `1BH2B/G=${row.double1BToHomeRiskAttemptsPerGame.toFixed(3)}`
-    //         ].join(" | "))
-    //     }
-
-    //     assert.strictEqual(baseline.summary.scoreMinusLinescore, 0)
-    //     assert.strictEqual(baseline.summary.scoreMinusEvents, 0)
-    //     assert.ok(baseline.summary.teamRunsPerGame > 0)
-    // })
+    it("should print full tuning knob sensitivity ranges for offense and advancement", () => {
+        const games = 150
+        const samples = 3
+        const totalGames = games * samples
+
+        type KnobSpec = {
+            name: string
+            values: number[]
+            apply: (tuning: PitchEnvironmentTuning["tuning"], value: number) => void
+        }
+
+        const knobSpecs: KnobSpec[] = [
+            {
+                name: "advancementAggressionScale",
+                values: [-0.99, -0.5, 0, 0.5, 1, 2, 3, 4],
+                apply: (tuning, value) => {
+                    tuning.running.advancementAggressionScale = value
+                }
+            },
+            {
+                name: "stealAttemptAggressionScale",
+                values: [-0.75, -0.5, 0, 0.25, 0.5, 1, 1.5, 2],
+                apply: (tuning, value) => {
+                    tuning.running.stealAttemptAggressionScale = value
+                }
+            },
+            {
+                name: "walkRateScale",
+                values: [-0.05, -0.025, 0, 0.025, 0.05, 0.075, 0.1],
+                apply: (tuning, value) => {
+                    tuning.swing.walkRateScale = value
+                }
+            },
+            {
+                name: "outOutcomeScale",
+                values: [-0.25, -0.15, -0.075, 0, 0.075, 0.15, 0.25],
+                apply: (tuning, value) => {
+                    tuning.contactQuality.outOutcomeScale = value
+                }
+            },
+            {
+                name: "doubleOutcomeScale",
+                values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
+                apply: (tuning, value) => {
+                    tuning.contactQuality.doubleOutcomeScale = value
+                }
+            },
+            {
+                name: "tripleOutcomeScale",
+                values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
+                apply: (tuning, value) => {
+                    tuning.contactQuality.tripleOutcomeScale = value
+                }
+            },
+            {
+                name: "homeRunOutcomeScale",
+                values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
+                apply: (tuning, value) => {
+                    tuning.contactQuality.homeRunOutcomeScale = value
+                }
+            },
+            {
+                name: "pitchQualityContactEffect",
+                values: [-0.35, -0.2, -0.1, 0, 0.1, 0.2, 0.35],
+                apply: (tuning, value) => {
+                    tuning.contact.pitchQualityContactEffect = value
+                    tuning.contact.contactSkillEffect = value
+                }
+            },
+            {
+                name: "fullTeamDefenseBonus",
+                values: [-200, -100, -50, 0, 50, 100, 200],
+                apply: (tuning, value) => {
+                    tuning.meta.fullTeamDefenseBonus = value
+                }
+            },
+            {
+                name: "fullFielderDefenseBonus",
+                values: [-200, -100, -50, 0, 50, 100, 200],
+                apply: (tuning, value) => {
+                    tuning.meta.fullFielderDefenseBonus = value
+                }
+            }
+        ]
+
+        const getBaseStateKey = (first?: string, second?: string, third?: string): string => {
+            return `${first ? "1" : "_"}${second ? "2" : "_"}${third ? "3" : "_"}`
+        }
+
+        const baseText = (base: BaseResult | undefined): string => {
+            return base === undefined ? "NONE" : String(base)
+        }
+
+        const getRow = (map: Map<string, any>, key: string, factory: () => any): any => {
+            if (!map.has(key)) {
+                map.set(key, factory())
+            }
+
+            return map.get(key)
+        }
+
+        const getOrderedRunnerEvents = (events: RunnerEvent[]): RunnerEvent[] => {
+            const baseRank = (base: BaseResult | undefined): number => {
+                if (base === BaseResult.HOME) return 0
+                if (base === BaseResult.FIRST) return 1
+                if (base === BaseResult.SECOND) return 2
+                if (base === BaseResult.THIRD) return 3
+                return -1
+            }
+
+            return events.slice().sort((a, b) => {
+                const pitchDiff = (a.pitchIndex ?? 0) - (b.pitchIndex ?? 0)
+
+                if (pitchDiff !== 0) {
+                    return pitchDiff
+                }
+
+                return baseRank(a.movement?.start) - baseRank(b.movement?.start)
+            })
+        }
+
+        const evaluate = (label: string, apply?: (tuning: PitchEnvironmentTuning["tuning"]) => void) => {
+            const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
+            const seeded = pitchEnvironmentService.seedPitchEnvironmentTuning(testPitchEnvironment)
+
+            testPitchEnvironment.pitchEnvironmentTuning = clone(seeded)
+
+            if (apply) {
+                apply(testPitchEnvironment.pitchEnvironmentTuning.tuning!)
+            }
+
+            const totals = {
+                label,
+                gamesEach: games,
+                samples,
+                totalGames,
+                pa: 0,
+                ab: 0,
+                runs: 0,
+                hits: 0,
+                singles: 0,
+                doubles: 0,
+                triples: 0,
+                hr: 0,
+                bb: 0,
+                hbp: 0,
+                so: 0,
+                outs: 0,
+                lob: 0,
+                scoreRuns: 0,
+                linescoreRuns: 0,
+                eventRuns: 0,
+                runnersOnPa: 0,
+                basesEmptyPa: 0,
+                runnerOutsOnBases: 0,
+                gidpLike: 0,
+                sbAttempts: 0,
+                sb: 0,
+                cs: 0,
+                wildPitchAdvances: 0,
+                passedBallAdvances: 0
+            }
+
+            const advancement = {
+                single1BTo3BRiskAttempts: 0,
+                single1BTo3BSafe: 0,
+                single1BTo3BOut: 0,
+                single2BToHomeRiskAttempts: 0,
+                single2BToHomeSafe: 0,
+                single2BToHomeOut: 0,
+                double1BToHomeRiskAttempts: 0,
+                double1BToHomeSafe: 0,
+                double1BToHomeOut: 0,
+                out3BToHomeAttempts: 0,
+                out3BToHomeSafe: 0,
+                out3BToHomeOut: 0,
+                automaticSecondToHomeOnDouble: 0,
+                automaticThirdToHomeOnSingle: 0,
+                automaticThirdToHomeOnDouble: 0
+            }
+
+            const baseStates = new Map<string, any>()
+            const playResults = new Map<string, any>()
+            const chainRows = new Map<string, any>()
+
+            for (let sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
+                const rng = seedrandom(`knob-sensitivity-${label}-sample-${sampleIndex}`)
+
+                for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+                    const game = baselineGameService.buildStartedBaselineGame(
+                        clone(testPitchEnvironment),
+                        `knob-sensitivity-${label}-sample-${sampleIndex}-${gameIndex}`
+                    )
+
+                    while (!game.isComplete) {
+                        simService.simPitch(game, rng)
+                    }
+
+                    totals.scoreRuns += game.score.away + game.score.home
+                    totals.runs += game.score.away + game.score.home
+
+                    for (const halfInning of game.halfInnings) {
+                        totals.linescoreRuns += halfInning.linescore.runs ?? 0
+                        totals.lob += halfInning.linescore.leftOnBase ?? 0
+
+                        for (const play of halfInning.plays) {
+                            if (!play.count?.end) continue
+
+                            const start: RunnerResult = play.runner?.result?.start
+                            const events: RunnerEvent[] = play.runner?.events ?? []
+                            const startedWithRunners = !!start.first || !!start.second || !!start.third
+                            const baseStateKey = `${play.count?.start?.outs ?? 0}:${getBaseStateKey(start.first, start.second, start.third)}`
+                            const playResultKey = String(play.result)
+                            const runsOnPlay = events.filter(event => event.isScoringEvent).length
+                            const outsOnPlay = events.filter(event => event.movement?.isOut).length
+                            const runnerOutsOnBases = events.filter(event => event.movement?.isOut && event.movement?.start !== BaseResult.HOME && !event.isCS).length
+
+                            totals.pa++
+                            totals.eventRuns += runsOnPlay
+                            totals.outs += outsOnPlay
+                            totals.runnerOutsOnBases += runnerOutsOnBases
+
+                            if (startedWithRunners) {
+                                totals.runnersOnPa++
+                            } else {
+                                totals.basesEmptyPa++
+                            }
+
+                            if (play.result !== PlayResult.BB && play.result !== PlayResult.HIT_BY_PITCH) {
+                                totals.ab++
+                            }
+
+                            if (play.result === PlayResult.BB) totals.bb++
+                            if (play.result === PlayResult.HIT_BY_PITCH) totals.hbp++
+                            if (play.result === PlayResult.STRIKEOUT) totals.so++
+
+                            if (play.result === PlayResult.SINGLE) {
+                                totals.hits++
+                                totals.singles++
+                            }
+
+                            if (play.result === PlayResult.DOUBLE) {
+                                totals.hits++
+                                totals.doubles++
+                            }
+
+                            if (play.result === PlayResult.TRIPLE) {
+                                totals.hits++
+                                totals.triples++
+                            }
+
+                            if (play.result === PlayResult.HR) {
+                                totals.hits++
+                                totals.hr++
+                            }
+
+                            if (play.result === PlayResult.OUT && play.contact === Contact.GROUNDBALL && events.filter(event => event.movement?.isOut && !event.isCS).length >= 2) {
+                                totals.gidpLike++
+                            }
+
+                            totals.sbAttempts += events.filter(event => event.isSBAttempt).length
+                            totals.sb += events.filter(event => event.isSB).length
+                            totals.cs += events.filter(event => event.isCS).length
+                            totals.wildPitchAdvances += events.filter(event => event.isWP).length
+                            totals.passedBallAdvances += events.filter(event => event.isPB).length
+
+                            const baseStateRow = getRow(baseStates, baseStateKey, () => ({
+                                key: baseStateKey,
+                                pa: 0,
+                                runs: 0,
+                                hits: 0,
+                                bb: 0,
+                                outs: 0,
+                                runnerOutsOnBases: 0
+                            }))
+
+                            baseStateRow.pa++
+                            baseStateRow.runs += runsOnPlay
+                            baseStateRow.outs += outsOnPlay
+                            baseStateRow.runnerOutsOnBases += runnerOutsOnBases
+
+                            if (play.result === PlayResult.BB) {
+                                baseStateRow.bb++
+                            }
+
+                            if (play.result === PlayResult.SINGLE || play.result === PlayResult.DOUBLE || play.result === PlayResult.TRIPLE || play.result === PlayResult.HR) {
+                                baseStateRow.hits++
+                            }
+
+                            const playResultRow = getRow(playResults, playResultKey, () => ({
+                                key: playResultKey,
+                                pa: 0,
+                                runs: 0,
+                                outs: 0,
+                                runnerOutsOnBases: 0,
+                                runnersOn: 0,
+                                basesEmpty: 0
+                            }))
+
+                            playResultRow.pa++
+                            playResultRow.runs += runsOnPlay
+                            playResultRow.outs += outsOnPlay
+                            playResultRow.runnerOutsOnBases += runnerOutsOnBases
+
+                            if (startedWithRunners) {
+                                playResultRow.runnersOn++
+                            } else {
+                                playResultRow.basesEmpty++
+                            }
+
+                            const originalStartByRunner = new Map<string, BaseResult | undefined>()
+
+                            if (start.first) originalStartByRunner.set(start.first, BaseResult.FIRST)
+                            if (start.second) originalStartByRunner.set(start.second, BaseResult.SECOND)
+                            if (start.third) originalStartByRunner.set(start.third, BaseResult.THIRD)
+                            if (play.hitterId) originalStartByRunner.set(play.hitterId, BaseResult.HOME)
+
+                            const eventsByRunner = new Map<string, RunnerEvent[]>()
+
+                            for (const event of events) {
+                                const runnerId = event.runner?._id
+
+                                if (!runnerId) {
+                                    continue
+                                }
+
+                                if (!originalStartByRunner.has(runnerId)) {
+                                    originalStartByRunner.set(runnerId, event.movement?.start)
+                                }
+
+                                if (!eventsByRunner.has(runnerId)) {
+                                    eventsByRunner.set(runnerId, [])
+                                }
+
+                                eventsByRunner.get(runnerId)!.push(event)
+                            }
+
+                            for (const [runnerId, runnerEvents] of eventsByRunner.entries()) {
+                                const orderedEvents = getOrderedRunnerEvents(runnerEvents)
+                                const originalStart = originalStartByRunner.get(runnerId)
+                                const finalEvent = orderedEvents[orderedEvents.length - 1]
+                                const finalEnd = finalEvent?.movement?.end
+                                const isOut = orderedEvents.some(event => event.movement?.isOut)
+                                const scored = orderedEvents.some(event => event.isScoringEvent)
+                                const hasThrow = orderedEvents.some(event => event.throw)
+                                const hasSB = orderedEvents.some(event => event.isSB)
+                                const hasCS = orderedEvents.some(event => event.isCS)
+                                const hasWP = orderedEvents.some(event => event.isWP)
+                                const hasPB = orderedEvents.some(event => event.isPB)
+
+                                const chainKey = [
+                                    `play=${String(play.result)}`,
+                                    `contact=${String(play.contact)}`,
+                                    `shallow=${String(play.shallowDeep)}`,
+                                    `orig=${baseText(originalStart)}`,
+                                    `final=${baseText(finalEnd)}`,
+                                    `out=${isOut}`,
+                                    `scored=${scored}`,
+                                    `throw=${hasThrow}`,
+                                    `sb=${hasSB}`,
+                                    `cs=${hasCS}`,
+                                    `wp=${hasWP}`,
+                                    `pb=${hasPB}`,
+                                    `steps=${orderedEvents.length}`
+                                ].join("|")
+
+                                const chainRow = getRow(chainRows, chainKey, () => ({
+                                    key: chainKey,
+                                    count: 0,
+                                    runs: 0,
+                                    outs: 0,
+                                    throws: 0
+                                }))
+
+                                chainRow.count++
+
+                                if (scored) {
+                                    chainRow.runs++
+                                }
+
+                                if (isOut) {
+                                    chainRow.outs++
+                                }
+
+                                if (hasThrow) {
+                                    chainRow.throws++
+                                }
+
+                                if (play.result === PlayResult.SINGLE && originalStart === BaseResult.THIRD && scored) {
+                                    advancement.automaticThirdToHomeOnSingle++
+                                }
+
+                                if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.THIRD && scored) {
+                                    advancement.automaticThirdToHomeOnDouble++
+                                }
+
+                                if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.SECOND && scored) {
+                                    advancement.automaticSecondToHomeOnDouble++
+                                }
+
+                                if (play.result === PlayResult.SINGLE && originalStart === BaseResult.FIRST && orderedEvents.length > 1) {
+                                    advancement.single1BTo3BRiskAttempts++
+
+                                    if (isOut) {
+                                        advancement.single1BTo3BOut++
+                                    } else if (finalEnd === BaseResult.THIRD || finalEnd === BaseResult.HOME || scored) {
+                                        advancement.single1BTo3BSafe++
+                                    }
+                                }
+
+                                if (play.result === PlayResult.SINGLE && originalStart === BaseResult.SECOND && orderedEvents.length > 1) {
+                                    advancement.single2BToHomeRiskAttempts++
+
+                                    if (isOut) {
+                                        advancement.single2BToHomeOut++
+                                    } else if (finalEnd === BaseResult.HOME || scored) {
+                                        advancement.single2BToHomeSafe++
+                                    }
+                                }
+
+                                if (play.result === PlayResult.DOUBLE && originalStart === BaseResult.FIRST && orderedEvents.length > 1) {
+                                    advancement.double1BToHomeRiskAttempts++
+
+                                    if (isOut) {
+                                        advancement.double1BToHomeOut++
+                                    } else if (finalEnd === BaseResult.HOME || scored) {
+                                        advancement.double1BToHomeSafe++
+                                    }
+                                }
+
+                                if (play.result === PlayResult.OUT && originalStart === BaseResult.THIRD && (orderedEvents.length > 1 || finalEnd === BaseResult.HOME || isOut)) {
+                                    advancement.out3BToHomeAttempts++
+
+                                    if (isOut) {
+                                        advancement.out3BToHomeOut++
+                                    } else if (finalEnd === BaseResult.HOME || scored) {
+                                        advancement.out3BToHomeSafe++
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            const ab = Math.max(1, totals.ab)
+            const pa = Math.max(1, totals.pa)
+            const bip = Math.max(1, totals.ab - totals.so - totals.hr)
+            const totalBases = totals.singles + (totals.doubles * 2) + (totals.triples * 3) + (totals.hr * 4)
+
+            const summary = {
+                label,
+                gamesEach: games,
+                samples,
+                totalGames,
+                teamRunsPerGame: totals.runs / totalGames / 2,
+                teamPaPerGame: totals.pa / totalGames / 2,
+                avg: totals.hits / ab,
+                obp: (totals.hits + totals.bb + totals.hbp) / pa,
+                slg: totalBases / ab,
+                ops: ((totals.hits + totals.bb + totals.hbp) / pa) + (totalBases / ab),
+                babip: (totals.hits - totals.hr) / bip,
+                bbPercent: totals.bb / pa,
+                soPercent: totals.so / pa,
+                singlePercent: totals.singles / pa,
+                doublePercent: totals.doubles / pa,
+                triplePercent: totals.triples / pa,
+                homeRunPercent: totals.hr / pa,
+                xbhPercent: (totals.doubles + totals.triples + totals.hr) / pa,
+                teamHomeRunsPerGame: totals.hr / totalGames / 2,
+                teamDoublesPerGame: totals.doubles / totalGames / 2,
+                teamSBAttemptsPerGame: totals.sbAttempts / totalGames / 2,
+                teamSBPerGame: totals.sb / totalGames / 2,
+                teamCSPerGame: totals.cs / totalGames / 2,
+                stealSuccessRate: totals.sbAttempts > 0 ? totals.sb / totals.sbAttempts : 0,
+                teamLOBPerGame: totals.lob / totalGames / 2,
+                runnersOnPAShare: totals.runnersOnPa / pa,
+                runnerOutsOnBasesPerGame: totals.runnerOutsOnBases / totalGames / 2,
+                gidpLikePerGame: totals.gidpLike / totalGames / 2,
+                wildPitchAdvancesPerGame: totals.wildPitchAdvances / totalGames / 2,
+                passedBallAdvancesPerGame: totals.passedBallAdvances / totalGames / 2,
+                scoreMinusLinescore: totals.scoreRuns - totals.linescoreRuns,
+                scoreMinusEvents: totals.scoreRuns - totals.eventRuns,
+                single1BTo3BRiskAttemptsPerGame: advancement.single1BTo3BRiskAttempts / totalGames / 2,
+                single1BTo3BRiskSafeRate: advancement.single1BTo3BRiskAttempts > 0 ? advancement.single1BTo3BSafe / advancement.single1BTo3BRiskAttempts : 0,
+                single1BTo3BRiskOutRate: advancement.single1BTo3BRiskAttempts > 0 ? advancement.single1BTo3BOut / advancement.single1BTo3BRiskAttempts : 0,
+                single2BToHomeRiskAttemptsPerGame: advancement.single2BToHomeRiskAttempts / totalGames / 2,
+                single2BToHomeRiskSafeRate: advancement.single2BToHomeRiskAttempts > 0 ? advancement.single2BToHomeSafe / advancement.single2BToHomeRiskAttempts : 0,
+                single2BToHomeRiskOutRate: advancement.single2BToHomeRiskAttempts > 0 ? advancement.single2BToHomeOut / advancement.single2BToHomeRiskAttempts : 0,
+                double1BToHomeRiskAttemptsPerGame: advancement.double1BToHomeRiskAttempts / totalGames / 2,
+                double1BToHomeRiskSafeRate: advancement.double1BToHomeRiskAttempts > 0 ? advancement.double1BToHomeSafe / advancement.double1BToHomeRiskAttempts : 0,
+                double1BToHomeRiskOutRate: advancement.double1BToHomeRiskAttempts > 0 ? advancement.double1BToHomeOut / advancement.double1BToHomeRiskAttempts : 0,
+                out3BToHomeAttemptsPerGame: advancement.out3BToHomeAttempts / totalGames / 2,
+                out3BToHomeSafeRate: advancement.out3BToHomeAttempts > 0 ? advancement.out3BToHomeSafe / advancement.out3BToHomeAttempts : 0,
+                out3BToHomeOutRate: advancement.out3BToHomeAttempts > 0 ? advancement.out3BToHomeOut / advancement.out3BToHomeAttempts : 0,
+                automaticSecondToHomeOnDoublePerGame: advancement.automaticSecondToHomeOnDouble / totalGames / 2,
+                automaticThirdToHomeOnSinglePerGame: advancement.automaticThirdToHomeOnSingle / totalGames / 2,
+                automaticThirdToHomeOnDoublePerGame: advancement.automaticThirdToHomeOnDouble / totalGames / 2
+            }
+
+            const topBaseStates = Array.from(baseStates.values())
+                .map(row => ({
+                    key: row.key,
+                    pa: row.pa,
+                    paShare: row.pa / pa,
+                    runsPerPA: row.runs / Math.max(1, row.pa),
+                    runnerOutsOnBasesPerPA: row.runnerOutsOnBases / Math.max(1, row.pa)
+                }))
+                .sort((a, b) => b.pa - a.pa)
+                .slice(0, 12)
+
+            const topPlayResults = Array.from(playResults.values())
+                .map(row => ({
+                    key: row.key,
+                    pa: row.pa,
+                    paShare: row.pa / pa,
+                    runsPerEvent: row.runs / Math.max(1, row.pa),
+                    runnerOutsOnBasesPerEvent: row.runnerOutsOnBases / Math.max(1, row.pa),
+                    runnersOnShare: row.runnersOn / Math.max(1, row.pa)
+                }))
+                .sort((a, b) => b.pa - a.pa)
+
+            const topChains = Array.from(chainRows.values())
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 20)
+
+            return {
+                label,
+                tuning: testPitchEnvironment.pitchEnvironmentTuning?.tuning,
+                summary,
+                topBaseStates,
+                topPlayResults,
+                topChains
+            }
+        }
+
+        const baseline = evaluate("baseline-defaults")
+
+        console.log("\n=== BASELINE DEFAULT TUNING ===")
+        console.log(JSON.stringify(baseline.tuning, null, 2))
+
+        console.log("\n=== BASELINE DEFAULT SUMMARY ===")
+        console.log(JSON.stringify(baseline.summary, null, 2))
+
+        console.log("\n=== BASELINE PLAY RESULT RUN VALUE ===")
+        for (const row of baseline.topPlayResults) {
+            console.log(row)
+        }
+
+        console.log("\n=== BASELINE TOP BASE STATES ===")
+        for (const row of baseline.topBaseStates) {
+            console.log(row)
+        }
+
+        const allRows: any[] = []
+
+        for (const spec of knobSpecs) {
+            console.log(`\n=== KNOB SWEEP START ${spec.name} ===`)
+
+            const rows = spec.values.map(value => {
+                const result = evaluate(`${spec.name}=${value}`, tuning => {
+                    spec.apply(tuning, value)
+                })
+
+                const row = {
+                    knob: spec.name,
+                    value,
+                    ...result.summary,
+                    deltaRuns: result.summary.teamRunsPerGame - baseline.summary.teamRunsPerGame,
+                    deltaAVG: result.summary.avg - baseline.summary.avg,
+                    deltaOBP: result.summary.obp - baseline.summary.obp,
+                    deltaSLG: result.summary.slg - baseline.summary.slg,
+                    deltaOPS: result.summary.ops - baseline.summary.ops,
+                    deltaBABIP: result.summary.babip - baseline.summary.babip,
+                    deltaBBPercent: result.summary.bbPercent - baseline.summary.bbPercent,
+                    deltaSOPercent: result.summary.soPercent - baseline.summary.soPercent,
+                    deltaHRPercent: result.summary.homeRunPercent - baseline.summary.homeRunPercent,
+                    deltaDoublePercent: result.summary.doublePercent - baseline.summary.doublePercent,
+                    deltaSBPerGame: result.summary.teamSBPerGame - baseline.summary.teamSBPerGame,
+                    deltaSBAttemptsPerGame: result.summary.teamSBAttemptsPerGame - baseline.summary.teamSBAttemptsPerGame,
+                    deltaRunnerOutsOnBasesPerGame: result.summary.runnerOutsOnBasesPerGame - baseline.summary.runnerOutsOnBasesPerGame,
+                    deltaDouble1BToHomeRiskAttemptsPerGame: result.summary.double1BToHomeRiskAttemptsPerGame - baseline.summary.double1BToHomeRiskAttemptsPerGame,
+                    deltaSingle2BToHomeRiskAttemptsPerGame: result.summary.single2BToHomeRiskAttemptsPerGame - baseline.summary.single2BToHomeRiskAttemptsPerGame,
+                    deltaSingle1BTo3BRiskAttemptsPerGame: result.summary.single1BTo3BRiskAttemptsPerGame - baseline.summary.single1BTo3BRiskAttemptsPerGame
+                }
+
+                allRows.push(row)
+
+                console.log(JSON.stringify(row, null, 2))
+
+                if (spec.name === "advancementAggressionScale") {
+                    console.log(`\n=== ADVANCEMENT DETAIL ${spec.name}=${value} TOP PLAY RESULTS ===`)
+
+                    for (const playRow of result.topPlayResults) {
+                        console.log(playRow)
+                    }
+
+                    console.log(`\n=== ADVANCEMENT DETAIL ${spec.name}=${value} TOP CHAINS ===`)
+
+                    for (const chainRow of result.topChains) {
+                        console.log(chainRow)
+                    }
+                }
+
+                return row
+            })
+
+            const minRuns = rows.reduce((best, row) => row.teamRunsPerGame < best.teamRunsPerGame ? row : best, rows[0])
+            const maxRuns = rows.reduce((best, row) => row.teamRunsPerGame > best.teamRunsPerGame ? row : best, rows[0])
+            const minOps = rows.reduce((best, row) => row.ops < best.ops ? row : best, rows[0])
+            const maxOps = rows.reduce((best, row) => row.ops > best.ops ? row : best, rows[0])
+
+            console.log(`\n=== KNOB SWEEP SUMMARY ${spec.name} ===`)
+            console.log({
+                knob: spec.name,
+                runsRange: maxRuns.teamRunsPerGame - minRuns.teamRunsPerGame,
+                minRuns: {
+                    value: minRuns.value,
+                    teamRunsPerGame: minRuns.teamRunsPerGame,
+                    ops: minRuns.ops,
+                    avg: minRuns.avg,
+                    babip: minRuns.babip
+                },
+                maxRuns: {
+                    value: maxRuns.value,
+                    teamRunsPerGame: maxRuns.teamRunsPerGame,
+                    ops: maxRuns.ops,
+                    avg: maxRuns.avg,
+                    babip: maxRuns.babip
+                },
+                opsRange: maxOps.ops - minOps.ops,
+                minOps: {
+                    value: minOps.value,
+                    teamRunsPerGame: minOps.teamRunsPerGame,
+                    ops: minOps.ops
+                },
+                maxOps: {
+                    value: maxOps.value,
+                    teamRunsPerGame: maxOps.teamRunsPerGame,
+                    ops: maxOps.ops
+                }
+            })
+        }
+
+        console.log("\n=== ALL KNOB ROWS COMPACT ===")
+
+        for (const row of allRows) {
+            console.log([
+                row.knob,
+                `v=${row.value}`,
+                `R=${row.teamRunsPerGame.toFixed(3)}`,
+                `dR=${row.deltaRuns.toFixed(3)}`,
+                `AVG=${row.avg.toFixed(3)}`,
+                `OBP=${row.obp.toFixed(3)}`,
+                `SLG=${row.slg.toFixed(3)}`,
+                `OPS=${row.ops.toFixed(3)}`,
+                `BABIP=${row.babip.toFixed(3)}`,
+                `BB%=${row.bbPercent.toFixed(3)}`,
+                `SO%=${row.soPercent.toFixed(3)}`,
+                `HR%=${row.homeRunPercent.toFixed(3)}`,
+                `2B%=${row.doublePercent.toFixed(3)}`,
+                `SBA/G=${row.teamSBAttemptsPerGame.toFixed(3)}`,
+                `SB/G=${row.teamSBPerGame.toFixed(3)}`,
+                `ROOB/G=${row.runnerOutsOnBasesPerGame.toFixed(3)}`,
+                `1B3B/G=${row.single1BTo3BRiskAttemptsPerGame.toFixed(3)}`,
+                `2BH/G=${row.single2BToHomeRiskAttemptsPerGame.toFixed(3)}`,
+                `1BH2B/G=${row.double1BToHomeRiskAttemptsPerGame.toFixed(3)}`
+            ].join(" | "))
+        }
+
+        assert.strictEqual(baseline.summary.scoreMinusLinescore, 0)
+        assert.strictEqual(baseline.summary.scoreMinusEvents, 0)
+        assert.ok(baseline.summary.teamRunsPerGame > 0)
+    })
 
 
 

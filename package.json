@@ -25,7 +25,7 @@
   "scripts": {
     
     "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
-    "test1":"node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/test-player-rating.spec.ts",
+    "test1":"node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/test-sim-diagnostics.spec.ts",
 
     "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
     "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",

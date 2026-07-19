@@ -1,6 +1,6 @@
 import { asNumber, clamp, getAverage, getStdDev } from "../util.js"
 import { HomeAway, Position, Handedness, PitchType, PitchCall, SwingResult, PlayResult, Contact, ShallowDeep, OfficialPlayResult, BaseResult, DefenseCreditType, OfficialRunnerResult, PitchZone, ThrowResult, PitchingRoleType } from "./enums.js"
-import { StartGameCommand, GamePlayer, MatchupHandedness, Score, RunnerResult, DefensiveCredit, PitchLog, HalfInning, UpcomingMatchup, RunnerEvent, HitterChange, PitcherChange, SimPitchCommand, SimPitchResult, InningEndingEvent, Pitch, RollChart, Game, HitResultCount, HittingRatings,  Lineup, PitchCount, PitchRatings, PitchResultCount, Play, Player, RotationPitcher, RunnerThrowCommand, StolenBaseByCount, Team, TeamInfo, ThrowRoll, PitchEnvironmentTarget, ContactQuality, PitchQuality, PitchingRole } from "./interfaces.js"
+import { StartGameCommand, GamePlayer, MatchupHandedness, Score, RunnerResult, DefensiveCredit, PitchLog, HalfInning, UpcomingMatchup, RunnerEvent, HitterChange, PitcherChange, SimPitchCommand, SimPitchResult, InningEndingEvent, Pitch, RollChart, Game, HitResultCount, HittingRatings,  Lineup, PitchCount, PitchRatings, PitchResultCount, Play, Player, RotationPitcher, RunnerThrowCommand, StolenBaseByCount, Team, TeamInfo, ThrowRoll, PitchEnvironmentTarget, ContactQuality, PitchQuality, PitchingRole, PowerRollInput, StadiumEnvironment } from "./interfaces.js"
 import { RollChartService } from "./roll-chart-service.js"
 import { RunnerService } from "./runner-service.js"
 import { SubstitutionService } from "./substitution-service.js"
@@ -74,25 +74,68 @@ class SimService {
 
     }
 
-    public startGame(command:StartGameCommand) : Game {
-
-        let game = command.game
+    public startGame(command: StartGameCommand): Game {
+        const game = command.game
 
         game.useDH = command.useDH
 
-        //Validate lineups
-        GameInfo.validateGameLineup(command.awayPlayers, command.awayLineup, command.awayStartingPitcher, command.useDH)
-        GameInfo.validateGameLineup(command.homePlayers, command.homeLineup, command.homeStartingPitcher, command.useDH)
+        GameInfo.validateGameLineup(
+            command.awayPlayers,
+            command.awayLineup,
+            command.awayStartingPitcher,
+            command.useDH
+        )
 
-        //Use what gets passed in or just use default config
-        game.pitchEnvironmentTarget = JSON.parse(JSON.stringify(command.pitchEnvironmentTarget ?? this.defaultPitchEnvironmentTarget))
+        GameInfo.validateGameLineup(
+            command.homePlayers,
+            command.homeLineup,
+            command.homeStartingPitcher,
+            command.useDH
+        )
 
-        if (!game.pitchEnvironmentTarget) {
+        const pitchEnvironmentTarget = JSON.parse(JSON.stringify(
+            command.pitchEnvironmentTarget ?? this.defaultPitchEnvironmentTarget
+        )) as PitchEnvironmentTarget
+
+        if (!pitchEnvironmentTarget) {
             throw new Error("No league averages provided to start game.")
         }
 
-        game.away = this.gameInfo.buildTeamInfo(game.pitchEnvironmentTarget, command.away, command.awayLineup, command.awayAvailablePitchers, command.awayPlayers, command.awayStartingPitcher, command.away.colors.color1, command.away.colors.color2, HomeAway.AWAY, 1, command.useDH, command.awayTeamOptions)            
-        game.home = this.gameInfo.buildTeamInfo(game.pitchEnvironmentTarget, command.home, command.homeLineup, command.homeAvailablePitchers, command.homePlayers, command.homeStartingPitcher, command.home.colors.color1, command.home.colors.color2, HomeAway.HOME, 1 + command.awayPlayers.length, command.useDH, command.homeTeamOptions)
+        game.stadiumEnvironment = command.stadiumEnvironment
+        game.pitchEnvironmentTarget = this.applyStadiumEnvironment(
+            pitchEnvironmentTarget,
+            command.stadiumEnvironment
+        )
+
+        game.away = this.gameInfo.buildTeamInfo(
+            game.pitchEnvironmentTarget,
+            command.away,
+            command.awayLineup,
+            command.awayAvailablePitchers,
+            command.awayPlayers,
+            command.awayStartingPitcher,
+            command.away.colors.color1,
+            command.away.colors.color2,
+            HomeAway.AWAY,
+            1,
+            command.useDH,
+            command.awayTeamOptions
+        )
+
+        game.home = this.gameInfo.buildTeamInfo(
+            game.pitchEnvironmentTarget,
+            command.home,
+            command.homeLineup,
+            command.homeAvailablePitchers,
+            command.homePlayers,
+            command.homeStartingPitcher,
+            command.home.colors.color1,
+            command.home.colors.color2,
+            HomeAway.HOME,
+            1 + command.awayPlayers.length,
+            command.useDH,
+            command.homeTeamOptions
+        )
 
         game.startDate = command.date
         game.count = {
@@ -102,10 +145,10 @@ class SimService {
         }
 
         game.isStarted = true
-        
-        return game 
-    }
 
+        return game
+    }
+    
     public finishGame(game: Game): void {
 
         const homeWin = game.score.home > game.score.away
@@ -991,20 +1034,16 @@ class SimService {
         )
 
         const allowedContacts =
-            playResult === PlayResult.HR ? [Contact.LINE_DRIVE, Contact.FLY_BALL] :
-            playResult === PlayResult.TRIPLE ? [Contact.LINE_DRIVE, Contact.FLY_BALL] :
-            [Contact.GROUNDBALL, Contact.LINE_DRIVE, Contact.FLY_BALL]
+            playResult === PlayResult.HR || playResult === PlayResult.TRIPLE
+                ? [Contact.LINE_DRIVE, Contact.FLY_BALL]
+                : [Contact.GROUNDBALL, Contact.LINE_DRIVE, Contact.FLY_BALL]
+
+        const contactEntries = Array.from(contactRollChart.entries.values()) as Contact[]
 
         const counts = {
-            [Contact.GROUNDBALL]: 0,
-            [Contact.LINE_DRIVE]: 0,
-            [Contact.FLY_BALL]: 0
-        }
-
-        for (const contact of contactRollChart.entries.values()) {
-            if (allowedContacts.includes(contact as Contact)) {
-                counts[contact as Contact]++
-            }
+            [Contact.GROUNDBALL]: contactEntries.filter(contact => contact === Contact.GROUNDBALL).length,
+            [Contact.LINE_DRIVE]: contactEntries.filter(contact => contact === Contact.LINE_DRIVE).length,
+            [Contact.FLY_BALL]: contactEntries.filter(contact => contact === Contact.FLY_BALL).length
         }
 
         const weightedContacts = allowedContacts
@@ -1015,7 +1054,32 @@ class SimService {
             .filter(item => item.weight > 0)
 
         if (weightedContacts.length === 0) {
-            throw new Error(`No compatible contact entries for playResult ${playResult}`)
+            const diagnostic = {
+                playResult,
+                allowedContacts,
+                hitter: {
+                    id: command.hitter._id,
+                    name: command.hitter.displayName,
+                    contactProfile: command.hitter.hittingRatings.contactProfile
+                },
+                pitcher: {
+                    id: command.pitcher._id,
+                    name: command.pitcher.displayName,
+                    contactProfile: command.pitcher.pitchRatings.contactProfile
+                },
+                pitchEnvironmentContactInput: command.pitchEnvironmentTarget.battedBall.contactRollInput,
+                contactCounts: {
+                    groundball: counts[Contact.GROUNDBALL],
+                    lineDrive: counts[Contact.LINE_DRIVE],
+                    flyBall: counts[Contact.FLY_BALL],
+                    total: contactEntries.length
+                },
+                firstContactEntries: contactEntries.slice(0, 25)
+            }
+
+            throw new Error(
+                `No compatible contact entries for playResult ${playResult}. Diagnostic=${JSON.stringify(diagnostic)}`
+            )
         }
 
         const totalWeight = weightedContacts.reduce((sum, item) => sum + item.weight, 0)
@@ -1403,6 +1467,148 @@ class SimService {
 
         return true
     }
+
+    private applyStadiumEnvironment(pitchEnvironmentTarget: PitchEnvironmentTarget, stadiumEnvironment?: StadiumEnvironment): PitchEnvironmentTarget {
+        if (!stadiumEnvironment) {
+            return pitchEnvironmentTarget
+        }
+
+        const singles = this.getStadiumFactor(stadiumEnvironment.singles, "singles")
+        const doubles = this.getStadiumFactor(stadiumEnvironment.doubles, "doubles")
+        const triples = this.getStadiumFactor(stadiumEnvironment.triples, "triples")
+        const hr = this.getStadiumFactor(stadiumEnvironment.hr, "hr")
+        const walks = this.getStadiumFactor(stadiumEnvironment.walks, "walks")
+        const strikeouts = this.getStadiumFactor(stadiumEnvironment.strikeouts, "strikeouts")
+        const pitchesPerPA = Number(pitchEnvironmentTarget.pitch.pitchesPerPA)
+
+        if (!Number.isFinite(pitchesPerPA) || pitchesPerPA <= 0) {
+            throw new Error(`Invalid pitches per plate appearance ${pitchEnvironmentTarget.pitch.pitchesPerPA}`)
+        }
+
+        pitchEnvironmentTarget.battedBall.powerRollInput = this.applyStadiumPowerFactors(
+            pitchEnvironmentTarget.battedBall.powerRollInput,
+            { singles, doubles, triples, hr }
+        )
+
+        pitchEnvironmentTarget.pitch.inZonePercent = this.applyWalkFactorToInZoneRate(
+            pitchEnvironmentTarget.pitch.inZonePercent,
+            walks,
+            pitchesPerPA
+        )
+
+        pitchEnvironmentTarget.pitch.inZoneByCount = pitchEnvironmentTarget.pitch.inZoneByCount.map(row => ({
+            ...row,
+            inZone: this.applyWalkFactorToInZoneRate(row.inZone, walks, pitchesPerPA)
+        }))
+
+        pitchEnvironmentTarget.swing.behaviorByCount = pitchEnvironmentTarget.swing.behaviorByCount.map(row => ({
+            ...row,
+            zoneContactPercent: this.applyStrikeoutFactorToContactRate(row.zoneContactPercent, strikeouts),
+            chaseContactPercent: this.applyStrikeoutFactorToContactRate(row.chaseContactPercent, strikeouts)
+        }))
+
+        return pitchEnvironmentTarget
+    }
+
+    private applyWalkFactorToInZoneRate(inZoneRate: number, walkFactor: number, pitchesPerPA: number): number {
+        const value = Number(inZoneRate)
+
+        if (!Number.isFinite(value)) {
+            throw new Error(`Invalid in-zone rate ${inZoneRate}`)
+        }
+
+        const perPitchFactor = Math.pow(walkFactor, 1 / pitchesPerPA)
+        const outOfZoneRate = 100 - value
+        const adjustedOutOfZoneRate = outOfZoneRate * perPitchFactor
+
+        return clamp(100 - adjustedOutOfZoneRate, 0, 100)
+    }
+
+    private applyStrikeoutFactorToContactRate(contactRate: number, strikeoutFactor: number): number {
+        const value = Number(contactRate)
+
+        if (!Number.isFinite(value)) {
+            throw new Error(`Invalid contact rate ${contactRate}`)
+        }
+
+        const whiffRate = 100 - value
+        const adjustedWhiffRate = whiffRate * strikeoutFactor
+
+        return clamp(100 - adjustedWhiffRate, 0, 100)
+    }
+
+    private getStadiumFactor(value: number | undefined, label: string): number {
+        const factor = value ?? 1
+
+        if (!Number.isFinite(factor) || factor <= 0) {
+            throw new Error(`Invalid stadium ${label} factor ${value}`)
+        }
+
+        return factor
+    }
+
+    private applyStadiumPowerFactors(powerRollInput: PowerRollInput, factors: { singles: number, doubles: number, triples: number, hr: number }): PowerRollInput {
+        const total = powerRollInput.out + powerRollInput.singles + powerRollInput.doubles + powerRollInput.triples + powerRollInput.hr
+
+        if (!Number.isFinite(total) || total <= 0) {
+            throw new Error(`Invalid power roll input ${JSON.stringify(powerRollInput)}`)
+        }
+
+        const exact = {
+            singles: powerRollInput.singles * factors.singles,
+            doubles: powerRollInput.doubles * factors.doubles,
+            triples: powerRollInput.triples * factors.triples,
+            hr: powerRollInput.hr * factors.hr
+        }
+
+        const exactOut = total - exact.singles - exact.doubles - exact.triples - exact.hr
+
+        if (!Number.isFinite(exactOut) || exactOut < 0) {
+            throw new Error(`Stadium factors exceed available power roll probability ${JSON.stringify({ powerRollInput, factors })}`)
+        }
+
+        const rows = [
+            { key: "out" as const, exact: exactOut },
+            { key: "singles" as const, exact: exact.singles },
+            { key: "doubles" as const, exact: exact.doubles },
+            { key: "triples" as const, exact: exact.triples },
+            { key: "hr" as const, exact: exact.hr }
+        ].map(row => ({
+            key: row.key,
+            value: Math.floor(row.exact),
+            remainder: row.exact - Math.floor(row.exact)
+        }))
+
+        let remaining = Math.round(total) - rows.reduce((sum, row) => sum + row.value, 0)
+
+        rows.sort((a, b) => b.remainder - a.remainder)
+
+        for (let index = 0; remaining > 0; index++) {
+            rows[index % rows.length].value++
+            remaining--
+        }
+
+        const getValue = (key: "out" | "singles" | "doubles" | "triples" | "hr"): number => {
+            const row = rows.find(candidate => candidate.key === key)
+
+            if (!row) {
+                throw new Error(`Missing stadium-adjusted power value for ${key}`)
+            }
+
+            return row.value
+        }
+
+        return {
+            out: getValue("out"),
+            singles: getValue("singles"),
+            doubles: getValue("doubles"),
+            triples: getValue("triples"),
+            hr: getValue("hr")
+        }
+    }
+
+
+
 
 
 }

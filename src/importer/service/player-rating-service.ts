@@ -574,38 +574,44 @@ class PlayerRatingService {
     }
 
     private static getHitterContactProfile(command: PlayerFromStatsCommand, env: PitchEnvironmentTarget) {
-        const total = command.hitter.groundBalls + command.hitter.flyBalls + command.hitter.lineDrives
-
-        if (total <= 0) {
-            return {
-                groundball: env.battedBall.contactRollInput.groundball,
-                flyBall: env.battedBall.contactRollInput.flyBall,
-                lineDrive: env.battedBall.contactRollInput.lineDrive
-            }
-        }
-
-        return this.allocateToHundred({
-            groundball: command.hitter.groundBalls,
-            flyBall: command.hitter.flyBalls,
-            lineDrive: command.hitter.lineDrives
-        })
+        return this.buildContactProfile(
+            {
+                groundball: Number(command.hitter.groundBalls ?? 0),
+                flyBall: Number(command.hitter.flyBalls ?? 0),
+                lineDrive: Number(command.hitter.lineDrives ?? 0)
+            },
+            env
+        )
     }
 
     private static getPitcherContactProfile(command: PlayerFromStatsCommand, env: PitchEnvironmentTarget) {
-        const total = command.pitcher.groundBallsAllowed + command.pitcher.flyBallsAllowed + command.pitcher.lineDrivesAllowed
+        return this.buildContactProfile(
+            {
+                groundball: Number(command.pitcher.groundBallsAllowed ?? 0),
+                flyBall: Number(command.pitcher.flyBallsAllowed ?? 0),
+                lineDrive: Number(command.pitcher.lineDrivesAllowed ?? 0)
+            },
+            env
+        )
+    }
 
-        if (total <= 0) {
+    private static buildContactProfile(values: { groundball: number, flyBall: number, lineDrive: number }, env: PitchEnvironmentTarget): { groundball: number, flyBall: number, lineDrive: number } {
+        const environment = env.battedBall.contactRollInput
+        const environmentTotal = environment.groundball + environment.flyBall + environment.lineDrive
+        const sampleTotal = values.groundball + values.flyBall + values.lineDrive
+
+        if (sampleTotal <= 0 || environmentTotal <= 0) {
             return {
-                groundball: env.battedBall.contactRollInput.groundball,
-                flyBall: env.battedBall.contactRollInput.flyBall,
-                lineDrive: env.battedBall.contactRollInput.lineDrive
+                groundball: environment.groundball,
+                flyBall: environment.flyBall,
+                lineDrive: environment.lineDrive
             }
         }
 
         return this.allocateToHundred({
-            groundball: command.pitcher.groundBallsAllowed,
-            flyBall: command.pitcher.flyBallsAllowed,
-            lineDrive: command.pitcher.lineDrivesAllowed
+            groundball: values.groundball + environment.groundball,
+            flyBall: values.flyBall + environment.flyBall,
+            lineDrive: values.lineDrive + environment.lineDrive
         })
     }
 
@@ -790,20 +796,22 @@ class PlayerRatingService {
     }
 
     private static allocateToHundred(values: { groundball: number, flyBall: number, lineDrive: number }): { groundball: number, flyBall: number, lineDrive: number } {
+        const minimum = 1
+        const available = 100 - minimum * 3
         const total = values.groundball + values.flyBall + values.lineDrive
 
         if (total <= 0) {
             return {
-                groundball: 0,
-                flyBall: 0,
-                lineDrive: 0
+                groundball: 34,
+                flyBall: 33,
+                lineDrive: 33
             }
         }
 
         const exact = [
-            { key: "groundball" as const, value: (values.groundball / total) * 100 },
-            { key: "flyBall" as const, value: (values.flyBall / total) * 100 },
-            { key: "lineDrive" as const, value: (values.lineDrive / total) * 100 }
+            { key: "groundball" as const, value: minimum + (values.groundball / total) * available },
+            { key: "flyBall" as const, value: minimum + (values.flyBall / total) * available },
+            { key: "lineDrive" as const, value: minimum + (values.lineDrive / total) * available }
         ]
 
         const rounded = exact.map(item => ({
@@ -817,15 +825,18 @@ class PlayerRatingService {
         rounded.sort((a, b) => b.remainder - a.remainder)
 
         for (const item of rounded) {
-            if (remaining <= 0) break
+            if (remaining <= 0) {
+                break
+            }
+
             item.value++
             remaining--
         }
 
         return {
-            groundball: rounded.find(item => item.key === "groundball")?.value ?? 0,
-            flyBall: rounded.find(item => item.key === "flyBall")?.value ?? 0,
-            lineDrive: rounded.find(item => item.key === "lineDrive")?.value ?? 0
+            groundball: rounded.find(item => item.key === "groundball")!.value,
+            flyBall: rounded.find(item => item.key === "flyBall")!.value,
+            lineDrive: rounded.find(item => item.key === "lineDrive")!.value
         }
     }
 

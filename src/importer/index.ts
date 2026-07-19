@@ -4,7 +4,7 @@ import { PitchEnvironmentTarget, PitchEnvironmentTuning, PlayerImportRaw } from 
 import { RollChartService } from "../sim/service/roll-chart-service.js"
 import { GameInfo, GamePlayers, SimRolls, SimService } from "../sim/service/sim-service.js"
 import { StatService } from "../sim/service/stat-service.js"
-import { DownloaderService } from "./service/downloader-service.js"
+import { DownloaderService, PlayerImportGameFeed } from "./service/downloader-service.js"
 import { PitchEnvironmentService } from "./service/pitch-environment-service.js"
 import { v4 as uuidv4 } from "uuid"
 import path from "path"
@@ -1579,6 +1579,8 @@ export {
     exportPitchEnvironmentTarget,
     exportPlayerRatings,
     exportAll,
+    DownloaderService,
+    PlayerImportGameFeed,
     ExportPitchEnvironmentTargetResult,
     ExportAllResult
 }

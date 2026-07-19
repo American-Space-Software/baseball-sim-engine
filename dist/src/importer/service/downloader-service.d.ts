@@ -16,7 +16,6 @@ declare class DownloaderService {
     private getGameSortTime;
     private getParticipatingPlayerIds;
     private everyFilteredPlayerHasEnoughGames;
-    private getDatedResultsFilePath;
     private getRollingCacheKey;
     private getTomorrowUtcDate;
     private validateIsoDate;
@@ -49,5 +48,12 @@ declare class DownloaderService {
     private readJson;
     private ensureDir;
     private sleep;
+    buildPlayerImportsFromGameFeeds(season: number, gameFeeds: PlayerImportGameFeed[]): Map<string, PlayerImportRaw>;
 }
-export { DownloaderService };
+interface PlayerImportGameFeed {
+    sourceSeason: number;
+    gamePk: number;
+    data: any;
+    playerIds: string[];
+}
+export { DownloaderService, PlayerImportGameFeed };

@@ -10,6 +10,7 @@ import { StatService } from "./service/stat-service.js"
 import defaultPitchEnvironmentTargetJson from "../../data/2025/_pitch_environment_target.json" with { type: "json" }
 import { RunnerService } from "./service/runner-service.js"
 import { SubstitutionService } from "./service/substitution-service.js"
+import { PlayerRatingService } from "../importer/service/player-rating-service.js"
 
 let rollChartService = new RollChartService()
 let statService = new StatService()
@@ -32,6 +33,7 @@ export {
   StatService,
   RollChartService,
   PitchEnvironmentService,
+  PlayerRatingService,
   PlayResult,
   Contact,
   ShallowDeep,
@@ -63,6 +65,7 @@ export type {
   ThrowRoll,
   DefensiveCredit,
   PitchEnvironmentTarget,
+  StadiumEnvironment,
   Game,
   Player,
   TeamInfo,

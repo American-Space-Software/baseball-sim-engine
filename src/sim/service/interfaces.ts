@@ -18,6 +18,8 @@ interface StartGameCommand {
     awayAvailablePitchers: PitchingRole[],
 
     pitchEnvironmentTarget?:PitchEnvironmentTarget
+    stadiumEnvironment?: StadiumEnvironment
+
     useDH:boolean
     date:Date
 }
@@ -86,7 +88,7 @@ interface Game {
     playIndex: number
 
     pitchEnvironmentTarget:PitchEnvironmentTarget
-
+    stadiumEnvironment?: StadiumEnvironment
 
     currentInning: number
     summary?: any
@@ -1997,10 +1999,20 @@ interface PitchQuality {
     verticalBreak: number
 }
 
-
+interface StadiumEnvironment {
+    team: string
+    venue: string
+    yearRange: string
+    singles: number
+    doubles: number
+    triples: number
+    hr: number
+    walks: number
+    strikeouts: number
+}
 
 export {
-    PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount,  PitchCount, InZoneByCount,  PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance,
+    StadiumEnvironment, PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount,  PitchCount, InZoneByCount,  PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance,
     TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent,  Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score,
     Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount,HitResultCount, MatchupHandedness,
     GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team,

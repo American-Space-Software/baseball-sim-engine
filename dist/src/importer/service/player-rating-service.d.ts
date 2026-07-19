@@ -26,6 +26,7 @@ declare class PlayerRatingService {
     private static applyPitchingSplit;
     private static getHitterContactProfile;
     private static getPitcherContactProfile;
+    private static buildContactProfile;
     private static getPitchTypes;
     private static getFastballVelocity;
     private static getLeagueFastballVelocity;

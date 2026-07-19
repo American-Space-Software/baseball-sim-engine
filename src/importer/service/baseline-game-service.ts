@@ -1,6 +1,6 @@
 import { SimService } from "../../sim/index.js"
 import { Handedness, PitchingRoleType, PitchType, Position } from "../../sim/service/enums.js"
-import { Game, HitResultCount, Lineup, PitchEnvironmentTarget, PitchingRole, PitchResultCount, Player, RotationPitcher, Team } from "../../sim/service/interfaces.js"
+import { Game, HitResultCount, Lineup, PitchEnvironmentTarget, PitchingRole, PitchResultCount, Player, RotationPitcher, StadiumEnvironment, Team } from "../../sim/service/interfaces.js"
 
 class BaselineGameService {
 
@@ -8,8 +8,7 @@ class BaselineGameService {
         private simService:SimService
     ) {}
 
-    public buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId: string = "baseline-game", useDH: boolean = false): Game {
-
+    public buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId: string = "baseline-game", useDH: boolean = false, stadiumEnvironment?: StadiumEnvironment): Game {
         const awayPlayers = this.buildBaselinePlayers()
         const homePlayers = this.buildBaselinePlayers()
 
@@ -74,22 +73,20 @@ class BaselineGameService {
             awayLineup,
             awayStartingPitcher,
             awayAvailablePitchers,
-
             home: homeTeam,
             homeTeamOptions: {},
             homePlayers,
             homeLineup,
             homeStartingPitcher,
             homeAvailablePitchers,
-
             pitchEnvironmentTarget: pitchEnvironment,
+            stadiumEnvironment,
             useDH,
             date: new Date()
         })
     }
 
-    public buildStartedBaselineGameWithPlayer(pitchEnvironment: PitchEnvironmentTarget, player: Player, gameId: string = "baseline-player-game", useDH: boolean = false): Game {
-
+    public buildStartedBaselineGameWithPlayer(pitchEnvironment: PitchEnvironmentTarget, player: Player, gameId: string = "baseline-player-game", useDH: boolean = false, stadiumEnvironment?: StadiumEnvironment): Game {
         const awayPlayers = this.buildBaselinePlayers()
         const homePlayers = this.buildBaselinePlayers()
 
@@ -160,15 +157,14 @@ class BaselineGameService {
             awayLineup,
             awayStartingPitcher,
             awayAvailablePitchers,
-
             home: homeTeam,
             homeTeamOptions: {},
             homePlayers,
             homeLineup,
             homeStartingPitcher,
             homeAvailablePitchers,
-
             pitchEnvironmentTarget: pitchEnvironment,
+            stadiumEnvironment,
             useDH,
             date: new Date()
         })
