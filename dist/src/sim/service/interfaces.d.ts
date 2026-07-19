@@ -14,6 +14,7 @@ interface StartGameCommand {
     awayStartingPitcher: RotationPitcher;
     awayAvailablePitchers: PitchingRole[];
     pitchEnvironmentTarget?: PitchEnvironmentTarget;
+    stadiumEnvironment?: StadiumEnvironment;
     useDH: boolean;
     date: Date;
 }
@@ -65,6 +66,7 @@ interface Game {
     halfInnings?: HalfInning[];
     playIndex: number;
     pitchEnvironmentTarget: PitchEnvironmentTarget;
+    stadiumEnvironment?: StadiumEnvironment;
     currentInning: number;
     summary?: any;
     isStarted: boolean;
@@ -1556,4 +1558,15 @@ interface PitchQuality {
     horizontalBreak: number;
     verticalBreak: number;
 }
-export { PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount, PitchCount, InZoneByCount, PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance, TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score, Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount, HitResultCount, MatchupHandedness, GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team, Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, PlayerFromStatsCommand, PlayerHittingStats, PlayerPitchingStats, PlayerFieldingStats, PlayerRunningStats, PlayerSplitsStats, PlayerHittingSplitStats, PlayerPitchingSplitStats, PlayerImportRaw, PitchTypeMovementStat, ExitVelocityStat, PlayerFieldingPositionRaw, PlayerRunningStatsRaw, PitchEnvironmentTuning, BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, LaunchAngleStat, PitchPhysics, BattedBallPhysics, BattedBallOutcomeBucketRaw, BattedBallXyBucketRaw, BattedBallXyByTrajectoryBucketRaw, BattedBallXyByTrajectoryEvLaBucketRaw, GameSubstitution, RatingTuning };
+interface StadiumEnvironment {
+    team: string;
+    venue: string;
+    yearRange: string;
+    singles: number;
+    doubles: number;
+    triples: number;
+    hr: number;
+    walks: number;
+    strikeouts: number;
+}
+export { StadiumEnvironment, PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount, PitchCount, InZoneByCount, PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, HitterHandednessRollInput, PitcherHandednessRollInput, PowerRollInput, ShallowDeepChance, TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score, Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount, HitResultCount, MatchupHandedness, GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team, Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, PlayerFromStatsCommand, PlayerHittingStats, PlayerPitchingStats, PlayerFieldingStats, PlayerRunningStats, PlayerSplitsStats, PlayerHittingSplitStats, PlayerPitchingSplitStats, PlayerImportRaw, PitchTypeMovementStat, ExitVelocityStat, PlayerFieldingPositionRaw, PlayerRunningStatsRaw, PitchEnvironmentTuning, BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, LaunchAngleStat, PitchPhysics, BattedBallPhysics, BattedBallOutcomeBucketRaw, BattedBallXyBucketRaw, BattedBallXyByTrajectoryBucketRaw, BattedBallXyByTrajectoryEvLaBucketRaw, GameSubstitution, RatingTuning };

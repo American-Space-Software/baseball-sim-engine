@@ -36,6 +36,11 @@ declare class SimService {
     private getOfficialPlayResult;
     getUpcomingMatchup(game: Game): UpcomingMatchup;
     private isHitterSafeAtFirstOnNonFcGrounder;
+    private applyStadiumEnvironment;
+    private applyWalkFactorToInZoneRate;
+    private applyStrikeoutFactorToContactRate;
+    private getStadiumFactor;
+    private applyStadiumPowerFactors;
 }
 declare class Matchup {
     static getMatchupHandedness(hitter: GamePlayer, pitcher: GamePlayer): MatchupHandedness;
