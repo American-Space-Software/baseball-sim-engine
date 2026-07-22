@@ -1810,26 +1810,32 @@ class StatAccumulatorService {
         }
     }
 
-    private getInPlayEvent(play: any): any | undefined {
-        return (play?.playEvents ?? []).find((event: any) => event?.isPitch === true && event?.details?.isInPlay === true)
-    }
-
     private initializeAlignmentFromBoxscoreTeam(gamePk: number, teamBox: any, alignment: Map<Position, string>, players: Map<string, PlayerImportRaw>): void {
         const playersById = teamBox?.players ?? {}
+        const listedStartingPitcherId = String(teamBox?.pitchers?.[0] ?? "")
 
         for (const boxPlayer of Object.values(playersById) as any[]) {
             const playerId = String(boxPlayer?.person?.id ?? "")
             if (!playerId) continue
 
+            const pitchingStats = boxPlayer?.stats?.pitching
             const fieldingStats = boxPlayer?.stats?.fielding
             const allPositions = Array.isArray(boxPlayer?.allPositions) ? boxPlayer.allPositions : []
+            const appearedAsPitcher = Number(pitchingStats?.gamesPlayed ?? pitchingStats?.games ?? 0) > 0 || Number(pitchingStats?.numberOfPitches ?? 0) > 0 || Number(pitchingStats?.battersFaced ?? 0) > 0
+            const started = Number(pitchingStats?.gamesStarted ?? 0) > 0 || playerId === listedStartingPitcherId
+
             const player = this.getOrCreate(
                 players,
                 playerId,
                 boxPlayer?.person?.fullName,
                 boxPlayer?.batSide?.code,
-                boxPlayer?.pitchHand?.code
+                boxPlayer?.pitchHand?.code,
+                appearedAsPitcher || started ? "pitcher" : undefined
             )
+
+            if (started) {
+                player.pitching.starts++
+            }
 
             if (typeof fieldingStats?.errors === "number") {
                 player.fielding.errors += Number(fieldingStats.errors ?? 0)
@@ -1844,10 +1850,10 @@ class StatAccumulatorService {
             }
 
             const inningValueRaw =
-                fieldingStats?.innings
-                ?? fieldingStats?.inningsPlayed
-                ?? fieldingStats?.inn
-                ?? fieldingStats?.partialInnings
+                fieldingStats?.innings ??
+                fieldingStats?.inningsPlayed ??
+                fieldingStats?.inn ??
+                fieldingStats?.partialInnings
 
             const inningValue = Number(inningValueRaw)
 
@@ -1867,6 +1873,25 @@ class StatAccumulatorService {
                 }
             }
         }
+
+        if (!listedStartingPitcherId) return
+
+        const startingPitcherBox =
+            playersById[`ID${listedStartingPitcherId}`] ??
+            Object.values(playersById).find((player: any) =>
+                String(player?.person?.id ?? "") === listedStartingPitcherId
+            )
+
+        this.getOrCreate(
+            players,
+            listedStartingPitcherId,
+            startingPitcherBox?.person?.fullName,
+            startingPitcherBox?.batSide?.code,
+            startingPitcherBox?.pitchHand?.code,
+            "pitcher"
+        )
+
+        alignment.set(Position.PITCHER, listedStartingPitcherId)
     }
 
     private maybeApplyAlignmentHint(gamePk: number, rawPlayerId: any, rawPosition: any, defendingAlignment: Map<Position, string>, players: Map<string, PlayerImportRaw>, fullName?: string): void {

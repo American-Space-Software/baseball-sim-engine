@@ -50,7 +50,6 @@ declare class StatAccumulatorService {
     private updateRunningBaseOccupancy;
     private updateRunningExtraBaseTaken;
     private updateAdditionalRunningStats;
-    private getInPlayEvent;
     private initializeAlignmentFromBoxscoreTeam;
     private maybeApplyAlignmentHint;
     private applyDefensiveSubstitutionHints;

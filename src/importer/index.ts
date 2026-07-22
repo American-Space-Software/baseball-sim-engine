@@ -1398,76 +1398,76 @@ class TuningSupportService {
 
     constructor(private baseDataDir: string) {}
 
-public createServices(): {
-    pitchEnvironmentService: PitchEnvironmentService
-    downloader: DownloaderService
-    simService: SimService
-    statService: StatService
-    baselineGameService: BaselineGameService
-} {
-    const rollChartService =
-        new RollChartService()
+    public createServices(): {
+        pitchEnvironmentService: PitchEnvironmentService
+        downloader: DownloaderService
+        simService: SimService
+        statService: StatService
+        baselineGameService: BaselineGameService
+    } {
+        const rollChartService =
+            new RollChartService()
 
-    const statService =
-        new StatService()
+        const statService =
+            new StatService()
 
-    const simRolls =
-        new SimRolls(
-            rollChartService
-        )
+        const simRolls =
+            new SimRolls(
+                rollChartService
+            )
 
-    const gamePlayers =
-        new GamePlayers()
+        const gamePlayers =
+            new GamePlayers()
 
-    const runnerService =
-        new RunnerService(
-            simRolls
-        )
+        const runnerService =
+            new RunnerService(
+                simRolls
+            )
 
-    const gameInfo =
-        new GameInfo(
-            gamePlayers
-        )
+        const gameInfo =
+            new GameInfo(
+                gamePlayers
+            )
 
-    const substitutionService =
-        new SubstitutionService()
+        const substitutionService =
+            new SubstitutionService()
 
-    const simService =
-        new SimService(
-            rollChartService,
-            simRolls,
-            runnerService,
-            gameInfo,
-            substitutionService,
-            {} as PitchEnvironmentTarget
-        )
+        const simService =
+            new SimService(
+                rollChartService,
+                simRolls,
+                runnerService,
+                gameInfo,
+                substitutionService,
+                {} as PitchEnvironmentTarget
+            )
 
-    const baselineGameService =
-        new BaselineGameService(
-            simService
-        )
+        const baselineGameService =
+            new BaselineGameService(
+                simService
+            )
 
-    const downloader =
-        new DownloaderService(
-            this.baseDataDir,
-            1000
-        )
+        const downloader =
+            new DownloaderService(
+                this.baseDataDir,
+                1000
+            )
 
-    const pitchEnvironmentService =
-        new PitchEnvironmentService(
+        const pitchEnvironmentService =
+            new PitchEnvironmentService(
+                simService,
+                statService,
+                baselineGameService
+            )
+
+        return {
+            pitchEnvironmentService,
+            downloader,
             simService,
             statService,
             baselineGameService
-        )
-
-    return {
-        pitchEnvironmentService,
-        downloader,
-        simService,
-        statService,
-        baselineGameService
+        }
     }
-}
 
     public buildCandidatePitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning): PitchEnvironmentTarget {
         return JSON.parse(JSON.stringify({
