@@ -29,6 +29,60 @@ import { StatAccumulatorService } from "./service/stat-accumulator-service.js"
 const NUMBER_OF_WORKERS = 25
 
 const CHATGPT_API_KEY = process.env.CHATGPT_API_KEY
+const defaultBaseDataDir = process.env.DATA_DIR ?? "data"
+
+interface ImporterServices {
+    pitchEnvironmentService: PitchEnvironmentService
+    playerImportService: PlayerImportService
+    playerRatingService: PlayerRatingService
+    simService: SimService
+    statService: StatService
+    baselineGameService: BaselineGameService
+}
+
+function createImporterServices(baseDataDir: string): ImporterServices {
+    const rollChartService = new RollChartService()
+    const statService = new StatService()
+    const statAccumulatorService = new StatAccumulatorService()
+    const simRolls = new SimRolls(rollChartService)
+    const gamePlayers = new GamePlayers()
+    const runnerService = new RunnerService(simRolls)
+    const gameInfo = new GameInfo(gamePlayers)
+    const substitutionService = new SubstitutionService()
+
+    const simService = new SimService(
+        rollChartService,
+        simRolls,
+        runnerService,
+        gameInfo,
+        substitutionService,
+        {} as PitchEnvironmentTarget
+    )
+
+    const baselineGameService = new BaselineGameService(simService)
+    const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
+    const playerImportService = new PlayerImportService(baseDataDir, statAccumulatorService)
+    const playerRatingService = new PlayerRatingService(simService, statService, baselineGameService, playerImportService)
+
+    return {
+        pitchEnvironmentService,
+        playerImportService,
+        playerRatingService,
+        simService,
+        statService,
+        baselineGameService
+    }
+}
+
+const defaultImporterServices = createImporterServices(defaultBaseDataDir)
+const playerImportService = defaultImporterServices.playerImportService
+const playerRatingService = defaultImporterServices.playerRatingService
+
+function getImporterServices(baseDataDir: string): ImporterServices {
+    return path.resolve(baseDataDir) === path.resolve(defaultBaseDataDir)
+        ? defaultImporterServices
+        : createImporterServices(baseDataDir)
+}
 
 
 const log = (...args: any[]) => {
@@ -118,8 +172,9 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
         ? await readJson(existingPitchEnvironmentTargetPath)
         : undefined
 
+    const services = getImporterServices(baseDataDir)
     const tuningSupportService = new TuningSupportService(baseDataDir)
-    const { pitchEnvironmentService, playerImportService } = tuningSupportService.createServices()
+    const { pitchEnvironmentService, playerImportService } = services
 
     const players = seasonPlayers ?? await playerImportService.buildSeasonPlayerImports(
         season,
@@ -182,115 +237,60 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
     return fullPitchEnvironment
 }
 
-async function exportPlayerRatings(season: number, baseDataDir: string, seasonPlayers?: Map<string, PlayerImportRaw>): Promise<any[]> {
-    const seasonDataDir = path.join(
-        baseDataDir,
-        String(season)
-    )
-
-    const playerRatingsPath = path.join(
-        seasonDataDir,
-        "_player_ratings.json"
-    )
-
-    const pitchEnvironmentTargetPath = path.join(
-        seasonDataDir,
-        "_pitch_environment_target.json"
-    )
-
-    const readJson = async (filePath: string): Promise<any> => {
-        return JSON.parse(
-            await fs.promises.readFile(
-                filePath,
-                "utf8"
-            )
-        )
-    }
-
-    const writeJson = async (filePath: string, data: any): Promise<void> => {
-        await fs.promises.mkdir(
-            path.dirname(filePath),
-            {
-                recursive: true
-            }
-        )
-
-        await fs.promises.writeFile(
-            filePath,
-            JSON.stringify(data, null, 2),
-            "utf8"
-        )
-    }
-
-    const fileExists = async (filePath: string): Promise<boolean> => {
-        try {
-            await fs.promises.access(
-                filePath,
-                fs.constants.F_OK
-            )
-
-            return true
-        } catch {
-            return false
-        }
-    }
+async function exportPlayerRatings(season: number, baseDataDir: string, seasonPlayers?: Map<string, PlayerImportRaw>, services: ImporterServices = getImporterServices(baseDataDir)): Promise<any[]> {
+    const seasonDataDir = path.join(baseDataDir, String(season))
+    const playerRatingsPath = path.join(seasonDataDir, "_player_ratings.json")
+    const pitchEnvironmentTargetPath = path.join(seasonDataDir, "_pitch_environment_target.json")
 
     if (!await fileExists(pitchEnvironmentTargetPath)) {
-        throw new Error(
-            `Pitch environment target not found: ${pitchEnvironmentTargetPath}`
-        )
+        throw new Error(`Pitch environment target not found: ${pitchEnvironmentTargetPath}`)
     }
 
-    let players = seasonPlayers
+    const pitchEnvironment = await readJson<PitchEnvironmentTarget>(pitchEnvironmentTargetPath)
+    const playerIds = seasonPlayers
+        ? new Set(Array.from(seasonPlayers.keys()).map(String))
+        : undefined
 
-    if (!players) {
-        const tuningSupportService = new TuningSupportService(
-            baseDataDir
-        )
-
-        const { playerImportService } = tuningSupportService.createServices()
-
-        players = await playerImportService.buildSeasonPlayerImports(
-            season,
-            new Set()
-        )
-    }
-
-    const pitchEnvironment = await readJson(
-        pitchEnvironmentTargetPath
-    ) as PitchEnvironmentTarget
-
-    const playerRatings = Array.from(
-        players.values()
-    ).map(playerImportRaw => {
-        const command = PlayerRatingService.createPlayerFromImportRaw(
-            pitchEnvironment,
-            playerImportRaw
-        )
-
-        const ratings = PlayerRatingService.createPlayerFromStatsCommand(
-            command
-        )
-
-        return {
-            playerId: playerImportRaw.playerId,
-            firstName: playerImportRaw.firstName,
-            lastName: playerImportRaw.lastName,
-            primaryPosition: playerImportRaw.primaryPosition,
-            age: playerImportRaw.age,
-            throws: playerImportRaw.throws,
-            hits: playerImportRaw.bats,
-            hittingRatings: ratings.hittingRatings,
-            pitchRatings: ratings.pitchRatings
-        }
-    })
-
-    await writeJson(
-        playerRatingsPath,
-        playerRatings
+    const generatedRatings = await services.playerRatingService.buildPlayerRatingsForDate(
+        season,
+        getSeasonRatingsDate(season),
+        pitchEnvironment,
+        playerIds
     )
 
+    const playerRatings = Array.from(generatedRatings.values()).sort((a, b) =>
+        String(a.playerId).localeCompare(String(b.playerId))
+    )
+
+    await writeJson(playerRatingsPath, playerRatings)
+
     return playerRatings
+}
+
+function getSeasonRatingsDate(season: number): string {
+    const currentSeason = new Date().getUTCFullYear()
+
+    return season < currentSeason
+        ? `${season + 1}-01-01`
+        : new Date().toISOString().slice(0, 10)
+}
+
+async function readJson<T>(filePath: string): Promise<T> {
+    return JSON.parse(await fs.promises.readFile(filePath, "utf8")) as T
+}
+
+async function writeJson(filePath: string, data: any): Promise<void> {
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), "utf8")
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+    try {
+        await fs.promises.access(filePath, fs.constants.F_OK)
+        return true
+    } catch {
+        return false
+    }
 }
 
 async function exportAll(season: number, baseDataDir: string, options?: any): Promise<ExportAllResult> {
@@ -304,11 +304,8 @@ async function exportAll(season: number, baseDataDir: string, options?: any): Pr
         "synchronizing and building season player imports"
     )
 
-    const tuningSupportService = new TuningSupportService(
-        baseDataDir
-    )
-
-    const { playerImportService } = tuningSupportService.createServices()
+    const services = getImporterServices(baseDataDir)
+    const { playerImportService } = services
 
     const players = await playerImportService.buildSeasonPlayerImports(
         season,
@@ -335,7 +332,8 @@ async function exportAll(season: number, baseDataDir: string, options?: any): Pr
     const playerRatings = await exportPlayerRatings(
         season,
         baseDataDir,
-        players
+        players,
+        services
     )
 
     return {
@@ -1530,66 +1528,6 @@ class TuningSupportService {
 
     constructor(private baseDataDir: string) {}
 
-    public createServices(): {
-        pitchEnvironmentService: PitchEnvironmentService
-        playerImportService: PlayerImportService
-        simService: SimService
-        statService: StatService
-        baselineGameService: BaselineGameService
-    } {
-        const rollChartService = new RollChartService()
-        const statService = new StatService()
-        const statAccumulatorService = new StatAccumulatorService()
-
-        const simRolls = new SimRolls(
-            rollChartService
-        )
-
-        const gamePlayers = new GamePlayers()
-
-        const runnerService = new RunnerService(
-            simRolls
-        )
-
-        const gameInfo = new GameInfo(
-            gamePlayers
-        )
-
-        const substitutionService = new SubstitutionService()
-
-        const simService = new SimService(
-            rollChartService,
-            simRolls,
-            runnerService,
-            gameInfo,
-            substitutionService,
-            {} as PitchEnvironmentTarget
-        )
-
-        const baselineGameService = new BaselineGameService(
-            simService
-        )
-
-        const pitchEnvironmentService = new PitchEnvironmentService(
-            simService,
-            statService,
-            baselineGameService
-        )
-
-        const playerImportService = new PlayerImportService(
-            this.baseDataDir,
-            statAccumulatorService
-        )
-
-        return {
-            pitchEnvironmentService,
-            playerImportService,
-            simService,
-            statService,
-            baselineGameService
-        }
-    }
-
     public buildCandidatePitchEnvironment(pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning): PitchEnvironmentTarget {
         return JSON.parse(JSON.stringify({
             ...pitchEnvironment,
@@ -1598,7 +1536,7 @@ class TuningSupportService {
     }
 
     public evaluatePitchEnvironmentCandidateLocal(pitchEnvironment: PitchEnvironmentTarget, candidate: PitchEnvironmentTuning, gamesPerIteration: number, rngSeed: string): { actual: any, target: any, diff: any, score: number } {
-        const { pitchEnvironmentService } = this.createServices()
+        const { pitchEnvironmentService } = createImporterServices(this.baseDataDir)
         const candidatePitchEnvironment = this.buildCandidatePitchEnvironment(pitchEnvironment, candidate)
         const rng = seedrandom(rngSeed)
 
@@ -1700,7 +1638,11 @@ export {
     exportPitchEnvironmentTarget,
     exportPlayerRatings,
     exportAll,
+    playerImportService,
+    playerRatingService,
     PlayerImportService,
+    PlayerRatingService,
+    StatAccumulatorService,
     ExportPitchEnvironmentTargetResult,
     ExportAllResult
 }
@@ -1748,7 +1690,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         samplesPerCandidate: 5
     }
 
-    const baseDataDir = process.env.DATA_DIR ? process.env.DATA_DIR : "data"
+    const baseDataDir = defaultBaseDataDir
 
     let result: any
 

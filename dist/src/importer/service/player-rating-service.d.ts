@@ -2,11 +2,33 @@ import { HittingRatings, PitchEnvironmentTarget, PitchRatings, PlayerFromStatsCo
 import { BaselineGameService } from "./baseline-game-service.js";
 import { SimService } from "../../sim/service/sim-service.js";
 import { StatService } from "../../sim/service/stat-service.js";
+import { PlayerImportService } from "../../importer/service/player-import-service.js";
+interface GeneratedPlayerRatings {
+    playerId: string;
+    firstName: string;
+    lastName: string;
+    primaryPosition: any;
+    age: number;
+    throws: any;
+    hits: any;
+    hittingRatings: HittingRatings;
+    pitchRatings: PitchRatings;
+}
+interface RatingWindow {
+    name: string;
+    weight: number;
+    minimumDaysAgo?: number;
+    maximumDaysAgo?: number;
+    minimumPlateAppearances: number;
+}
 declare class PlayerRatingService {
-    private simService;
-    private statService;
-    private baselineGameService;
-    constructor(simService: SimService, statService: StatService, baselineGameService: BaselineGameService);
+    private readonly simService;
+    private readonly statService;
+    private readonly baselineGameService;
+    private readonly playerImportService;
+    constructor(simService: SimService, statService: StatService, baselineGameService: BaselineGameService, playerImportService: PlayerImportService);
+    buildPlayerRatingsForDate(season: number, gameDate: string, pitchEnvironment: PitchEnvironmentTarget, filterPlayerIds?: Set<string>): Promise<Map<string, GeneratedPlayerRatings>>;
+    private static buildPlayerRatings;
     static createPlayerFromImportRaw(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw): PlayerFromStatsCommand;
     static buildHittingRatings(command: PlayerFromStatsCommand): HittingRatings;
     private static getRunningRatings;
@@ -80,5 +102,10 @@ declare class PlayerRatingService {
     private averageRatingMetricBlock;
     private findGamePlayer;
     private averageScore;
+    private static getWindowDateRange;
+    private static hasMinimumWindowSample;
+    private static buildWeightedPlayerRatings;
+    private static blendRatingValues;
 }
 export { PlayerRatingService };
+export type { GeneratedPlayerRatings, RatingWindow };

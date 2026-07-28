@@ -17,7 +17,10 @@ class PlayerImportService {
     private readonly appearanceIndexes = new Map<number, Promise<PlayerAppearanceIndex>>()
     private readonly gameFeeds = new Map<number, any>()
 
-    public constructor(private readonly baseDataDir: string, private readonly statAccumulatorService: StatAccumulatorService) {}
+    public constructor(
+        private readonly baseDataDir: string, 
+        private readonly statAccumulatorService: StatAccumulatorService
+    ) {}
 
     public async buildSeasonPlayerImports(season: number, filterPlayerIds?: Set<string>, forceFullReimport = false): Promise<Map<string, PlayerImportRaw>> {
         const cutoffDate = this.isCurrentSeason(season)

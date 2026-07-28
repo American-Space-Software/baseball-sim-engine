@@ -7,14 +7,202 @@ import { v4 as uuidv4 } from 'uuid'
 import { BaselineGameService } from "./baseline-game-service.js"
 import { GameInfo, SimService } from "../../sim/service/sim-service.js"
 import { StatService } from "../../sim/service/stat-service.js"
+import { PlayerImportService } from "../../importer/service/player-import-service.js"
+
+interface GeneratedPlayerRatings {
+    playerId: string
+    firstName: string
+    lastName: string
+    primaryPosition: any
+    age: number
+    throws: any
+    hits: any
+    hittingRatings: HittingRatings
+    pitchRatings: PitchRatings
+}
+
+
+interface RatingWindow {
+    name: string
+    weight: number
+    minimumDaysAgo?: number
+    maximumDaysAgo?: number
+    minimumPlateAppearances: number
+}
+
+interface WeightedRatingsSet {
+    ratings: GeneratedPlayerRatings
+    weight: number
+    generated: boolean
+}
+
+const ratingWindows: RatingWindow[] = [
+    {
+        name: "core",
+        weight: 0.75,
+        minimumPlateAppearances: 0
+    },
+    {
+        name: "16-30",
+        weight: 0.15,
+        minimumDaysAgo: 16,
+        maximumDaysAgo: 30,
+        minimumPlateAppearances: 25
+    },
+    {
+        name: "8-15",
+        weight: 0.075,
+        minimumDaysAgo: 8,
+        maximumDaysAgo: 15,
+        minimumPlateAppearances: 15
+    },
+    {
+        name: "1-7",
+        weight: 0.025,
+        minimumDaysAgo: 1,
+        maximumDaysAgo: 7,
+        minimumPlateAppearances: 10
+    }
+]
 
 
 class PlayerRatingService {
 
     constructor(
-        private simService: SimService, 
-        private statService: StatService, 
-        private baselineGameService: BaselineGameService) { }
+        private readonly simService: SimService,
+        private readonly statService: StatService,
+        private readonly baselineGameService: BaselineGameService,
+        private readonly playerImportService: PlayerImportService
+    ) {}
+
+
+    public async buildPlayerRatingsForDate(season: number, gameDate: string, pitchEnvironment: PitchEnvironmentTarget, filterPlayerIds?: Set<string>): Promise<Map<string, GeneratedPlayerRatings>> {
+        const coreWindow = ratingWindows.find(window =>
+            window.name === "core"
+        )
+
+        if (!coreWindow) {
+            throw new Error("The core rating window is not configured.")
+        }
+
+        const recentWindows = ratingWindows.filter(window =>
+            window.name !== "core"
+        )
+
+        const coreImports = await this.playerImportService.buildCorePlayerImports(
+            season,
+            gameDate,
+            filterPlayerIds
+        )
+
+        const recentImportsByWindow = new Map<string, Map<string, PlayerImportRaw>>()
+
+        for (const window of recentWindows) {
+            const dateRange = PlayerRatingService.getWindowDateRange(
+                gameDate,
+                window
+            )
+
+            recentImportsByWindow.set(
+                window.name,
+                await this.playerImportService.buildDateRangePlayerImports(
+                    season,
+                    dateRange.startDate,
+                    dateRange.endDateExclusive,
+                    filterPlayerIds
+                )
+            )
+        }
+
+        const playerIds = filterPlayerIds && filterPlayerIds.size > 0
+            ? new Set(Array.from(filterPlayerIds).map(String))
+            : new Set(coreImports.keys())
+
+        for (const imports of recentImportsByWindow.values()) {
+            for (const playerId of imports.keys()) {
+                playerIds.add(playerId)
+            }
+        }
+
+        const ratingsByPlayerId = new Map<string, GeneratedPlayerRatings>()
+
+        for (const playerId of playerIds) {
+            const coreImport = coreImports.get(playerId)
+
+            if (!coreImport) {
+                continue
+            }
+
+            const ratingSets: WeightedRatingsSet[] = [
+                {
+                    weight: coreWindow.weight,
+                    generated: true,
+                    ratings: PlayerRatingService.buildPlayerRatings(
+                        pitchEnvironment,
+                        coreImport
+                    )
+                }
+            ]
+
+            for (const window of recentWindows) {
+                const playerImport = recentImportsByWindow
+                    .get(window.name)
+                    ?.get(playerId)
+
+                if (
+                    !playerImport ||
+                    !PlayerRatingService.hasMinimumWindowSample(
+                        playerImport,
+                        window
+                    )
+                ) {
+                    continue
+                }
+
+                ratingSets.push({
+                    weight: window.weight,
+                    generated: true,
+                    ratings: PlayerRatingService.buildPlayerRatings(
+                        pitchEnvironment,
+                        playerImport
+                    )
+                })
+            }
+
+            ratingsByPlayerId.set(
+                playerId,
+                PlayerRatingService.buildWeightedPlayerRatings(
+                    ratingSets
+                )
+            )
+        }
+
+        return ratingsByPlayerId
+    }
+
+    private static buildPlayerRatings(pitchEnvironment: PitchEnvironmentTarget, playerImport: PlayerImportRaw): GeneratedPlayerRatings {
+        const command = PlayerRatingService.createPlayerFromImportRaw(
+            pitchEnvironment,
+            playerImport
+        )
+
+        const generated = PlayerRatingService.createPlayerFromStatsCommand(
+            command
+        )
+
+        return {
+            playerId: String(playerImport.playerId),
+            firstName: playerImport.firstName,
+            lastName: playerImport.lastName,
+            primaryPosition: playerImport.primaryPosition,
+            age: playerImport.age,
+            throws: playerImport.throws,
+            hits: playerImport.bats,
+            hittingRatings: generated.hittingRatings,
+            pitchRatings: generated.pitchRatings
+        }
+    }
+
 
     static createPlayerFromImportRaw(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw): PlayerFromStatsCommand {
         const hasHittingSample = playerImportRaw.hitting.pa > 0
@@ -1807,6 +1995,176 @@ class PlayerRatingService {
         return scores.length > 0 ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 0
     }
 
+    private static getWindowDateRange(gameDate: string, window: RatingWindow): {
+        startDate: string
+        endDateExclusive: string
+    } {
+        if (
+            window.minimumDaysAgo === undefined ||
+            window.maximumDaysAgo === undefined
+        ) {
+            throw new Error(
+                `Rating window ${window.name} does not define a calendar range.`
+            )
+        }
+
+        const startDate = new Date(
+            `${gameDate}T12:00:00.000Z`
+        )
+
+        const endDateExclusive = new Date(
+            `${gameDate}T12:00:00.000Z`
+        )
+
+        startDate.setUTCDate(
+            startDate.getUTCDate() -
+            window.maximumDaysAgo
+        )
+
+        endDateExclusive.setUTCDate(
+            endDateExclusive.getUTCDate() -
+            window.minimumDaysAgo +
+            1
+        )
+
+        return {
+            startDate: startDate.toISOString().slice(0, 10),
+            endDateExclusive: endDateExclusive.toISOString().slice(0, 10)
+        }
+    }
+
+
+    private static hasMinimumWindowSample(playerImport: PlayerImportRaw, window: RatingWindow): boolean {
+        const hasPitchingHistory =
+            Number(playerImport.pitching?.games ?? 0) > 0 ||
+            Number(playerImport.pitching?.battersFaced ?? 0) > 0 ||
+            Number(playerImport.pitching?.outs ?? 0) > 0
+
+        const hasHittingHistory =
+            Number(playerImport.hitting?.games ?? 0) > 0 ||
+            Number(playerImport.hitting?.pa ?? 0) > 0
+
+        if (hasPitchingHistory && !hasHittingHistory) {
+            return true
+        }
+
+        const plateAppearances = Number(
+            playerImport.hitting?.pa ??
+            0
+        )
+
+        return Number.isFinite(plateAppearances) &&
+            plateAppearances >= window.minimumPlateAppearances
+    }
+
+    private static buildWeightedPlayerRatings(ratingsSets: WeightedRatingsSet[]): GeneratedPlayerRatings {
+        if (ratingsSets.length === 0) {
+            throw new Error(
+                "Cannot build weighted player ratings without rating sets."
+            )
+        }
+
+        const totalWeight = ratingsSets.reduce(
+            (total, set) =>
+                total + set.weight,
+            0
+        )
+
+        if (!Number.isFinite(totalWeight) || totalWeight <= 0) {
+            throw new Error(
+                `Cannot build weighted player ratings with total weight ${totalWeight}.`
+            )
+        }
+
+        const normalizedSets = ratingsSets.map(set => ({
+            ratings: set.ratings,
+            generated: set.generated,
+            weight: set.weight / totalWeight
+        }))
+
+        const source =
+            normalizedSets.find(set =>
+                set.generated
+            )?.ratings ??
+            normalizedSets[0].ratings
+
+        return {
+            playerId: source.playerId,
+            firstName: source.firstName,
+            lastName: source.lastName,
+            primaryPosition: source.primaryPosition,
+            age: source.age,
+            throws: source.throws,
+            hits: source.hits,
+            hittingRatings: this.blendRatingValues(
+                normalizedSets.map(set => ({
+                    value: set.ratings.hittingRatings,
+                    weight: set.weight
+                })),
+                source.hittingRatings
+            ),
+            pitchRatings: this.blendRatingValues(
+                normalizedSets.map(set => ({
+                    value: set.ratings.pitchRatings,
+                    weight: set.weight
+                })),
+                source.pitchRatings
+            )
+        }
+    }
+
+    private static blendRatingValues(values: {
+        value: any
+        weight: number
+    }[], source: any): any {
+        if (typeof source === "number") {
+            return values.reduce(
+                (total, entry) => {
+                    const value = Number(
+                        entry.value
+                    )
+
+                    return total + (
+                        Number.isFinite(value)
+                            ? value * entry.weight
+                            : 0
+                    )
+                },
+                0
+            )
+        }
+
+        if (Array.isArray(source)) {
+            return structuredClone(
+                source
+            )
+        }
+
+        if (!source || typeof source !== "object") {
+            return source
+        }
+
+        const result: Record<string, any> = {}
+
+        for (const key of Object.keys(source)) {
+            result[key] = this.blendRatingValues(
+                values.map(entry => ({
+                    value: entry.value?.[key],
+                    weight: entry.weight
+                })),
+                source[key]
+            )
+        }
+
+        return result
+    }
 }
 
-export { PlayerRatingService }
+export {
+    PlayerRatingService
+}
+
+export type {
+    GeneratedPlayerRatings,
+    RatingWindow
+}
