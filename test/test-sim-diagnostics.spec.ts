@@ -29,12 +29,11 @@ import type {
 } from "../src/sim/index.js"
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
-import { DownloaderService } from "../src/importer/service/downloader-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 import { GameInfo } from "../src/sim/service/sim-service.js"
 
 const season = 2025
-const baseDataDir = "data"
+const baseDataDir = process.env.DATA_DIR ? process.env.DATA_DIR : "data"
 const evaluationSeed = 4
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))

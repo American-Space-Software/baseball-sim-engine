@@ -1,5 +1,9 @@
 import assert from "assert"
 import seedrandom from "seedrandom"
+
+import fs from "fs"
+import path from "path"
+
 import {
     StatService,
     simService,
@@ -20,21 +24,26 @@ import type {
 } from "../src/sim/index.js"
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
-import { DownloaderService } from "../src/importer/service/downloader-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 
 const statService = new StatService()
-let pitchEnvironment: PitchEnvironmentTarget
+
+const pitchEnvironment = JSON.parse(
+    fs.readFileSync(
+        path.resolve(
+            process.env.DATA_DIR ?? "data",
+            "2025",
+            "_pitch_environment_target.json"
+        ),
+        "utf8"
+    )
+) as PitchEnvironmentTarget
 
 const season = 2025
 
 const baselineGameService = new BaselineGameService(simService)
 const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
 
-const downloaderService = new DownloaderService("data", 1000)
-const homeFieldAdvantage = await downloaderService.getSeasonHomeFieldAdvantage(season)
-
-const players = await downloaderService.buildSeasonPlayerImports(season, new Set([]))
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
@@ -247,10 +256,6 @@ const setAllBenchHittersForPosition = (team: TeamInfo, pitcher: GamePlayer, posi
 const substitutionService = simService.substitutionService
 
 describe("Baseball Sim Engine Substitutions", async () => {
-    it("should calculate pitch environment target for season", async () => {
-        pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players, homeFieldAdvantage)
-        assert.ok(pitchEnvironment)
-    })
 
     it("should start a baseline game", () => {
         const game = buildGame("start-baseline-game")

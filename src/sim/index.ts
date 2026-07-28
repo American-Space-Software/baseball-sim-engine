@@ -7,7 +7,7 @@ import { GameInfo, GamePlayers, Matchup, SimRolls, SimService } from "./service/
 import { StatService } from "./service/stat-service.js"
 
 
-import defaultPitchEnvironmentTargetJson from "../../data/2025/_pitch_environment_target.json" with { type: "json" }
+import defaultPitchEnvironmentTargetJson from "./_pitch_environment_target.json" with { type: "json" }
 import { RunnerService } from "./service/runner-service.js"
 import { SubstitutionService } from "./service/substitution-service.js"
 import { PlayerRatingService } from "../importer/service/player-rating-service.js"

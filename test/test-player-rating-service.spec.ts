@@ -16,11 +16,15 @@ import { RunnerService } from "../src/sim/service/runner-service.js"
 import { SubstitutionService } from "../src/sim/service/substitution-service.js"
 import { PlayerRatingService } from "../src/importer/service/player-rating-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
-import { DownloaderService } from "../src/importer/service/downloader-service.js"
 import { Handedness, simService } from "../src/sim/index.js"
 
+
+import { PlayerImportService } from "../src/importer/service/player-import-service.js"
+import { StatAccumulatorService } from "../src/importer/service/stat-accumulator-service.js"
+
 const season = 2025
-const baseDataDir = "data"
+const baseDataDir = process.env.DATA_DIR ? process.env.DATA_DIR : "data"
+
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
@@ -69,12 +73,14 @@ const createServices = () => {
         playerRatingService
     }
 }   
-const baselineGameService = new BaselineGameService(simService)
-const downloaderService = new DownloaderService(baseDataDir, 1000)
 
-const players = await downloaderService.buildSeasonPlayerImports(
+const baselineGameService = new BaselineGameService(simService)
+const statAccumulatorService = new StatAccumulatorService()
+const playerImportService = new PlayerImportService(baseDataDir, statAccumulatorService)
+
+const players = await playerImportService.buildSeasonPlayerImports(
     season,
-    new Set([])
+    new Set()
 )
 
 const services = createServices()

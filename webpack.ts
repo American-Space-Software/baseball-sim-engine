@@ -44,6 +44,12 @@ const baseConfig = {
       }
     ]
   },
+
+  externalsType: "module",
+  externals: {
+      "baseball-database": "baseball-database"
+  },
+
   output: {
     filename: "index.js",
     library: {

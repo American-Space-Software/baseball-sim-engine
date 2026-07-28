@@ -4,7 +4,6 @@ import { PitchEnvironmentTarget, PitchEnvironmentTuning, PlayerImportRaw } from 
 import { RollChartService } from "../sim/service/roll-chart-service.js"
 import { GameInfo, GamePlayers, SimRolls, SimService } from "../sim/service/sim-service.js"
 import { StatService } from "../sim/service/stat-service.js"
-import { DownloaderService, PlayerImportGameFeed } from "./service/downloader-service.js"
 import { PitchEnvironmentService } from "./service/pitch-environment-service.js"
 import { v4 as uuidv4 } from "uuid"
 import path from "path"
@@ -16,6 +15,15 @@ import { RunnerService } from "../sim/service/runner-service.js"
 import { SubstitutionService } from "../sim/service/substitution-service.js"
 import { PlayerRatingService } from "./service/player-rating-service.js"
 import { BaselineGameService } from "./service/baseline-game-service.js"
+
+import {
+    downloadSeason as downloadDatabaseSeason,
+    getGame as getDatabaseGame,
+    getSchedule as getDatabaseSchedule
+} from "baseball-database"
+
+import { PlayerImportService } from "./service/player-import-service.js"
+import { StatAccumulatorService } from "./service/stat-accumulator-service.js"
 
 
 const NUMBER_OF_WORKERS = 25
@@ -70,18 +78,36 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
     const existingPitchEnvironmentTargetPath = path.join(baseDataDir, String(season), "_pitch_environment_target.json")
 
     const readJson = async (filePath: string): Promise<any> => {
-        const text = await fs.promises.readFile(filePath, "utf8")
-        return JSON.parse(text)
+        return JSON.parse(
+            await fs.promises.readFile(
+                filePath,
+                "utf8"
+            )
+        )
     }
 
     const writeJson = async (filePath: string, data: any): Promise<void> => {
-        await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
-        await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), "utf8")
+        await fs.promises.mkdir(
+            path.dirname(filePath),
+            {
+                recursive: true
+            }
+        )
+
+        await fs.promises.writeFile(
+            filePath,
+            JSON.stringify(data, null, 2),
+            "utf8"
+        )
     }
 
     const fileExists = async (filePath: string): Promise<boolean> => {
         try {
-            await fs.promises.access(filePath, fs.constants.F_OK)
+            await fs.promises.access(
+                filePath,
+                fs.constants.F_OK
+            )
+
             return true
         } catch {
             return false
@@ -93,16 +119,19 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
         : undefined
 
     const tuningSupportService = new TuningSupportService(baseDataDir)
-    const { pitchEnvironmentService, downloader } = tuningSupportService.createServices()
+    const { pitchEnvironmentService, playerImportService } = tuningSupportService.createServices()
 
-    const players = seasonPlayers ?? await downloader.buildSeasonPlayerImports(season, new Set([]))
+    const players = seasonPlayers ?? await playerImportService.buildSeasonPlayerImports(
+        season,
+        new Set()
+    )
 
     const currentSeason = new Date().getUTCFullYear()
     const homeFieldReferenceSeason = season === currentSeason
         ? season - 1
         : season
 
-    const homeFieldAdvantage = await downloader.getSeasonHomeFieldAdvantage(
+    const homeFieldAdvantage = await getSeasonHomeFieldAdvantage(
         homeFieldReferenceSeason
     )
 
@@ -119,10 +148,15 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
         homeFieldAdvantage
     )
 
-    const rng = seedrandom(String(season))
+    const rng = seedrandom(
+        String(season)
+    )
 
     const tuningEvaluationService = new TuningEvaluationService()
-    const pitchEnvironmentTuner = new PitchEnvironmentTuner(tuningSupportService, tuningEvaluationService)
+    const pitchEnvironmentTuner = new PitchEnvironmentTuner(
+        tuningSupportService,
+        tuningEvaluationService
+    )
 
     const pitchEnvironmentTuning = await pitchEnvironmentTuner.getTunings(
         pitchEnvironment,
@@ -140,7 +174,10 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
         pitchEnvironmentTuning
     }
 
-    await writeJson(existingPitchEnvironmentTargetPath, fullPitchEnvironment)
+    await writeJson(
+        existingPitchEnvironmentTargetPath,
+        fullPitchEnvironment
+    )
 
     return fullPitchEnvironment
 }
@@ -162,13 +199,11 @@ async function exportPlayerRatings(season: number, baseDataDir: string, seasonPl
     )
 
     const readJson = async (filePath: string): Promise<any> => {
-        const text = await fs.promises.readFile(
-            filePath,
-            "utf8"
-        )
-
         return JSON.parse(
-            text
+            await fs.promises.readFile(
+                filePath,
+                "utf8"
+            )
         )
     }
 
@@ -182,11 +217,7 @@ async function exportPlayerRatings(season: number, baseDataDir: string, seasonPl
 
         await fs.promises.writeFile(
             filePath,
-            JSON.stringify(
-                data,
-                null,
-                2
-            ),
+            JSON.stringify(data, null, 2),
             "utf8"
         )
     }
@@ -213,53 +244,46 @@ async function exportPlayerRatings(season: number, baseDataDir: string, seasonPl
     let players = seasonPlayers
 
     if (!players) {
-        const tuningSupportService =
-            new TuningSupportService(
-                baseDataDir
-            )
+        const tuningSupportService = new TuningSupportService(
+            baseDataDir
+        )
 
-        const {
-            downloader
-        } = tuningSupportService.createServices()
+        const { playerImportService } = tuningSupportService.createServices()
 
-        players = await downloader.buildSeasonPlayerImports(
+        players = await playerImportService.buildSeasonPlayerImports(
             season,
-            new Set([])
+            new Set()
         )
     }
 
-    const pitchEnvironment =
-        await readJson(
-            pitchEnvironmentTargetPath
-        ) as PitchEnvironmentTarget
+    const pitchEnvironment = await readJson(
+        pitchEnvironmentTargetPath
+    ) as PitchEnvironmentTarget
 
-    const playerRatings =
-        Array.from(
-            players.values()
-        ).map(playerImportRaw => {
-            const command =
-                PlayerRatingService.createPlayerFromImportRaw(
-                    pitchEnvironment,
-                    playerImportRaw
-                )
+    const playerRatings = Array.from(
+        players.values()
+    ).map(playerImportRaw => {
+        const command = PlayerRatingService.createPlayerFromImportRaw(
+            pitchEnvironment,
+            playerImportRaw
+        )
 
-            const ratings =
-                PlayerRatingService.createPlayerFromStatsCommand(
-                    command
-                )
+        const ratings = PlayerRatingService.createPlayerFromStatsCommand(
+            command
+        )
 
-            return {
-                playerId: playerImportRaw.playerId,
-                firstName: playerImportRaw.firstName,
-                lastName: playerImportRaw.lastName,
-                primaryPosition: playerImportRaw.primaryPosition,
-                age: playerImportRaw.age,
-                throws: playerImportRaw.throws,
-                hits: playerImportRaw.bats,
-                hittingRatings: ratings.hittingRatings,
-                pitchRatings: ratings.pitchRatings
-            }
-        })
+        return {
+            playerId: playerImportRaw.playerId,
+            firstName: playerImportRaw.firstName,
+            lastName: playerImportRaw.lastName,
+            primaryPosition: playerImportRaw.primaryPosition,
+            age: playerImportRaw.age,
+            throws: playerImportRaw.throws,
+            hits: playerImportRaw.bats,
+            hittingRatings: ratings.hittingRatings,
+            pitchRatings: ratings.pitchRatings
+        }
+    })
 
     await writeJson(
         playerRatingsPath,
@@ -270,18 +294,31 @@ async function exportPlayerRatings(season: number, baseDataDir: string, seasonPl
 }
 
 async function exportAll(season: number, baseDataDir: string, options?: any): Promise<ExportAllResult> {
-    log("GENERATE ALL START", `season=${season}`)
-    log("GENERATE ALL DATA", "synchronizing and building season player imports")
-
-    const tuningSupportService = new TuningSupportService(baseDataDir)
-    const { downloader } = tuningSupportService.createServices()
-
-    const players = await downloader.buildSeasonPlayerImports(
-        season,
-        new Set([])
+    log(
+        "GENERATE ALL START",
+        `season=${season}`
     )
 
-    log("GENERATE ALL STEP 1/2", "pitch environment target")
+    log(
+        "GENERATE ALL DATA",
+        "synchronizing and building season player imports"
+    )
+
+    const tuningSupportService = new TuningSupportService(
+        baseDataDir
+    )
+
+    const { playerImportService } = tuningSupportService.createServices()
+
+    const players = await playerImportService.buildSeasonPlayerImports(
+        season,
+        new Set()
+    )
+
+    log(
+        "GENERATE ALL STEP 1/2",
+        "pitch environment target"
+    )
 
     const pitchEnvironmentTarget = await exportPitchEnvironmentTarget(
         season,
@@ -290,8 +327,10 @@ async function exportAll(season: number, baseDataDir: string, options?: any): Pr
         players
     )
 
-
-    log("GENERATE ALL STEP 2/2", "player ratings")
+    log(
+        "GENERATE ALL STEP 2/2",
+        "player ratings"
+    )
 
     const playerRatings = await exportPlayerRatings(
         season,
@@ -304,6 +343,99 @@ async function exportAll(season: number, baseDataDir: string, options?: any): Pr
         pitchEnvironmentTarget,
         playerRatings
     }
+}
+
+async function getSeasonHomeFieldAdvantage(season: number): Promise<number> {
+    await downloadDatabaseSeason(season)
+
+    const schedule = getDatabaseSchedule(season)
+
+    if (!schedule) {
+        throw new Error(
+            `Schedule ${season} was not found after synchronization.`
+        )
+    }
+
+    let homeWins = 0
+    let awayWins = 0
+
+    for (const date of schedule.data?.dates ?? []) {
+        for (const scheduledGame of date?.games ?? []) {
+            const gamePk = Number(
+                scheduledGame?.gamePk
+            )
+
+            if (!gamePk || !isCompletedScheduleGame(scheduledGame)) {
+                continue
+            }
+
+            const storedGame = getDatabaseGame(gamePk)
+
+            if (!storedGame) {
+                throw new Error(
+                    `Completed game ${gamePk} was not found in baseball-database.`
+                )
+            }
+
+            const homeScore = Number(
+                storedGame.data
+                    ?.liveData
+                    ?.linescore
+                    ?.teams
+                    ?.home
+                    ?.runs
+            )
+
+            const awayScore = Number(
+                storedGame.data
+                    ?.liveData
+                    ?.linescore
+                    ?.teams
+                    ?.away
+                    ?.runs
+            )
+
+            if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore) || homeScore === awayScore) {
+                continue
+            }
+
+            if (homeScore > awayScore) {
+                homeWins++
+            } else {
+                awayWins++
+            }
+        }
+    }
+
+    const completedGames = homeWins + awayWins
+
+    if (completedGames === 0) {
+        throw new Error(
+            `No completed games were found for home-field calculation in ${season}.`
+        )
+    }
+
+    return homeWins / completedGames - 0.5
+}
+
+function isCompletedScheduleGame(game: any): boolean {
+    const abstractState = String(
+        game?.status?.abstractGameState ?? ""
+    )
+
+    const detailedState = String(
+        game?.status?.detailedState ?? ""
+    )
+
+    const codedState = String(
+        game?.status?.codedGameState ?? ""
+    )
+
+    return abstractState === "Final" ||
+        detailedState === "Final" ||
+        detailedState === "Game Over" ||
+        detailedState === "Completed Early" ||
+        codedState === "F"
 }
 
 class PitchEnvironmentTuner {
@@ -1400,69 +1532,58 @@ class TuningSupportService {
 
     public createServices(): {
         pitchEnvironmentService: PitchEnvironmentService
-        downloader: DownloaderService
+        playerImportService: PlayerImportService
         simService: SimService
         statService: StatService
         baselineGameService: BaselineGameService
     } {
-        const rollChartService =
-            new RollChartService()
+        const rollChartService = new RollChartService()
+        const statService = new StatService()
+        const statAccumulatorService = new StatAccumulatorService()
 
-        const statService =
-            new StatService()
+        const simRolls = new SimRolls(
+            rollChartService
+        )
 
-        const simRolls =
-            new SimRolls(
-                rollChartService
-            )
+        const gamePlayers = new GamePlayers()
 
-        const gamePlayers =
-            new GamePlayers()
+        const runnerService = new RunnerService(
+            simRolls
+        )
 
-        const runnerService =
-            new RunnerService(
-                simRolls
-            )
+        const gameInfo = new GameInfo(
+            gamePlayers
+        )
 
-        const gameInfo =
-            new GameInfo(
-                gamePlayers
-            )
+        const substitutionService = new SubstitutionService()
 
-        const substitutionService =
-            new SubstitutionService()
+        const simService = new SimService(
+            rollChartService,
+            simRolls,
+            runnerService,
+            gameInfo,
+            substitutionService,
+            {} as PitchEnvironmentTarget
+        )
 
-        const simService =
-            new SimService(
-                rollChartService,
-                simRolls,
-                runnerService,
-                gameInfo,
-                substitutionService,
-                {} as PitchEnvironmentTarget
-            )
+        const baselineGameService = new BaselineGameService(
+            simService
+        )
 
-        const baselineGameService =
-            new BaselineGameService(
-                simService
-            )
+        const pitchEnvironmentService = new PitchEnvironmentService(
+            simService,
+            statService,
+            baselineGameService
+        )
 
-        const downloader =
-            new DownloaderService(
-                this.baseDataDir,
-                1000
-            )
-
-        const pitchEnvironmentService =
-            new PitchEnvironmentService(
-                simService,
-                statService,
-                baselineGameService
-            )
+        const playerImportService = new PlayerImportService(
+            this.baseDataDir,
+            statAccumulatorService
+        )
 
         return {
             pitchEnvironmentService,
-            downloader,
+            playerImportService,
             simService,
             statService,
             baselineGameService
@@ -1579,12 +1700,10 @@ export {
     exportPitchEnvironmentTarget,
     exportPlayerRatings,
     exportAll,
-    DownloaderService,
-    PlayerImportGameFeed,
+    PlayerImportService,
     ExportPitchEnvironmentTargetResult,
     ExportAllResult
 }
-
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     const action = process.argv[2]
@@ -1629,7 +1748,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         samplesPerCandidate: 5
     }
 
-    const baseDataDir = "data"
+    const baseDataDir = process.env.DATA_DIR ? process.env.DATA_DIR : "data"
 
     let result: any
 

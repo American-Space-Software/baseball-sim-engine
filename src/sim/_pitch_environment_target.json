@@ -1,0 +1,1088 @@
+{
+  "avgRating": 100,
+  "season": 2026,
+  "homeFieldAdvantage": 0.0425,
+  "pitch": {
+    "inZonePercent": 49.2,
+    "strikePercent": 64,
+    "ballPercent": 36,
+    "swingPercent": 47.5,
+    "pitchesPerPA": 3.89,
+    "inZoneByCount": [
+      {
+        "balls": 0,
+        "strikes": 0,
+        "inZone": 54
+      },
+      {
+        "balls": 0,
+        "strikes": 1,
+        "inZone": 45
+      },
+      {
+        "balls": 0,
+        "strikes": 2,
+        "inZone": 31
+      },
+      {
+        "balls": 1,
+        "strikes": 0,
+        "inZone": 55
+      },
+      {
+        "balls": 1,
+        "strikes": 1,
+        "inZone": 50
+      },
+      {
+        "balls": 1,
+        "strikes": 2,
+        "inZone": 37
+      },
+      {
+        "balls": 2,
+        "strikes": 0,
+        "inZone": 59
+      },
+      {
+        "balls": 2,
+        "strikes": 1,
+        "inZone": 57
+      },
+      {
+        "balls": 2,
+        "strikes": 2,
+        "inZone": 46
+      },
+      {
+        "balls": 3,
+        "strikes": 0,
+        "inZone": 62
+      },
+      {
+        "balls": 3,
+        "strikes": 1,
+        "inZone": 61
+      },
+      {
+        "balls": 3,
+        "strikes": 2,
+        "inZone": 58
+      }
+    ]
+  },
+  "swing": {
+    "swingAtStrikesPercent": 66.4,
+    "swingAtBallsPercent": 29.2,
+    "inZoneContactPercent": 85.2,
+    "outZoneContactPercent": 58,
+    "zoneSwingBase": 66.4,
+    "chaseSwingBase": 29.2,
+    "zoneContactBase": 85.2,
+    "chaseContactBase": 58,
+    "behaviorByCount": [
+      {
+        "balls": 0,
+        "strikes": 0,
+        "zoneSwingPercent": 44.5,
+        "chaseSwingPercent": 16.6,
+        "zoneContactPercent": 82.9,
+        "chaseContactPercent": 51.8,
+        "foulContactPercent": 52,
+        "inPlayPercentOfContact": 48,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 0,
+        "strikes": 1,
+        "zoneSwingPercent": 73.6,
+        "chaseSwingPercent": 29.5,
+        "zoneContactPercent": 84.4,
+        "chaseContactPercent": 54,
+        "foulContactPercent": 52.5,
+        "inPlayPercentOfContact": 47.5,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 0,
+        "strikes": 2,
+        "zoneSwingPercent": 86.2,
+        "chaseSwingPercent": 34.1,
+        "zoneContactPercent": 86.4,
+        "chaseContactPercent": 60.1,
+        "foulContactPercent": 53.5,
+        "inPlayPercentOfContact": 46.5,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 1,
+        "strikes": 0,
+        "zoneSwingPercent": 58.9,
+        "chaseSwingPercent": 22.7,
+        "zoneContactPercent": 84.1,
+        "chaseContactPercent": 53.4,
+        "foulContactPercent": 51.2,
+        "inPlayPercentOfContact": 48.8,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 1,
+        "strikes": 1,
+        "zoneSwingPercent": 77,
+        "chaseSwingPercent": 32.2,
+        "zoneContactPercent": 84.2,
+        "chaseContactPercent": 55.8,
+        "foulContactPercent": 51.9,
+        "inPlayPercentOfContact": 48.1,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 1,
+        "strikes": 2,
+        "zoneSwingPercent": 88.3,
+        "chaseSwingPercent": 39.5,
+        "zoneContactPercent": 86.3,
+        "chaseContactPercent": 60.8,
+        "foulContactPercent": 53.4,
+        "inPlayPercentOfContact": 46.6,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 2,
+        "strikes": 0,
+        "zoneSwingPercent": 54.8,
+        "chaseSwingPercent": 19.9,
+        "zoneContactPercent": 85.7,
+        "chaseContactPercent": 57.7,
+        "foulContactPercent": 51.3,
+        "inPlayPercentOfContact": 48.7,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 2,
+        "strikes": 1,
+        "zoneSwingPercent": 77.2,
+        "chaseSwingPercent": 32.5,
+        "zoneContactPercent": 85.7,
+        "chaseContactPercent": 57.8,
+        "foulContactPercent": 51.1,
+        "inPlayPercentOfContact": 48.9,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 2,
+        "strikes": 2,
+        "zoneSwingPercent": 88.6,
+        "chaseSwingPercent": 43.2,
+        "zoneContactPercent": 87.3,
+        "chaseContactPercent": 63,
+        "foulContactPercent": 52.6,
+        "inPlayPercentOfContact": 47.4,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 3,
+        "strikes": 0,
+        "zoneSwingPercent": 10.5,
+        "chaseSwingPercent": 2.6,
+        "zoneContactPercent": 89.2,
+        "chaseContactPercent": 65.3,
+        "foulContactPercent": 46.2,
+        "inPlayPercentOfContact": 53.8,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 3,
+        "strikes": 1,
+        "zoneSwingPercent": 70.2,
+        "chaseSwingPercent": 25.9,
+        "zoneContactPercent": 87,
+        "chaseContactPercent": 64.2,
+        "foulContactPercent": 51.2,
+        "inPlayPercentOfContact": 48.8,
+        "inPlayPercentOfFairContact": 100
+      },
+      {
+        "balls": 3,
+        "strikes": 2,
+        "zoneSwingPercent": 88.6,
+        "chaseSwingPercent": 44.7,
+        "zoneContactPercent": 88.8,
+        "chaseContactPercent": 66.3,
+        "foulContactPercent": 50.9,
+        "inPlayPercentOfContact": 49.1,
+        "inPlayPercentOfFairContact": 100
+      }
+    ]
+  },
+  "battedBall": {
+    "inPlayPercent": 17.4,
+    "contactRollInput": {
+      "groundball": 42,
+      "flyBall": 34,
+      "lineDrive": 24
+    },
+    "powerRollInput": {
+      "out": 676,
+      "singles": 211,
+      "doubles": 63,
+      "triples": 5,
+      "hr": 45
+    },
+    "evLaModel": {
+      "groundBall": {
+        "count": 63254,
+        "evMean": 84.4219,
+        "evStdDev": 17.5308,
+        "laMean": -15.7654,
+        "laStdDev": 18.0666,
+        "evLaCorrelation": 0.5501
+      },
+      "lineDrive": {
+        "count": 49205,
+        "evMean": 92.5142,
+        "evStdDev": 12.882,
+        "laMean": 14.9989,
+        "laStdDev": 5.6907,
+        "evLaCorrelation": -0.0186
+      },
+      "flyBall": {
+        "count": 23855,
+        "evMean": 90.1311,
+        "evStdDev": 12.7713,
+        "laMean": 30.5765,
+        "laStdDev": 3.3741,
+        "evLaCorrelation": -0.0876
+      },
+      "popup": {
+        "count": 31680,
+        "evMean": 83.3818,
+        "evStdDev": 12.4849,
+        "laMean": 53.8313,
+        "laStdDev": 12.6295,
+        "evLaCorrelation": -0.2776
+      }
+    },
+    "outcomeModel": {
+      "groundBall": {
+        "out": {
+          "prior": 0.773659,
+          "evMean": 82.797311,
+          "evStdDev": 17.058873,
+          "laMean": -17.305638,
+          "laStdDev": 17.593664,
+          "evLaCorrelation": 0.494423
+        },
+        "single": {
+          "prior": 0.20609,
+          "evMean": 89.531298,
+          "evStdDev": 18.508194,
+          "laMean": -11.172139,
+          "laStdDev": 19.236392,
+          "evLaCorrelation": 0.676932
+        },
+        "double": {
+          "prior": 0.019161,
+          "evMean": 94.293729,
+          "evStdDev": 10.381161,
+          "laMean": -3.587459,
+          "laStdDev": 8.646034,
+          "evLaCorrelation": 0.297186
+        },
+        "triple": {
+          "prior": 0.001059,
+          "evMean": 97.910448,
+          "evStdDev": 6.058746,
+          "laMean": -5.134328,
+          "laStdDev": 8.851841,
+          "evLaCorrelation": 0.471211
+        },
+        "hr": {
+          "prior": 0.000032,
+          "evMean": 99,
+          "evStdDev": 1,
+          "laMean": -3,
+          "laStdDev": 3,
+          "evLaCorrelation": -0.95
+        }
+      },
+      "lineDrive": {
+        "out": {
+          "prior": 0.385611,
+          "evMean": 90.038157,
+          "evStdDev": 14.117407,
+          "laMean": 15.684199,
+          "laStdDev": 6.133557,
+          "evLaCorrelation": 0.141197
+        },
+        "single": {
+          "prior": 0.404044,
+          "evMean": 90.895931,
+          "evStdDev": 12.061529,
+          "laMean": 12.976007,
+          "laStdDev": 4.778929,
+          "evLaCorrelation": -0.504564
+        },
+        "double": {
+          "prior": 0.156895,
+          "evMean": 98.86943,
+          "evStdDev": 8.69313,
+          "laMean": 16.343523,
+          "laStdDev": 4.855542,
+          "evLaCorrelation": -0.067593
+        },
+        "triple": {
+          "prior": 0.011096,
+          "evMean": 98.421245,
+          "evStdDev": 7.781248,
+          "laMean": 17.347985,
+          "laStdDev": 4.961368,
+          "evLaCorrelation": -0.087199
+        },
+        "hr": {
+          "prior": 0.042353,
+          "evMean": 105.40595,
+          "evStdDev": 3.756796,
+          "laMean": 22.461612,
+          "laStdDev": 1.816951,
+          "evLaCorrelation": -0.267731
+        }
+      },
+      "flyBall": {
+        "out": {
+          "prior": 0.660868,
+          "evMean": 88.295338,
+          "evStdDev": 10.974632,
+          "laMean": 31.017063,
+          "laStdDev": 3.380364,
+          "evLaCorrelation": -0.044742
+        },
+        "single": {
+          "prior": 0.070048,
+          "evMean": 68.724117,
+          "evStdDev": 9.058617,
+          "laMean": 29.877917,
+          "laStdDev": 3.406536,
+          "evLaCorrelation": -0.195101
+        },
+        "double": {
+          "prior": 0.051645,
+          "evMean": 91.215909,
+          "evStdDev": 11.207263,
+          "laMean": 28.941558,
+          "laStdDev": 3.065809,
+          "evLaCorrelation": -0.235821
+        },
+        "triple": {
+          "prior": 0.008174,
+          "evMean": 96.451282,
+          "evStdDev": 6.817883,
+          "laMean": 29.128205,
+          "laStdDev": 3.104831,
+          "evLaCorrelation": 0.019555
+        },
+        "hr": {
+          "prior": 0.209264,
+          "evMean": 102.579728,
+          "evStdDev": 4.233525,
+          "laMean": 29.879006,
+          "laStdDev": 3.11964,
+          "evLaCorrelation": -0.134596
+        }
+      },
+      "popup": {
+        "out": {
+          "prior": 0.953598,
+          "evMean": 83.466865,
+          "evStdDev": 12.095342,
+          "laMean": 54.300497,
+          "laStdDev": 12.636182,
+          "evLaCorrelation": -0.294785
+        },
+        "single": {
+          "prior": 0.02178,
+          "evMean": 67.814493,
+          "evStdDev": 14.203503,
+          "laMean": 46.086957,
+          "laStdDev": 8.613672,
+          "evLaCorrelation": 0.084143
+        },
+        "double": {
+          "prior": 0.009438,
+          "evMean": 81.839465,
+          "evStdDev": 12.373277,
+          "laMean": 46.909699,
+          "laStdDev": 7.644388,
+          "evLaCorrelation": 0.060523
+        },
+        "triple": {
+          "prior": 0.000979,
+          "evMean": 96.193548,
+          "evStdDev": 6.392634,
+          "laMean": 42.064516,
+          "laStdDev": 5.956485,
+          "evLaCorrelation": -0.396802
+        },
+        "hr": {
+          "prior": 0.014205,
+          "evMean": 101.684444,
+          "evStdDev": 4.274782,
+          "laMean": 39.617778,
+          "laStdDev": 2.13659,
+          "evLaCorrelation": 0.048107
+        }
+      }
+    },
+    "sprayModel": {
+      "groundBall": {
+        "count": 70450,
+        "mean": 0,
+        "stdDev": 26.3601,
+        "pullShare": 0.2952,
+        "centerShare": 0.4947,
+        "oppoShare": 0.2101,
+        "pullMean": -29.5737,
+        "centerMean": 2.4021,
+        "oppoMean": 35.8823
+      },
+      "lineDrive": {
+        "count": 40382,
+        "mean": 0,
+        "stdDev": 48.0157,
+        "pullShare": 0.4015,
+        "centerShare": 0.2428,
+        "oppoShare": 0.3557,
+        "pullMean": -49.2987,
+        "centerMean": 4.063,
+        "oppoMean": 52.8787
+      },
+      "flyBall": {
+        "count": 45182,
+        "mean": 0,
+        "stdDev": 53.3413,
+        "pullShare": 0.4045,
+        "centerShare": 0.2224,
+        "oppoShare": 0.3731,
+        "pullMean": -54.5294,
+        "centerMean": 3.1265,
+        "oppoMean": 57.2426
+      },
+      "popup": {
+        "count": 12187,
+        "mean": 0,
+        "stdDev": 29.0372,
+        "pullShare": 0.3092,
+        "centerShare": 0.4236,
+        "oppoShare": 0.2673,
+        "pullMean": -34.3981,
+        "centerMean": 2.1188,
+        "oppoMean": 36.4369
+      }
+    },
+    "depthModel": {
+      "groundBall": {
+        "count": 69907,
+        "mean": 34.5025,
+        "stdDev": 5.0719
+      },
+      "lineDrive": {
+        "count": 40349,
+        "mean": 251.1918,
+        "stdDev": 12.3901
+      },
+      "flyBall": {
+        "count": 45140,
+        "mean": 314.7076,
+        "stdDev": 17.7445
+      },
+      "popup": {
+        "count": 12170,
+        "mean": 125.2323,
+        "stdDev": 13.272
+      }
+    }
+  },
+  "running": {
+    "steal": [
+      {
+        "balls": 0,
+        "strikes": 0,
+        "attempt2BChance": 2.052,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.651,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 0,
+        "strikes": 1,
+        "attempt2BChance": 2.693,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.855,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 0,
+        "strikes": 2,
+        "attempt2BChance": 1.154,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.366,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 1,
+        "strikes": 0,
+        "attempt2BChance": 2.052,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.651,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 1,
+        "strikes": 1,
+        "attempt2BChance": 2.693,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.855,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 1,
+        "strikes": 2,
+        "attempt2BChance": 1.283,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.407,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 2,
+        "strikes": 0,
+        "attempt2BChance": 3.142,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.998,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 2,
+        "strikes": 1,
+        "attempt2BChance": 3.399,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 1.079,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 2,
+        "strikes": 2,
+        "attempt2BChance": 1.603,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.509,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 3,
+        "strikes": 0,
+        "attempt2BChance": 0.064,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.02,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 3,
+        "strikes": 1,
+        "attempt2BChance": 0.898,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.285,
+        "attempt3BSuccess": 88.5
+      },
+      {
+        "balls": 3,
+        "strikes": 2,
+        "attempt2BChance": 1.86,
+        "attempt2BSuccess": 80.5,
+        "attempt3BChance": 0.59,
+        "attempt3BSuccess": 88.5
+      }
+    ],
+    "extraBaseTakenRate": 0.308,
+    "advancement": {
+      "runnerOnFirstToThirdOnSingle": 0.225,
+      "runnerOnFirstToHomeOnDouble": 0.261,
+      "runnerOnSecondToHomeOnSingle": 0.452,
+      "runnerOnSecondToHomeOnDouble": 0.65,
+      "runnerOnThirdToHomeOnFlyBallShallow": 0.983,
+      "runnerOnThirdToHomeOnFlyBallNormal": 0.999,
+      "runnerOnThirdToHomeOnFlyBallDeep": 1,
+      "runnerOnSecondToThirdOnGroundBall": 0.881,
+      "runnerOnThirdToHomeOnGroundBall": 0.756
+    }
+  },
+  "fielderChance": {
+    "vsR": {
+      "pitcher": 4,
+      "catcher": 1,
+      "first": 7,
+      "second": 12,
+      "third": 11,
+      "shortstop": 11,
+      "leftField": 17,
+      "centerField": 19,
+      "rightField": 18
+    },
+    "vsL": {
+      "pitcher": 4,
+      "catcher": 1,
+      "first": 7,
+      "second": 12,
+      "third": 11,
+      "shortstop": 11,
+      "leftField": 17,
+      "centerField": 19,
+      "rightField": 18
+    },
+    "shallowDeep": {
+      "shallow": 20,
+      "normal": 60,
+      "deep": 20
+    }
+  },
+  "outcome": {
+    "avg": 0.242,
+    "obp": 0.312,
+    "slg": 0.397,
+    "ops": 0.709,
+    "babip": 0.292,
+    "homeRunPercent": 0.03,
+    "doublePercent": 0.042,
+    "triplePercent": 0.003,
+    "bbPercent": 0.085,
+    "soPercent": 0.226,
+    "hbpPercent": 0.011
+  },
+  "team": {
+    "runsPerGame": 4.55,
+    "hitsPerGame": 6.87,
+    "homeRunsPerGame": 0.96,
+    "bbPerGame": 2.72,
+    "soPerGame": 7.18,
+    "sbPerGame": 0.56,
+    "sbAttemptsPerGame": 0.7
+  },
+  "importReference": {
+    "hitter": {
+      "games": 162,
+      "pa": 1000,
+      "ab": 893,
+      "hits": 216,
+      "doubles": 42,
+      "triples": 3,
+      "homeRuns": 30,
+      "bb": 85,
+      "so": 226,
+      "hbp": 11,
+      "groundBalls": 281,
+      "flyBalls": 180,
+      "lineDrives": 161,
+      "popups": 49,
+      "pitchesSeen": 3886,
+      "ballsSeen": 1398,
+      "strikesSeen": 2488,
+      "swings": 1846,
+      "swingAtBalls": 577,
+      "swingAtStrikes": 1269,
+      "calledStrikes": 633,
+      "swingingStrikes": 430,
+      "inZonePitches": 1910,
+      "inZoneContact": 1081,
+      "outZoneContact": 335,
+      "fouls": 738,
+      "ballsInPlay": 678,
+      "physics": {
+        "exitVelocity": {
+          "count": 169460,
+          "total": 14967568.7,
+          "totalSquared": 1323379983.204,
+          "avg": 88.325
+        },
+        "launchAngle": {
+          "count": 169564,
+          "total": 2240559,
+          "totalSquared": 33240761.675,
+          "avg": 13.214
+        },
+        "distance": {
+          "count": 169400,
+          "total": 28306500,
+          "totalSquared": 4786224494.64,
+          "avg": 167.099
+        },
+        "byTrajectory": {
+          "groundBall": {
+            "count": 69907,
+            "totalExitVelocity": 6012821.8,
+            "totalExitVelocitySquared": 518426445.625,
+            "avgExitVelocity": 86.012,
+            "totalLaunchAngle": -861710,
+            "totalLaunchAngleSquared": 11129417.748,
+            "avgLaunchAngle": -12.327,
+            "totalDistance": 2411963,
+            "totalDistanceSquared": 85016968.929,
+            "avgDistance": 34.502
+          },
+          "flyBall": {
+            "count": 45140,
+            "totalExitVelocity": 4159166.2,
+            "totalExitVelocitySquared": 383581704.809,
+            "avgExitVelocity": 92.139,
+            "totalLaunchAngle": 1684335,
+            "totalLaunchAngleSquared": 62943895.945,
+            "avgLaunchAngle": 37.314,
+            "totalDistance": 14205902,
+            "totalDistanceSquared": 4484918766.97,
+            "avgDistance": 314.708
+          },
+          "lineDrive": {
+            "count": 40349,
+            "totalExitVelocity": 3786378.5,
+            "totalExitVelocitySquared": 355606534.346,
+            "avgExitVelocity": 93.841,
+            "totalLaunchAngle": 661035,
+            "totalLaunchAngleSquared": 10858001.297,
+            "avgLaunchAngle": 16.383,
+            "totalDistance": 10135338,
+            "totalDistanceSquared": 2552107927.449,
+            "avgDistance": 251.192
+          },
+          "popup": {
+            "count": 12170,
+            "totalExitVelocity": 941898.6,
+            "totalExitVelocitySquared": 73089497.274,
+            "avgExitVelocity": 77.395,
+            "totalLaunchAngle": 803722,
+            "totalLaunchAngleSquared": 53186661.063,
+            "avgLaunchAngle": 66.041,
+            "totalDistance": 1524077,
+            "totalDistanceSquared": 193007356.605,
+            "avgDistance": 125.232
+          }
+        }
+      }
+    },
+    "pitcher": {
+      "games": 32,
+      "starts": 32,
+      "battersFaced": 1000,
+      "outs": 703,
+      "runsAllowed": 119,
+      "earnedRunsAllowed": 109,
+      "hitsAllowed": 218,
+      "doublesAllowed": 42,
+      "triplesAllowed": 3,
+      "homeRunsAllowed": 31,
+      "bbAllowed": 86,
+      "so": 222,
+      "hbpAllowed": 11,
+      "groundBallsAllowed": 282,
+      "flyBallsAllowed": 181,
+      "lineDrivesAllowed": 162,
+      "popupsAllowed": 48,
+      "pitchesThrown": 3885,
+      "ballsThrown": 1400,
+      "strikesThrown": 2484,
+      "swingsInduced": 1844,
+      "swingAtBallsAllowed": 570,
+      "swingAtStrikesAllowed": 1274,
+      "inZoneContactAllowed": 1086,
+      "outZoneContactAllowed": 332,
+      "foulsAllowed": 737,
+      "ballsInPlayAllowed": 681,
+      "physics": {
+        "velocity": {
+          "count": 1174541,
+          "total": 105182602.9,
+          "totalSquared": 9457965026.769,
+          "avg": 89.552
+        },
+        "horizontalBreak": {
+          "count": 1174541,
+          "total": 1850272.9,
+          "totalSquared": 135419087.679,
+          "avg": 1.575
+        },
+        "verticalBreak": {
+          "count": 1174541,
+          "total": -32706300.5,
+          "totalSquared": 1089292901.826,
+          "avg": -27.846
+        },
+        "byPitchType": {
+          "SI": {
+            "count": 188171,
+            "totalVelocity": 17672237.2,
+            "totalVelocitySquared": 1660923236.616,
+            "avgVelocity": 93.916,
+            "totalHorizontalBreak": 1129582.1,
+            "totalHorizontalBreakSquared": 44279451.023,
+            "avgHorizontalBreak": 6.003,
+            "totalVerticalBreak": -4457527.7,
+            "totalVerticalBreakSquared": 110956446.743,
+            "avgVerticalBreak": -23.689
+          },
+          "CU": {
+            "count": 77707,
+            "totalVelocity": 6204512.4,
+            "totalVelocitySquared": 496335374.525,
+            "avgVelocity": 79.845,
+            "totalHorizontalBreak": -303668.5,
+            "totalHorizontalBreakSquared": 7912958.706,
+            "avgHorizontalBreak": -3.908,
+            "totalVerticalBreak": -4177872,
+            "totalVerticalBreakSquared": 228476173.147,
+            "avgVerticalBreak": -53.764
+          },
+          "SL": {
+            "count": 164882,
+            "totalVelocity": 14221717.1,
+            "totalVelocitySquared": 1227988877.104,
+            "avgVelocity": 86.254,
+            "totalHorizontalBreak": -284167.7,
+            "totalHorizontalBreakSquared": 4107918.85,
+            "avgHorizontalBreak": -1.723,
+            "totalVerticalBreak": -5795081.3,
+            "totalVerticalBreakSquared": 207707242.329,
+            "avgVerticalBreak": -35.147
+          },
+          "CH": {
+            "count": 125258,
+            "totalVelocity": 10767362.8,
+            "totalVelocitySquared": 927025507.629,
+            "avgVelocity": 85.961,
+            "totalHorizontalBreak": 547982.5,
+            "totalHorizontalBreakSquared": 26263262.523,
+            "avgHorizontalBreak": 4.375,
+            "totalVerticalBreak": -4126928.9,
+            "totalVerticalBreakSquared": 138420593.511,
+            "avgVerticalBreak": -32.947
+          },
+          "FF": {
+            "count": 369224,
+            "totalVelocity": 34928689,
+            "totalVelocitySquared": 3306082779.286,
+            "avgVelocity": 94.6,
+            "totalHorizontalBreak": 1251702.2,
+            "totalHorizontalBreakSquared": 26620618.779,
+            "avgHorizontalBreak": 3.39,
+            "totalVerticalBreak": -5512356.4,
+            "totalVerticalBreakSquared": 85170570.367,
+            "avgVerticalBreak": -14.93
+          },
+          "ST": {
+            "count": 93201,
+            "totalVelocity": 7706939.5,
+            "totalVelocitySquared": 637995429.974,
+            "avgVelocity": 82.692,
+            "totalHorizontalBreak": -615396.1,
+            "totalHorizontalBreakSquared": 18054568.076,
+            "avgHorizontalBreak": -6.603,
+            "totalVerticalBreak": -3674413.3,
+            "totalVerticalBreakSquared": 146158022.742,
+            "avgVerticalBreak": -39.425
+          },
+          "FS": {
+            "count": 38317,
+            "totalVelocity": 3316511.2,
+            "totalVelocitySquared": 287492288.227,
+            "avgVelocity": 86.555,
+            "totalHorizontalBreak": 354722.7,
+            "totalHorizontalBreakSquared": 5058917.896,
+            "avgHorizontalBreak": 9.258,
+            "totalVerticalBreak": -1280909.9,
+            "totalVerticalBreakSquared": 43442422.816,
+            "avgVerticalBreak": -33.429
+          },
+          "FC": {
+            "count": 90274,
+            "totalVelocity": 8096945.8,
+            "totalVelocitySquared": 726863340.66,
+            "avgVelocity": 89.693,
+            "totalHorizontalBreak": -107154.2,
+            "totalHorizontalBreakSquared": 803992.553,
+            "avgHorizontalBreak": -1.187,
+            "totalVerticalBreak": -2334384.2,
+            "totalVerticalBreakSquared": 61767126.964,
+            "avgVerticalBreak": -25.859
+          },
+          "KC": {
+            "count": 20457,
+            "totalVelocity": 1690337.3,
+            "totalVelocitySquared": 139904261.567,
+            "avgVelocity": 82.629,
+            "totalHorizontalBreak": -118982.8,
+            "totalHorizontalBreakSquared": 1340257.687,
+            "avgHorizontalBreak": -5.816,
+            "totalVerticalBreak": -1026139.7,
+            "totalVerticalBreakSquared": 52394524.081,
+            "avgVerticalBreak": -50.161
+          },
+          "KN": {
+            "count": 320,
+            "totalVelocity": 24001.7,
+            "totalVelocitySquared": 1830477.557,
+            "avgVelocity": 75.005,
+            "totalHorizontalBreak": 342.9,
+            "totalHorizontalBreakSquared": 1570.938,
+            "avgHorizontalBreak": 1.072,
+            "totalVerticalBreak": -16880.5,
+            "totalVerticalBreakSquared": 966096.238,
+            "avgVerticalBreak": -52.752
+          },
+          "SV": {
+            "count": 5624,
+            "totalVelocity": 461005.6,
+            "totalVelocitySquared": 37811993.652,
+            "avgVelocity": 81.971,
+            "totalHorizontalBreak": -12937.4,
+            "totalHorizontalBreakSquared": 897908.004,
+            "avgHorizontalBreak": -2.3,
+            "totalVerticalBreak": -259538.3,
+            "totalVerticalBreakSquared": 12060559.494,
+            "avgVerticalBreak": -46.148
+          },
+          "FO": {
+            "count": 1099,
+            "totalVelocity": 91742.6,
+            "totalVelocitySquared": 7659911.672,
+            "avgVelocity": 83.478,
+            "totalHorizontalBreak": 8164,
+            "totalHorizontalBreakSquared": 76673.704,
+            "avgHorizontalBreak": 7.429,
+            "totalVerticalBreak": -44026.8,
+            "totalVerticalBreakSquared": 1764791.644,
+            "avgVerticalBreak": -40.061
+          },
+          "SC": {
+            "count": 7,
+            "totalVelocity": 600.7,
+            "totalVelocitySquared": 51548.298,
+            "avgVelocity": 85.814,
+            "totalHorizontalBreak": 83.2,
+            "totalHorizontalBreakSquared": 988.939,
+            "avgHorizontalBreak": 11.886,
+            "totalVerticalBreak": -241.5,
+            "totalVerticalBreakSquared": 8331.75,
+            "avgVerticalBreak": -34.5
+          }
+        }
+      }
+    },
+    "fielding": {
+      "errors": 14,
+      "assists": 186,
+      "putouts": 599,
+      "chances": 785,
+      "doublePlays": 41,
+      "doublePlayOpportunities": 78,
+      "outfieldAssists": 3,
+      "catcherCaughtStealing": 1,
+      "catcherStolenBasesAllowed": 0,
+      "passedBalls": 1,
+      "throwsAttempted": 186,
+      "successfulThrowOuts": 185
+    },
+    "running": {
+      "sb": 18,
+      "cs": 4,
+      "sbAttempts": 22,
+      "timesOnFirst": 267,
+      "extraBaseTaken": 34,
+      "extraBaseOpportunities": 110
+    },
+    "splits": {
+      "hitting": {
+        "vsL": {
+          "pa": 282,
+          "ab": 252,
+          "hits": 61,
+          "doubles": 12,
+          "triples": 1,
+          "homeRuns": 8,
+          "bb": 24,
+          "so": 64,
+          "hbp": 3,
+          "exitVelocity": 87.844
+        },
+        "vsR": {
+          "pa": 718,
+          "ab": 641,
+          "hits": 155,
+          "doubles": 30,
+          "triples": 2,
+          "homeRuns": 22,
+          "bb": 61,
+          "so": 161,
+          "hbp": 8,
+          "exitVelocity": 88.624
+        }
+      },
+      "pitching": {
+        "vsL": {
+          "battersFaced": 459,
+          "outs": 319,
+          "hitsAllowed": 100,
+          "doublesAllowed": 19,
+          "triplesAllowed": 2,
+          "homeRunsAllowed": 15,
+          "bbAllowed": 43,
+          "so": 101,
+          "hbpAllowed": 5,
+          "runsAllowed": 50,
+          "earnedRunsAllowed": 46
+        },
+        "vsR": {
+          "battersFaced": 541,
+          "outs": 383,
+          "hitsAllowed": 119,
+          "doublesAllowed": 23,
+          "triplesAllowed": 1,
+          "homeRunsAllowed": 16,
+          "bbAllowed": 43,
+          "so": 121,
+          "hbpAllowed": 6,
+          "runsAllowed": 57,
+          "earnedRunsAllowed": 53
+        }
+      }
+    }
+  },
+  "pitchEnvironmentTuning": {
+    "_id": "20dbdf8a-f2f7-4656-aee4-38288f8d853c",
+    "tuning": {
+      "contactQuality": {
+        "evScale": 0,
+        "laScale": 0,
+        "distanceScale": 0,
+        "outOutcomeScale": 0,
+        "doubleOutcomeScale": 0,
+        "tripleOutcomeScale": 0,
+        "homeRunOutcomeScale": 0
+      },
+      "swing": {
+        "pitchQualityZoneSwingEffect": 0,
+        "pitchQualityChaseSwingEffect": 0,
+        "disciplineZoneSwingEffect": 0,
+        "disciplineChaseSwingEffect": 0,
+        "walkRateScale": 0
+      },
+      "contact": {
+        "pitchQualityContactEffect": 0,
+        "contactSkillEffect": 0
+      },
+      "running": {
+        "stealAttemptAggressionScale": 0.2559808612440191,
+        "advancementAggressionScale": 0
+      },
+      "meta": {
+        "fullPitchQualityBonus": 0,
+        "fullTeamDefenseBonus": 0,
+        "fullFielderDefenseBonus": 0
+      }
+    }
+  }
+}
