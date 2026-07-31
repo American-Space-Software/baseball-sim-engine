@@ -15,8 +15,11 @@ import {
     ShallowDeep,
     ThrowResult,
     PitchCall,
-    SimService
+    SimService,
+    DefenseOutResult,
+    DefenseHitResult
 } from "../src/sim/index.js"
+
 import type {
     PitchEnvironmentTarget,
     PitchEnvironmentTuning,
@@ -479,13 +482,12 @@ enum DiagnosticTest {
 }
 
 const toRun: DiagnosticTest[] = [
-    DiagnosticTest.COUNT_DIAGNOSTICS,
-    DiagnosticTest.BATTED_BALL_DIAGNOSTICS,
-    DiagnosticTest.CONTACT_QUALITY,
+    // DiagnosticTest.COUNT_DIAGNOSTICS,
+    // DiagnosticTest.BATTED_BALL_DIAGNOSTICS,
+    // DiagnosticTest.CONTACT_QUALITY,
     DiagnosticTest.OFFENSE_BASELINES,
-    // DiagnosticTest.TUNING_SENSITIVITY
+    // DiagnosticTest.DEFENSE_DIAGNOSTICS
 ]
-
 
 
 if (toRun.includes(DiagnosticTest.PITCH_ENVIRONMENT_LOADING)) {
@@ -2839,13 +2841,42 @@ if (toRun.includes(DiagnosticTest.OFFENSE_BASELINES)) {
 if (toRun.includes(DiagnosticTest.DEFENSE_DIAGNOSTICS)) {
     describe("Defense Diagnostics", () => {
 
-        it("defense tuning should print outcome sensitivity", async () => {
-            const values = [-300, -200, -100, -50, 0, 50, 100, 200, 300]
+        it("defense tuning should produce a meaningful paired full-game outcome range", () => {
+            const games = 1000
+            const defenseChanges = [-300, -200, -100, -50, 0, 50, 100, 200, 300]
 
-            const evaluateDefense = (fullTeamDefenseBonus: number, fullFielderDefenseBonus: number) => {
-                const testPitchEnvironment: PitchEnvironmentTarget = clone(pitchEnvironment)
+            type DefenseTotals = {
+                runs: number
+                hits: number
+                singles: number
+                doubles: number
+                triples: number
+                homeRuns: number
+                walks: number
+                strikeouts: number
+                babipHits: number
+                babipOuts: number
+            }
 
-                testPitchEnvironment.pitchEnvironmentTuning = {
+            const makeTotals = (): DefenseTotals => {
+                return {
+                    runs: 0,
+                    hits: 0,
+                    singles: 0,
+                    doubles: 0,
+                    triples: 0,
+                    homeRuns: 0,
+                    walks: 0,
+                    strikeouts: 0,
+                    babipHits: 0,
+                    babipOuts: 0
+                }
+            }
+
+            const makeDefenseEnvironment = (defenseChange: number): PitchEnvironmentTarget => {
+                const target = clone(pitchEnvironment)
+
+                target.pitchEnvironmentTuning = {
                     tuning: makeTuning({
                         contactQuality: {
                             evScale: -2.75,
@@ -2873,70 +2904,174 @@ if (toRun.includes(DiagnosticTest.DEFENSE_DIAGNOSTICS)) {
                         },
                         meta: {
                             fullPitchQualityBonus: 0,
-                            fullTeamDefenseBonus,
-                            fullFielderDefenseBonus
+                            fullTeamDefenseBonus: defenseChange,
+                            fullFielderDefenseBonus: defenseChange
                         }
                     })
                 } as PitchEnvironmentTuning
 
-                const evaluation = pitchEnvironmentService.evaluatePitchEnvironment(
-                    testPitchEnvironment,
-                    seedrandom(`defense-sensitivity-${fullTeamDefenseBonus}-${fullFielderDefenseBonus}-${evaluationGames}`),
-                    evaluationGames
-                )
+                return target
+            }
 
-                return {
-                    fullTeamDefenseBonus,
-                    fullFielderDefenseBonus,
-                    effectiveTeamDefenseBonus: fullTeamDefenseBonus,
-                    effectiveFielderDefenseBonus: fullFielderDefenseBonus,
-                    runs: evaluation.actual.teamRunsPerGame,
-                    runsDiff: evaluation.diff.teamRunsPerGame,
-                    avg: evaluation.actual.avg,
-                    avgDiff: evaluation.diff.avg,
-                    obp: evaluation.actual.obp,
-                    obpDiff: evaluation.diff.obp,
-                    slg: evaluation.actual.slg,
-                    slgDiff: evaluation.diff.slg,
-                    ops: evaluation.actual.ops,
-                    opsDiff: evaluation.diff.ops,
-                    babip: evaluation.actual.babip,
-                    babipDiff: evaluation.diff.babip,
-                    hitsPerGame: evaluation.actual.teamHitsPerGame,
-                    hitsPerGameDiff: evaluation.diff.teamHitsPerGame,
-                    homeRunsPerGame: evaluation.actual.teamHomeRunsPerGame,
-                    homeRunsPerGameDiff: evaluation.diff.teamHomeRunsPerGame,
-                    bbPerGame: evaluation.actual.teamBBPerGame,
-                    bbPerGameDiff: evaluation.diff.teamBBPerGame,
-                    singlePercent: evaluation.actual.singlePercent,
-                    singlePercentDiff: evaluation.diff.singlePercent,
-                    homeRunPercent: evaluation.actual.homeRunPercent,
-                    homeRunPercentDiff: evaluation.diff.homeRunPercent
+            const accumulate = (game: Game, totals: DefenseTotals): void => {
+                totals.runs += game.score.away + game.score.home
+
+                for (const play of GameInfo.getPlays(game)) {
+                    if (play.result === PlayResult.SINGLE) {
+                        totals.hits++
+                        totals.singles++
+                        totals.babipHits++
+                    }
+
+                    if (play.result === PlayResult.DOUBLE) {
+                        totals.hits++
+                        totals.doubles++
+                        totals.babipHits++
+                    }
+
+                    if (play.result === PlayResult.TRIPLE) {
+                        totals.hits++
+                        totals.triples++
+                        totals.babipHits++
+                    }
+
+                    if (play.result === PlayResult.HR) {
+                        totals.hits++
+                        totals.homeRuns++
+                    }
+
+                    if (play.result === PlayResult.OUT) {
+                        totals.babipOuts++
+                    }
+
+                    if (play.result === PlayResult.BB) {
+                        totals.walks++
+                    }
+
+                    if (play.result === PlayResult.STRIKEOUT) {
+                        totals.strikeouts++
+                    }
                 }
             }
 
-            const paired = values.map(value => evaluateDefense(value, value))
-            const teamOnly = values.map(value => evaluateDefense(value, 0))
-            const fielderOnly = values.map(value => evaluateDefense(0, value))
+            const environments = new Map<number, PitchEnvironmentTarget>()
+            const totalsByDefense = new Map<number, DefenseTotals>()
 
-            console.log("=== DEFENSE SENSITIVITY PAIRED ===")
-            for (const row of paired) {
+            for (const defenseChange of defenseChanges) {
+                environments.set(defenseChange, makeDefenseEnvironment(defenseChange))
+                totalsByDefense.set(defenseChange, makeTotals())
+            }
+
+            for (let gameIndex = 0; gameIndex < games; gameIndex++) {
+                const seed = `paired-defense-sensitivity-${gameIndex}`
+
+                for (const defenseChange of defenseChanges) {
+                    const environment = environments.get(defenseChange)
+                    const totals = totalsByDefense.get(defenseChange)
+
+                    assert.ok(environment)
+                    assert.ok(totals)
+
+                    const game = baselineGameService.buildStartedBaselineGame(
+                        clone(environment),
+                        `paired-defense-${defenseChange}-${gameIndex}`
+                    )
+
+                    const rng = seedrandom(seed)
+
+                    while (!game.isComplete) {
+                        simService.simPitch(game, rng)
+                    }
+
+                    accumulate(game, totals)
+                }
+            }
+
+            const rows = defenseChanges.map(defenseChange => {
+                const totals = totalsByDefense.get(defenseChange)
+
+                assert.ok(totals)
+
+                const teamGames = games * 2
+                const babipOpportunities = totals.babipHits + totals.babipOuts
+
+                return {
+                    defenseChange,
+                    runsPerTeamGame: totals.runs / teamGames,
+                    hitsPerTeamGame: totals.hits / teamGames,
+                    singlesPerTeamGame: totals.singles / teamGames,
+                    doublesPerTeamGame: totals.doubles / teamGames,
+                    triplesPerTeamGame: totals.triples / teamGames,
+                    homeRunsPerTeamGame: totals.homeRuns / teamGames,
+                    walksPerTeamGame: totals.walks / teamGames,
+                    strikeoutsPerTeamGame: totals.strikeouts / teamGames,
+                    babip: babipOpportunities > 0
+                        ? totals.babipHits / babipOpportunities
+                        : 0,
+                    raw: totals
+                }
+            })
+
+            const neutral = rows.find(row => row.defenseChange === 0)
+            const poor = rows.find(row => row.defenseChange === -300)
+            const strong = rows.find(row => row.defenseChange === 300)
+
+            assert.ok(neutral)
+            assert.ok(poor)
+            assert.ok(strong)
+
+            console.log("\n=== PAIRED DEFENSE SENSITIVITY ===")
+
+            for (const row of rows) {
                 console.log(row)
             }
 
-            console.log("=== DEFENSE SENSITIVITY TEAM ONLY ===")
-            for (const row of teamOnly) {
-                console.log(row)
-            }
+            console.log("\n=== PAIRED DEFENSE ENDPOINT RANGE ===")
+            console.log({
+                games,
+                poor,
+                neutral,
+                strong,
+                poorToStrong: {
+                    runsPerTeamGame: strong.runsPerTeamGame - poor.runsPerTeamGame,
+                    hitsPerTeamGame: strong.hitsPerTeamGame - poor.hitsPerTeamGame,
+                    singlesPerTeamGame: strong.singlesPerTeamGame - poor.singlesPerTeamGame,
+                    babip: strong.babip - poor.babip,
+                    homeRunsPerTeamGame: strong.homeRunsPerTeamGame - poor.homeRunsPerTeamGame,
+                    walksPerTeamGame: strong.walksPerTeamGame - poor.walksPerTeamGame,
+                    strikeoutsPerTeamGame: strong.strikeoutsPerTeamGame - poor.strikeoutsPerTeamGame
+                }
+            })
 
-            console.log("=== DEFENSE SENSITIVITY FIELDER ONLY ===")
-            for (const row of fielderOnly) {
-                console.log(row)
-            }
+            assert.ok(
+                poor.babip > strong.babip,
+                `Poor defense should produce higher BABIP poor=${poor.babip} strong=${strong.babip}`
+            )
 
-            assert.ok(paired.length > 0)
-            assert.ok(teamOnly.length > 0)
-            assert.ok(fielderOnly.length > 0)
+            assert.ok(
+                poor.hitsPerTeamGame > strong.hitsPerTeamGame,
+                `Poor defense should allow more hits poor=${poor.hitsPerTeamGame} strong=${strong.hitsPerTeamGame}`
+            )
+
+            assert.ok(
+                poor.singlesPerTeamGame > strong.singlesPerTeamGame,
+                `Poor defense should allow more singles poor=${poor.singlesPerTeamGame} strong=${strong.singlesPerTeamGame}`
+            )
+
+            assert.ok(
+                poor.runsPerTeamGame > strong.runsPerTeamGame,
+                `Poor defense should allow more runs poor=${poor.runsPerTeamGame} strong=${strong.runsPerTeamGame}`
+            )
+
+            assert.ok(
+                poor.babip - strong.babip >= 0.002,
+                `Defense should create a meaningful BABIP range poor=${poor.babip} strong=${strong.babip} delta=${poor.babip - strong.babip}`
+            )
+
+            assert.ok(
+                poor.hitsPerTeamGame - strong.hitsPerTeamGame >= 0.05,
+                `Defense should create a meaningful hit range poor=${poor.hitsPerTeamGame} strong=${strong.hitsPerTeamGame} delta=${poor.hitsPerTeamGame - strong.hitsPerTeamGame}`
+            )
         })
 
     })

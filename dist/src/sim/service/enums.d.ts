@@ -151,6 +151,10 @@ declare enum HomeAway {
     HOME = "Home",
     AWAY = "Away"
 }
+declare enum ContactMiss {
+    CONTACT = "CONTACT",
+    MISS = "MISS"
+}
 declare enum PitchingRoleType {
     STARTER = "starter",
     CLOSER = "closer",
@@ -159,4 +163,20 @@ declare enum PitchingRoleType {
     LONG = "long",
     MOP_UP = "mop_up"
 }
-export { PitchingRoleType, ThrowResult, HomeAway, Contact, SwingResult, DefenseCreditType, PlayResult, OfficialRunnerResult, OfficialPlayResult, PitchType, ShallowDeep, PitchCall, PitchZone, Position, Handedness, BaseResult };
+declare enum SwingTake {
+    SWING = "swing",
+    TAKE = "take"
+}
+declare enum FairFoul {
+    FAIR = "FAIR",
+    FOUL = "FOUL"
+}
+declare enum DefenseOutResult {
+    OUT = "OUT",
+    SINGLE = "SINGLE"
+}
+declare enum DefenseHitResult {
+    HIT = "HIT",
+    OUT = "OUT"
+}
+export { DefenseOutResult, DefenseHitResult, ContactMiss, FairFoul, SwingTake, PitchingRoleType, ThrowResult, HomeAway, Contact, SwingResult, DefenseCreditType, PlayResult, OfficialRunnerResult, OfficialPlayResult, PitchType, ShallowDeep, PitchCall, PitchZone, Position, Handedness, BaseResult };

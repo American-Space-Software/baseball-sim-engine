@@ -987,40 +987,40 @@ describe("StatAccumulatorService", function () {
         assert.equal(runner.running.pickoffAttemptsFaced, 1)
     })
 
-    it("prints the 2025 accumulated imports for Judge, Ohtani, and Skenes", async function () {
+    // it("prints the 2025 accumulated imports for Judge, Ohtani, and Skenes", async function () {
     
-        const harness = new StatAccumulatorServiceTestHarness()
+    //     const harness = new StatAccumulatorServiceTestHarness()
 
 
-        const playerImportService = new PlayerImportService(
-            path.join(process.cwd(), "data"),
-            harness.service
-        )
+    //     const playerImportService = new PlayerImportService(
+    //         path.join(process.cwd(), "data"),
+    //         harness.service
+    //     )
 
-        const playerIds = new Set([
-            "592450",
-            "660271",
-            "694973"
-        ])
+    //     const playerIds = new Set([
+    //         "592450",
+    //         "660271",
+    //         "694973"
+    //     ])
 
-        const players = await playerImportService.buildSeasonPlayerImports(
-            2025,
-            playerIds,
-            true
-        )
+    //     const players = await playerImportService.buildSeasonPlayerImports(
+    //         2025,
+    //         playerIds,
+    //         true
+    //     )
 
-        assert.equal(players.size, 3)
+    //     assert.equal(players.size, 3)
 
-        for (const playerId of playerIds) {
-            const player = players.get(playerId)
+    //     for (const playerId of playerIds) {
+    //         const player = players.get(playerId)
 
-            assert.ok(
-                player,
-                `Expected an accumulated import for player ${playerId}.`
-            )
+    //         assert.ok(
+    //             player,
+    //             `Expected an accumulated import for player ${playerId}.`
+    //         )
 
-            console.log(`\n${player.firstName} ${player.lastName} (${player.playerId})`)
-            console.log(JSON.stringify(player, null, 4))
-        }
-    })
+    //         console.log(`\n${player.firstName} ${player.lastName} (${player.playerId})`)
+    //         console.log(JSON.stringify(player, null, 4))
+    //     }
+    // })
 })

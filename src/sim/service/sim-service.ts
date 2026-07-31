@@ -1,5 +1,5 @@
 import { asNumber, clamp, getAverage, getStdDev } from "../util.js"
-import { HomeAway, Position, Handedness, PitchType, PitchCall, SwingResult, PlayResult, Contact, ShallowDeep, OfficialPlayResult, BaseResult, DefenseCreditType, OfficialRunnerResult, PitchZone, ThrowResult, PitchingRoleType } from "./enums.js"
+import { HomeAway, Position, Handedness, PitchType, PitchCall, SwingResult, PlayResult, Contact, ShallowDeep, OfficialPlayResult, BaseResult, DefenseCreditType, OfficialRunnerResult, PitchZone, ThrowResult, PitchingRoleType, SwingTake, ContactMiss, FairFoul, DefenseHitResult, DefenseOutResult } from "./enums.js"
 import { StartGameCommand, GamePlayer, MatchupHandedness, Score, RunnerResult, DefensiveCredit, PitchLog, HalfInning, UpcomingMatchup, RunnerEvent, HitterChange, PitcherChange, SimPitchCommand, SimPitchResult, InningEndingEvent, Pitch, RollChart, Game, HitResultCount, HittingRatings,  Lineup, PitchCount, PitchRatings, PitchResultCount, Play, Player, RotationPitcher, RunnerThrowCommand, StolenBaseByCount, Team, TeamInfo, ThrowRoll, PitchEnvironmentTarget, ContactQuality, PitchQuality, PitchingRole, PowerRollInput, StadiumEnvironment } from "./interfaces.js"
 import { RollChartService } from "./roll-chart-service.js"
 import { RunnerService } from "./runner-service.js"
@@ -18,9 +18,6 @@ const GENERATED_FULL_CHANGE = Math.max(
     Math.abs((MAX_GENERATED_RATING / AVERAGE_RATING) - 1)
 )
 
-
-const SWING_DECISION_DISCIPLINE_WEIGHT = 1
-const SWING_DECISION_CONTACT_WEIGHT = 0 
 
 const PITCH_QUALITY_WEIGHTS = {
     velocity: 33.3,
@@ -1167,94 +1164,24 @@ class SimService {
         const fullChange = this.gameRolls.getFullRatingChange()
         const meta = command.pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning?.meta
 
-        const teamDefenseBonus =
-            DEFAULT_FULL_TEAM_DEFENSE_BONUS +
-            Number(meta?.fullTeamDefenseBonus ?? 0)
+        const teamDefenseBonus = DEFAULT_FULL_TEAM_DEFENSE_BONUS + Number(meta?.fullTeamDefenseBonus ?? 0)
+        const fielderDefenseBonus = DEFAULT_FULL_FIELDER_DEFENSE_BONUS + Number(meta?.fullFielderDefenseBonus ?? 0)
 
-        const fielderDefenseBonus =
-            DEFAULT_FULL_FIELDER_DEFENSE_BONUS +
-            Number(meta?.fullFielderDefenseBonus ?? 0)
-
-        const baseCatchProbability = this.getBattedBallCatchProbability(contact, hitQuality)
-
-        const defenseAdjustment =
+        const defenseChange =
             ((teamDefenseChange / fullChange) * (teamDefenseBonus / 1000)) +
             ((fielderDefenseChange / fullChange) * (fielderDefenseBonus / 1000))
 
-        const catchProbability = clamp(baseCatchProbability + defenseAdjustment, 0, 1)
-
         if (playResult === PlayResult.OUT) {
-            const missedCatchPressure = clamp(1 - catchProbability, 0, 1)
-            const lowDefensePressure = clamp(Math.max(0, defenseAdjustment * -1), 0, 1)
-            const contactPressure = clamp(Math.max(0, command.hitterChange.contactChange) / fullChange, 0, 1)
-            const qualityOfContactPressure = clamp(Math.max(0, PlayerChange.getQualityOfContactChange(command.hitterChange)) / fullChange, 0, 1)
-            const leagueBabipPressure = clamp(command.pitchEnvironmentTarget.outcome.babip, 0, 1)
+            const chart = this.rollChartService.getDefenseOutRollChart(command.pitchEnvironmentTarget, command.hitterChange, defenseChange, contact, hitQuality)
+            const result = chart.entries.get(Rolls.getRoll(command.rng, 0, 999)) as DefenseOutResult
 
-            const hitterPressure = getAverage([
-                contactPressure,
-                qualityOfContactPressure
-            ]) * leagueBabipPressure
-
-            const outToSingleProbability = clamp(
-                missedCatchPressure * getAverage([
-                    lowDefensePressure,
-                    hitterPressure
-                ]),
-                0,
-                missedCatchPressure
-            )
-
-            return Rolls.getRollUnrounded(command.rng, 0, 1) < outToSingleProbability ? PlayResult.SINGLE : PlayResult.OUT
+            return result === DefenseOutResult.SINGLE ? PlayResult.SINGLE : PlayResult.OUT
         }
 
-        const positiveDefensePressure = clamp(Math.max(0, defenseAdjustment), 0, 1)
-        const preventableHitPressure = clamp(1 - baseCatchProbability, 0, 1)
-        const hitToOutProbability = clamp(positiveDefensePressure * preventableHitPressure, 0, preventableHitPressure)
+        const chart = this.rollChartService.getDefenseHitRollChart(defenseChange, contact, hitQuality)
+        const result = chart.entries.get(Rolls.getRoll(command.rng, 0, 999)) as DefenseHitResult
 
-        return Rolls.getRollUnrounded(command.rng, 0, 1) < hitToOutProbability ? PlayResult.OUT : playResult
-    }
-
-    private getBattedBallCatchProbability(contact: Contact, hitQuality: ContactQuality): number {
-        const exitVelocity = Number(hitQuality.exitVelocity)
-        const launchAngle = Number(hitQuality.launchAngle)
-        const distance = Number(hitQuality.distance)
-
-        if (!Number.isFinite(exitVelocity)) {
-            throw new Error(`Invalid contact exit velocity ${hitQuality.exitVelocity}.`)
-        }
-
-        if (!Number.isFinite(launchAngle)) {
-            throw new Error(`Invalid contact launch angle ${hitQuality.launchAngle}.`)
-        }
-
-        if (!Number.isFinite(distance)) {
-            throw new Error(`Invalid contact distance ${hitQuality.distance}.`)
-        }
-
-        if (contact === Contact.LINE_DRIVE) {
-            const hardContact = clamp((exitVelocity - 82) / 24, 0, 1)
-            const carriedContact = clamp((distance - 120) / 220, 0, 1)
-            const lowLineDrive = launchAngle < 8 ? 0.12 : 0
-
-            return clamp(0.58 - (hardContact * 0.28) - (carriedContact * 0.18) - lowLineDrive, 0.12, 0.72)
-        }
-
-        if (contact === Contact.FLY_BALL) {
-            const deepContact = clamp((distance - 250) / 160, 0, 1)
-            const hardContact = clamp((exitVelocity - 92) / 30, 0, 1)
-            const popupBonus = launchAngle > 45 ? 0.12 : 0
-
-            return clamp(0.78 - (deepContact * 0.50) - (hardContact * 0.12) + popupBonus, 0.10, 0.94)
-        }
-
-        if (contact === Contact.GROUNDBALL) {
-            const hardContact = clamp((exitVelocity - 78) / 32, 0, 1)
-            const toppedBall = launchAngle < -10 ? 0.10 : 0
-
-            return clamp(0.76 - (hardContact * 0.34) + toppedBall, 0.35, 0.90)
-        }
-
-        return 0.70
+        return result === DefenseHitResult.OUT ? PlayResult.OUT : playResult
     }
 
     private getFielderWeights(command:SimPitchCommand): Record<Position, number> {
@@ -1810,203 +1737,55 @@ class SimRolls {
     }
         
     getSwingResult(gameRNG: () => number, hitterChange: HitterChange, pitcherChange: PitcherChange, pitchEnvironmentTarget: PitchEnvironmentTarget, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult {
-        const pitchQualityChange = PlayerChange.getChange(AVG_PITCH_QUALITY, pitchQuality)
+        const swingTakeChart = this.rollChartService.getMatchupSwingTakeRollChart(
+            pitchEnvironmentTarget,
+            hitterChange,
+            inZone,
+            pitchQuality,
+            pitchCount
+        )
 
-        const tuning = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning
-        const swingTuning = tuning?.swing
-        const contactTuning = tuning?.contact
-        const behavior = pitchEnvironmentTarget.swing.behaviorByCount.find(b => b.balls === pitchCount.balls && b.strikes === pitchCount.strikes)
+        const swingTake = swingTakeChart.entries.get(
+            Rolls.getRoll(gameRNG, 0, 999)
+        ) as SwingTake
 
-        if (!behavior) {
-            throw new Error(`Missing swing behavior for count ${pitchCount.balls}-${pitchCount.strikes}`)
-        }
-
-        const swingDecisionChange = this.getSwingDecisionChange(hitterChange)
-        const fullRatingChange = this.getFullRatingChange()
-        const positiveSwingDecisionShare = clamp(Math.max(0, swingDecisionChange) / fullRatingChange, 0, 1)
-        const negativeSwingDecisionShare = clamp(Math.max(0, swingDecisionChange * -1) / fullRatingChange, 0, 1)
-
-        const aheadInCountScale = 1 + (Math.max(0, pitchCount.balls - pitchCount.strikes) / 3)
-        const twoStrikeProtectionScale = pitchCount.strikes >= 2 ? 0.5 : 1
-        const countDecisionScale = aheadInCountScale * twoStrikeProtectionScale
-
-        const disciplineChaseSwingEffect = Number(swingTuning?.disciplineChaseSwingEffect ?? 0)
-        const disciplineZoneSwingEffect = Number(swingTuning?.disciplineZoneSwingEffect ?? 0)
-
-        if (!Number.isFinite(disciplineChaseSwingEffect)) {
-            throw new Error(`Invalid disciplineChaseSwingEffect ${swingTuning?.disciplineChaseSwingEffect}.`)
-        }
-
-        if (!Number.isFinite(disciplineZoneSwingEffect)) {
-            throw new Error(`Invalid disciplineZoneSwingEffect ${swingTuning?.disciplineZoneSwingEffect}.`)
-        }
-
-        let swingRate = inZone
-            ? behavior.zoneSwingPercent
-            : behavior.chaseSwingPercent
-
-        if (inZone) {
-            swingRate += pitchQualityChange * Number(swingTuning?.pitchQualityZoneSwingEffect ?? 0) * -1
-            swingRate += this.getZoneSwingDecisionAdjustment(
-                swingDecisionChange,
-                pitchEnvironmentTarget,
-                countDecisionScale,
-                disciplineZoneSwingEffect
-            )
-        } else {
-            swingRate += pitchQualityChange * Number(swingTuning?.pitchQualityChaseSwingEffect ?? 0)
-            swingRate += this.getChaseSwingDecisionAdjustment(
-                swingDecisionChange,
-                pitchEnvironmentTarget,
-                countDecisionScale,
-                disciplineChaseSwingEffect,
-                positiveSwingDecisionShare,
-                negativeSwingDecisionShare
-            )
-        }
-
-        swingRate = clamp(swingRate, 0, 100)
-
-        if (Rolls.getRollUnrounded(gameRNG, 0, 100) >= swingRate) {
+        if (swingTake === SwingTake.TAKE) {
             return SwingResult.NO_SWING
         }
 
-        let swingContactRate = inZone
-            ? behavior.zoneContactPercent
-            : behavior.chaseContactPercent
+        const contactMissChart = this.rollChartService.getMatchupContactMissRollChart(
+            pitchEnvironmentTarget,
+            hitterChange,
+            pitcherChange,
+            inZone,
+            pitchQuality,
+            pitchCount
+        )
 
-        const contactSkillEffect = Number(contactTuning?.contactSkillEffect ?? 0)
+        const contactMiss = contactMissChart.entries.get(
+            Rolls.getRoll(gameRNG, 0, 999)
+        ) as ContactMiss
 
-        if (!Number.isFinite(contactSkillEffect)) {
-            throw new Error(`Invalid contactSkillEffect ${contactTuning?.contactSkillEffect}.`)
-        }
-
-        swingContactRate += pitchQualityChange * (1 + Number(contactTuning?.pitchQualityContactEffect ?? 0)) * -1
-        swingContactRate += this.getPitcherPowerContactAdjustment(pitcherChange, pitchEnvironmentTarget)
-        swingContactRate += this.getHitterContactAdjustment(hitterChange, pitchEnvironmentTarget, contactSkillEffect)
-        swingContactRate = clamp(swingContactRate, 0, 100)
-
-        if (Rolls.getRollUnrounded(gameRNG, 0, 100) >= swingContactRate) {
+        if (contactMiss === ContactMiss.MISS) {
             return SwingResult.STRIKE
         }
 
-        let foulContactRate = behavior.foulContactPercent
+        const fairFoulChart = this.rollChartService.getMatchupFairFoulRollChart(
+            pitchEnvironmentTarget,
+            hitterChange,
+            pitcherChange,
+            pitchQuality,
+            guessPitch,
+            pitchCount
+        )
 
-        foulContactRate += this.getPitchQualityFoulAdjustment(pitchQualityChange, pitchEnvironmentTarget)
-        foulContactRate += this.getPitcherPowerFoulAdjustment(pitcherChange, pitchEnvironmentTarget)
-        foulContactRate += this.getHitterContactFoulAdjustment(hitterChange, pitchEnvironmentTarget)
+        const fairFoul = fairFoulChart.entries.get(
+            Rolls.getRoll(gameRNG, 0, 999)
+        ) as FairFoul
 
-        if (guessPitch) {
-            foulContactRate -= Math.max(0, pitchQualityChange) * this.getContactPointsPerFullContactChange(pitchEnvironmentTarget)
-        }
-
-        foulContactRate = clamp(foulContactRate, 0, 100)
-
-        return Rolls.getRollUnrounded(gameRNG, 0, 100) < foulContactRate
+        return fairFoul === FairFoul.FOUL
             ? SwingResult.FOUL
             : SwingResult.FAIR
-    }
-
-    private getSwingDecisionChange(hitterChange: HitterChange): number {
-        return (
-            hitterChange.plateDisiplineChange * SWING_DECISION_DISCIPLINE_WEIGHT
-        ) + (
-            hitterChange.contactChange * SWING_DECISION_CONTACT_WEIGHT
-        )
-    }
-
-    private getZoneSwingDecisionAdjustment(swingDecisionChange: number, pitchEnvironmentTarget: PitchEnvironmentTarget, countDecisionScale: number, disciplineZoneSwingEffect: number): number {
-        if (disciplineZoneSwingEffect === 0) {
-            return 0
-        }
-
-        const decisionPoints = this.getSwingDecisionPointsPerFullChange(pitchEnvironmentTarget)
-
-        return swingDecisionChange *
-            decisionPoints *
-            countDecisionScale *
-            disciplineZoneSwingEffect *
-            -1
-    }
-
-    private getChaseSwingDecisionAdjustment(swingDecisionChange: number, pitchEnvironmentTarget: PitchEnvironmentTarget, countDecisionScale: number, disciplineChaseSwingEffect: number, positiveSwingDecisionShare: number, negativeSwingDecisionShare: number): number {
-        const decisionPoints = this.getSwingDecisionPointsPerFullChange(pitchEnvironmentTarget)
-        const ratingScale = swingDecisionChange >= 0
-            ? 1 + positiveSwingDecisionShare
-            : 1 + negativeSwingDecisionShare
-
-        return swingDecisionChange *
-            decisionPoints *
-            countDecisionScale *
-            ratingScale *
-            (1 + disciplineChaseSwingEffect) *
-            -1
-    }
-
-    private getHitterContactAdjustment(hitterChange: HitterChange, pitchEnvironmentTarget: PitchEnvironmentTarget, contactSkillEffect: number): number {
-        const contactPoints = this.getContactPointsPerFullContactChange(pitchEnvironmentTarget)
-        const strikeoutEnvironmentScale = Number(pitchEnvironmentTarget.outcome.soPercent)
-
-        if (!Number.isFinite(strikeoutEnvironmentScale) || strikeoutEnvironmentScale <= 0) {
-            throw new Error(`Invalid league strikeout rate ${pitchEnvironmentTarget.outcome.soPercent}.`)
-        }
-
-        return hitterChange.contactChange *
-            contactPoints *
-            strikeoutEnvironmentScale *
-            (1 + contactSkillEffect)
-    }
-
-    private getPitcherPowerContactAdjustment(pitcherChange: PitcherChange, pitchEnvironmentTarget: PitchEnvironmentTarget): number {
-        return pitcherChange.powerChange *
-            this.getPitcherPowerContactPointsPerFullPowerChange(pitchEnvironmentTarget) *
-            -1
-    }
-
-    private getPitchQualityFoulAdjustment(pitchQualityChange: number, pitchEnvironmentTarget: PitchEnvironmentTarget): number {
-        return pitchQualityChange *
-            this.getContactPointsPerFullContactChange(pitchEnvironmentTarget)
-    }
-
-    private getPitcherPowerFoulAdjustment(pitcherChange: PitcherChange, pitchEnvironmentTarget: PitchEnvironmentTarget): number {
-        return pitcherChange.powerChange *
-            this.getPitcherPowerContactPointsPerFullPowerChange(pitchEnvironmentTarget)
-    }
-
-    private getHitterContactFoulAdjustment(hitterChange: HitterChange, pitchEnvironmentTarget: PitchEnvironmentTarget): number {
-        return hitterChange.contactChange *
-            this.getContactPointsPerFullContactChange(pitchEnvironmentTarget) *
-            -1
-    }
-
-    private getSwingDecisionPointsPerFullChange(pitchEnvironmentTarget: PitchEnvironmentTarget): number {
-        const chaseSwingRates = pitchEnvironmentTarget.swing.behaviorByCount.map(behavior =>
-            asNumber(behavior.chaseSwingPercent)
-        )
-
-        return this.getRateStdDev(chaseSwingRates, "swing decision calculation") / this.getFullRatingChange()
-    }
-
-    private getContactPointsPerFullContactChange(pitchEnvironmentTarget: PitchEnvironmentTarget): number {
-        const contactRates = pitchEnvironmentTarget.swing.behaviorByCount.map(behavior =>
-            getAverage([
-                asNumber(behavior.zoneContactPercent),
-                asNumber(behavior.chaseContactPercent)
-            ])
-        )
-
-        return this.getRateStdDev(contactRates, "hitter contact calculation") / this.getFullRatingChange()
-    }
-
-    private getPitcherPowerContactPointsPerFullPowerChange(pitchEnvironmentTarget: PitchEnvironmentTarget): number {
-        const contactRates = pitchEnvironmentTarget.swing.behaviorByCount.map(behavior =>
-            getAverage([
-                asNumber(behavior.zoneContactPercent),
-                asNumber(behavior.chaseContactPercent)
-            ])
-        )
-
-        return this.getRateStdDev(contactRates, "pitcher power contact calculation") / this.getFullRatingChange()
     }
 
     isInZone(gameRNG: () => number, locationQuality:number, inZoneRate:number) {
@@ -2063,22 +1842,6 @@ class SimRolls {
 
     }
 
-    private getRateStdDev(values: number[], label: string): number {
-        if (values.length === 0) {
-            throw new Error(`Missing swing behavior for ${label}.`)
-        }
-
-        const avg = getAverage(values)
-        const variance = getAverage(values.map(value => Math.pow(value - avg, 2)))
-        const stdDev = Math.sqrt(variance)
-
-        if (!Number.isFinite(stdDev) || stdDev <= 0) {
-            return this.getRateRange(values, label)
-        }
-
-        return stdDev
-    }
-
     getFullRatingChange(): number {
         if (!Number.isFinite(GENERATED_FULL_CHANGE) || GENERATED_FULL_CHANGE <= 0) {
             throw new Error("Invalid generated rating change bounds.")
@@ -2086,14 +1849,6 @@ class SimRolls {
 
         return GENERATED_FULL_CHANGE
     }
-
-    private getRateRange(values: number[], label: string): number {
-        if (values.length === 0) {
-            throw new Error(`Missing swing behavior for ${label}.`)
-        }
-
-        return Math.max(...values) - Math.min(...values)
-    }    
 
 }
 

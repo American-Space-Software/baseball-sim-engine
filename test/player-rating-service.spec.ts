@@ -1516,540 +1516,563 @@ class RatingTestHarness {
 
 }
 
-// describe("Player Rating Windows", function () {
-
-//     const buildRatings = (value: number, pitches: string[] = ["FF"]): any => {
-//         return {
-//             playerId: "1",
-//             firstName: "Test",
-//             lastName: "Player",
-//             primaryPosition: "P",
-//             age: 27,
-//             throws: "R",
-//             hits: "R",
-//             hittingRatings: {
-//                 speed: value,
-//                 steals: value,
-//                 defense: value,
-//                 arm: value,
-//                 contactProfile: {
-//                     groundball: value,
-//                     flyBall: value,
-//                     lineDrive: value
-//                 },
-//                 vsR: {
-//                     plateDiscipline: value,
-//                     contact: value,
-//                     gapPower: value,
-//                     homerunPower: value
-//                 },
-//                 vsL: {
-//                     plateDiscipline: value,
-//                     contact: value,
-//                     gapPower: value,
-//                     homerunPower: value
-//                 }
-//             },
-//             pitchRatings: {
-//                 power: value,
-//                 contactProfile: {
-//                     groundball: value,
-//                     flyBall: value,
-//                     lineDrive: value
-//                 },
-//                 vsR: {
-//                     control: value,
-//                     movement: value
-//                 },
-//                 vsL: {
-//                     control: value,
-//                     movement: value
-//                 },
-//                 pitches
-//             }
-//         }
-//     }
-
-//     const buildImport = (playerId: string, value: number, plateAppearances = 100, pitchingGames = 0): any => {
-//         return {
-//             playerId,
-//             value,
-//             firstName: "Test",
-//             lastName: "Player",
-//             primaryPosition: pitchingGames > 0 ? "P" : "OF",
-//             age: 27,
-//             throws: "R",
-//             bats: "R",
-//             hitting: {
-//                 games: plateAppearances > 0 ? 1 : 0,
-//                 pa: plateAppearances
-//             },
-//             pitching: {
-//                 games: pitchingGames,
-//                 battersFaced: pitchingGames > 0 ? 3 : 0,
-//                 outs: pitchingGames > 0 ? 2 : 0
-//             }
-//         }
-//     }
-
-//     const recentWindow = (name: string, minimumDaysAgo: number, maximumDaysAgo: number, minimumPlateAppearances = 0): any => {
-//         return {
-//             name,
-//             weight: 0.10,
-//             minimumDaysAgo,
-//             maximumDaysAgo,
-//             minimumPlateAppearances
-//         }
-//     }
-
-//     it("calculates non-overlapping calendar ranges", function () {
-//         const service = PlayerRatingService as any
-
-//         assert.deepEqual(
-//             service.getWindowDateRange("2026-07-20", recentWindow("16-30", 16, 30)),
-//             {
-//                 startDate: "2026-06-20",
-//                 endDateExclusive: "2026-07-05"
-//             }
-//         )
-
-//         assert.deepEqual(
-//             service.getWindowDateRange("2026-07-20", recentWindow("8-15", 8, 15)),
-//             {
-//                 startDate: "2026-07-05",
-//                 endDateExclusive: "2026-07-13"
-//             }
-//         )
-
-//         assert.deepEqual(
-//             service.getWindowDateRange("2026-07-20", recentWindow("1-7", 1, 7)),
-//             {
-//                 startDate: "2026-07-13",
-//                 endDateExclusive: "2026-07-20"
-//             }
-//         )
-//     })
-
-//     it("qualifies a hitter at the minimum plate appearances", function () {
-//         const service = PlayerRatingService as any
-
-//         assert.equal(
-//             service.hasMinimumWindowSample(
-//                 buildImport("1", 100, 10),
-//                 recentWindow("1-7", 1, 7, 10)
-//             ),
-//             true
-//         )
-//     })
-
-//     it("rejects a hitter below the minimum plate appearances", function () {
-//         const service = PlayerRatingService as any
-
-//         assert.equal(
-//             service.hasMinimumWindowSample(
-//                 buildImport("1", 100, 9),
-//                 recentWindow("1-7", 1, 7, 10)
-//             ),
-//             false
-//         )
-//     })
-
-//     it("qualifies a pitcher with a pitching appearance", function () {
-//         const service = PlayerRatingService as any
-
-//         assert.equal(
-//             service.hasMinimumWindowSample(
-//                 buildImport("1", 100, 0, 1),
-//                 recentWindow("1-7", 1, 7, 10)
-//             ),
-//             true
-//         )
-//     })
-
-//     it("rejects a player without a hitting or pitching sample", function () {
-//         const service = PlayerRatingService as any
-
-//         assert.equal(
-//             service.hasMinimumWindowSample(
-//                 buildImport("1", 100, 0, 0),
-//                 recentWindow("1-7", 1, 7, 10)
-//             ),
-//             false
-//         )
-//     })
-
-//     it("normalizes weights when only some windows qualify", function () {
-//         const service = PlayerRatingService as any
-//         const ratings = service.buildWeightedPlayerRatings([
-//             {
-//                 ratings: buildRatings(100),
-//                 weight: 0.75,
-//                 generated: true
-//             },
-//             {
-//                 ratings: buildRatings(140),
-//                 weight: 0.025,
-//                 generated: true
-//             }
-//         ])
-
-//         const expected = (100 * (0.75 / 0.775)) + (140 * (0.025 / 0.775))
-
-//         assert.equal(ratings.hittingRatings.speed, expected)
-//         assert.equal(ratings.hittingRatings.vsR.contact, expected)
-//         assert.equal(ratings.pitchRatings.power, expected)
-//         assert.equal(ratings.pitchRatings.vsL.movement, expected)
-//     })
-
-//     it("returns core ratings unchanged when only the core sample qualifies", function () {
-//         const service = PlayerRatingService as any
-//         const ratings = service.buildWeightedPlayerRatings([
-//             {
-//                 ratings: buildRatings(117),
-//                 weight: 0.75,
-//                 generated: true
-//             }
-//         ])
-
-//         assert.equal(ratings.hittingRatings.speed, 117)
-//         assert.equal(ratings.hittingRatings.vsR.contact, 117)
-//         assert.equal(ratings.pitchRatings.power, 117)
-//         assert.equal(ratings.pitchRatings.vsL.movement, 117)
-//     })
-
-//     it("uses the first generated set for identity and nonnumeric values", function () {
-//         const service = PlayerRatingService as any
-//         const core = buildRatings(100, ["FF"])
-//         const recent = buildRatings(140, ["SL", "CH"])
-
-//         recent.firstName = "Recent"
-//         recent.lastName = "Player"
-
-//         const ratings = service.buildWeightedPlayerRatings([
-//             {
-//                 ratings: core,
-//                 weight: 0.75,
-//                 generated: false
-//             },
-//             {
-//                 ratings: recent,
-//                 weight: 0.025,
-//                 generated: true
-//             }
-//         ])
-
-//         assert.equal(ratings.firstName, "Recent")
-//         assert.equal(ratings.lastName, "Player")
-//         assert.deepEqual(ratings.pitchRatings.pitches, ["SL", "CH"])
-//     })
-
-//     it("throws when no rating sets are supplied", function () {
-//         assert.throws(
-//             () => (PlayerRatingService as any).buildWeightedPlayerRatings([]),
-//             /without rating sets/
-//         )
-//     })
-
-//     it("requests the core and configured recent windows from PlayerImportService", async function () {
-//         const requestedCore: any[] = []
-//         const requestedRanges: any[] = []
-
-//         const playerImportService = {
-//             buildCorePlayerImports: async (requestedSeason: number, requestedDate: string, playerIds: Set<string>) => {
-//                 requestedCore.push({
-//                     season: requestedSeason,
-//                     gameDate: requestedDate,
-//                     playerIds: Array.from(playerIds)
-//                 })
-
-//                 return new Map([
-//                     ["1", buildImport("1", 100)]
-//                 ])
-//             },
-//             buildDateRangePlayerImports: async (requestedSeason: number, startDate: string, endDateExclusive: string, playerIds: Set<string>) => {
-//                 requestedRanges.push({
-//                     season: requestedSeason,
-//                     startDate,
-//                     endDateExclusive,
-//                     playerIds: Array.from(playerIds)
-//                 })
-
-//                 const value = startDate === "2026-06-20"
-//                     ? 110
-//                     : startDate === "2026-07-05"
-//                         ? 120
-//                         : 130
-
-//                 return new Map([
-//                     ["1", buildImport("1", value)]
-//                 ])
-//             }
-//         } as unknown as PlayerImportService
-
-//         const service = createServices(playerImportService).playerRatingService
-//         const ratingService = PlayerRatingService as any
-//         const originalBuildPlayerRatings = ratingService.buildPlayerRatings
-
-//         ratingService.buildPlayerRatings = (_pitchEnvironment: PitchEnvironmentTarget, playerImport: any) => {
-//             return buildRatings(playerImport.value)
-//         }
-
-//         try {
-//             const ratings = await service.buildPlayerRatingsForDate(
-//                 2026,
-//                 "2026-07-20",
-//                 pitchEnvironment,
-//                 new Set(["1"])
-//             )
-
-//             assert.deepEqual(requestedCore, [
-//                 {
-//                     season: 2026,
-//                     gameDate: "2026-07-20",
-//                     playerIds: ["1"]
-//                 }
-//             ])
-
-//             assert.deepEqual(requestedRanges, [
-//                 {
-//                     season: 2026,
-//                     startDate: "2026-06-20",
-//                     endDateExclusive: "2026-07-05",
-//                     playerIds: ["1"]
-//                 },
-//                 {
-//                     season: 2026,
-//                     startDate: "2026-07-05",
-//                     endDateExclusive: "2026-07-13",
-//                     playerIds: ["1"]
-//                 },
-//                 {
-//                     season: 2026,
-//                     startDate: "2026-07-13",
-//                     endDateExclusive: "2026-07-20",
-//                     playerIds: ["1"]
-//                 }
-//             ])
-
-//             const expected = (100 * 0.75) + (110 * 0.15) + (120 * 0.075) + (130 * 0.025)
-//             const player = ratings.get("1")
-
-//             assert.ok(player)
-//             assert.equal(player.hittingRatings.speed, expected)
-//             assert.equal(player.pitchRatings.power, expected)
-//         } finally {
-//             ratingService.buildPlayerRatings = originalBuildPlayerRatings
-//         }
-//     })
-
-//     it("passes the provided pitch environment into every rating generation", async function () {
-//         const receivedTargets: PitchEnvironmentTarget[] = []
-//         const playerImportService = {
-//             buildCorePlayerImports: async () => new Map([
-//                 ["1", buildImport("1", 100)]
-//             ]),
-//             buildDateRangePlayerImports: async () => new Map()
-//         } as unknown as PlayerImportService
-
-//         const service = createServices(playerImportService).playerRatingService
-//         const ratingService = PlayerRatingService as any
-//         const originalBuildPlayerRatings = ratingService.buildPlayerRatings
-
-//         ratingService.buildPlayerRatings = (receivedTarget: PitchEnvironmentTarget) => {
-//             receivedTargets.push(receivedTarget)
-//             return buildRatings(100)
-//         }
-
-//         try {
-//             await service.buildPlayerRatingsForDate(
-//                 2026,
-//                 "2026-07-20",
-//                 pitchEnvironment,
-//                 new Set(["1"])
-//             )
-
-//             assert.equal(receivedTargets.length, 1)
-//             assert.equal(receivedTargets[0], pitchEnvironment)
-//         } finally {
-//             ratingService.buildPlayerRatings = originalBuildPlayerRatings
-//         }
-//     })
-
-//     it("omits a filtered player without a core import", async function () {
-//         const playerImportService = {
-//             buildCorePlayerImports: async () => new Map(),
-//             buildDateRangePlayerImports: async () => new Map([
-//                 ["1", buildImport("1", 130)]
-//             ])
-//         } as unknown as PlayerImportService
-
-//         const service = createServices(playerImportService).playerRatingService
-//         const ratings = await service.buildPlayerRatingsForDate(
-//             2026,
-//             "2026-07-20",
-//             pitchEnvironment,
-//             new Set(["1"])
-//         )
-
-//         assert.equal(ratings.has("1"), false)
-//     })
-// })
-
-describe("Player Rating Diagnostics", function () {
-
-    it("should print running, defense, steals, speed, and arm diagnostics", function () {
-        const defenseRows = RatingTestHarness.getDefenseFullContextRows()
-        const runningRows = RatingTestHarness.getRunningFullContextRows()
-        const armRows = RatingTestHarness.getArmFullContextRows()
-        const runningArmRows = [...runningRows, ...armRows]
-        const rangeRows = RatingTestHarness.getRunningArmRangeRows()
-        const generatedRows = RatingTestHarness.getRealPlayerRunningFieldingRows()
-
-        RatingTestHarness.printTable("[GENERATED RUNNING/FIELDING RATINGS]", generatedRows)
-        RatingTestHarness.printTable("[RUNNING/ARM FULL-CONTEXT SUMMARY]", RatingTestHarness.getRunningArmSummaryRows(runningArmRows))
-        RatingTestHarness.printTable("[RUNNING/ARM FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getRunningArmCompactRows(runningArmRows))
-        RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT SUMMARY]", RatingTestHarness.getHitterSummaryRows(defenseRows))
-        RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(defenseRows))
-        RatingTestHarness.printTable("[RUNNING/ARM DIRECT RANGE TABLE]", rangeRows)
-
-        assert.ok(generatedRows.length > 0)
-        assert.ok(runningRows.length > 0)
-        assert.ok(armRows.length > 0)
-        assert.ok(defenseRows.length > 0)
-        assert.ok(rangeRows.length > 0)
-    })
-
-    it("should validate underlying rating plumbing and print compact roll-chart elasticity", function () {
-        RatingTestHarness.assertUnderlyingChanges()
-
-        const powerChartRows = RatingTestHarness.getUnderlyingPowerChartElasticityRows()
-
-        RatingTestHarness.printTable("[UNDERLYING POWER CHART ELASTICITY]", powerChartRows)
-
-        assert.ok(powerChartRows.length > 0)
-    })
-
-    it("should print isolated hitter PA elasticity diagnostics", function () {
-        const rows = RatingTestHarness.getAllHitterPaRows()
-
-        RatingTestHarness.printTable("[ISOLATED HITTER PA ELASTICITY]", RatingTestHarness.getHitterElasticityRows(rows))
-        RatingTestHarness.printTable("[ISOLATED HITTER PA SUMMARY]", RatingTestHarness.getHitterSummaryRows(rows))
-        RatingTestHarness.printTable("[ISOLATED HITTER PA COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(rows))
-
-        assert.ok(rows.length > 0)
-    })
-
-    it("should print isolated pitcher PA elasticity diagnostics", function () {
-        const rows = RatingTestHarness.getAllPitcherPaRows()
-
-        RatingTestHarness.printTable("[ISOLATED PITCHER PA ELASTICITY]", RatingTestHarness.getPitcherElasticityRows(rows))
-        RatingTestHarness.printTable("[ISOLATED PITCHER PA SUMMARY]", RatingTestHarness.getPitcherSummaryRows(rows))
-        RatingTestHarness.printTable("[ISOLATED PITCHER PA COMPACT DETAIL]", RatingTestHarness.getCompactPitcherRows(rows))
-
-        assert.ok(rows.length > 0)
-    })
-
-    it("should print single-anchor hitter full-context game diagnostics", function () {
-        const rows = RatingTestHarness.getAllAnchorContextRows()
-
-        RatingTestHarness.printTable("[SINGLE-ANCHOR HITTER FULL-CONTEXT SUMMARY]", RatingTestHarness.getHitterSummaryRows(rows))
-        RatingTestHarness.printTable("[SINGLE-ANCHOR HITTER FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(rows))
-
-        assert.ok(rows.length > 0)
-    })
-
-    it("should print running and defense diagnostics", function () {
-        const defenseRows = RatingTestHarness.getDefenseFullContextRows()
-        const runningArmRows = RatingTestHarness.getRunningArmRows()
-
-        RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT SUMMARY]", RatingTestHarness.getHitterSummaryRows(defenseRows))
-        RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(defenseRows))
-        RatingTestHarness.printTable("[RUNNING/ARM RANGES]", runningArmRows)
-
-        assert.ok(defenseRows.length > 0)
-        assert.ok(runningArmRows.length > 0)
-    })
-
-    it("should compare season-generated real player ratings against real life", function () {
-        const diagnostics = diagnosticPlayers.map(player => RatingTestHarness.getRealPlayerDiagnostic(player.name))
-        const hitterDiagnostics = diagnostics.filter(diagnostic => diagnostic.hitter)
-        const pitcherDiagnostics = diagnostics.filter(diagnostic => diagnostic.pitcher)
-
-        assert.equal(diagnostics.length, diagnosticPlayers.length)
-        assert.equal(hitterDiagnostics.length, 5)
-        assert.equal(pitcherDiagnostics.length, 5)
-
-        RatingTestHarness.printTable("[REAL PLAYER HITTER RATINGS]", hitterDiagnostics.map(diagnostic => ({
-            player: diagnostic.name,
-            playerId: diagnostic.player.playerId,
-            ...RatingTestHarness.formatHitterRatingsForTable(diagnostic.ratings)
-        })))
-
-        RatingTestHarness.printTable("[REAL PLAYER PITCHER RATINGS]", pitcherDiagnostics.map(diagnostic => ({
-            player: diagnostic.name,
-            playerId: diagnostic.player.playerId,
-            ...RatingTestHarness.formatPitcherRatingsForTable(diagnostic.ratings)
-        })))
-
-        RatingTestHarness.printTable("[REAL PLAYER HITTER SIM VS REAL]", hitterDiagnostics.flatMap(diagnostic => [
-            {
-                player: diagnostic.name,
-                row: "SIM",
-                ...RatingTestHarness.formatActualForTable(diagnostic.hitter.actual)
-            },
-            {
-                player: diagnostic.name,
-                row: "REAL",
-                ...RatingTestHarness.formatActualForTable(diagnostic.hitter.target)
-            },
-            {
-                player: diagnostic.name,
-                row: "DIFF",
-                ...RatingTestHarness.formatDiffForTable(diagnostic.hitter.actual, diagnostic.hitter.target)
+enum DiagnosticTest {
+    PLAYER_RATING_WINDOWS = "Player Rating Windows",
+    PLAYER_RATING_DIAGNOSTICS = "Player Rating Diagnostics",
+    AARON_JUDGE = "Aaron Judge Probability Breakdown"
+}
+
+const toRun: DiagnosticTest[] = [
+    DiagnosticTest.PLAYER_RATING_WINDOWS,
+    DiagnosticTest.PLAYER_RATING_DIAGNOSTICS,
+    DiagnosticTest.AARON_JUDGE,
+]
+
+
+if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
+    describe("Player Rating Windows", function () {
+
+        const buildRatings = (value: number, pitches: string[] = ["FF"]): any => {
+            return {
+                playerId: "1",
+                firstName: "Test",
+                lastName: "Player",
+                primaryPosition: "P",
+                age: 27,
+                throws: "R",
+                hits: "R",
+                hittingRatings: {
+                    speed: value,
+                    steals: value,
+                    defense: value,
+                    arm: value,
+                    contactProfile: {
+                        groundball: value,
+                        flyBall: value,
+                        lineDrive: value
+                    },
+                    vsR: {
+                        plateDiscipline: value,
+                        contact: value,
+                        gapPower: value,
+                        homerunPower: value
+                    },
+                    vsL: {
+                        plateDiscipline: value,
+                        contact: value,
+                        gapPower: value,
+                        homerunPower: value
+                    }
+                },
+                pitchRatings: {
+                    power: value,
+                    contactProfile: {
+                        groundball: value,
+                        flyBall: value,
+                        lineDrive: value
+                    },
+                    vsR: {
+                        control: value,
+                        movement: value
+                    },
+                    vsL: {
+                        control: value,
+                        movement: value
+                    },
+                    pitches
+                }
             }
-        ]))
+        }
 
-        RatingTestHarness.printTable("[REAL PLAYER PITCHER SIM VS REAL]", pitcherDiagnostics.flatMap(diagnostic => [
-            {
-                player: diagnostic.name,
-                row: "SIM",
-                ...RatingTestHarness.formatActualForTable(diagnostic.pitcher.actual)
-            },
-            {
-                player: diagnostic.name,
-                row: "REAL",
-                ...RatingTestHarness.formatActualForTable(diagnostic.pitcher.target)
-            },
-            {
-                player: diagnostic.name,
-                row: "DIFF",
-                ...RatingTestHarness.formatDiffForTable(diagnostic.pitcher.actual, diagnostic.pitcher.target)
+        const buildImport = (playerId: string, value: number, plateAppearances = 100, pitchingGames = 0): any => {
+            return {
+                playerId,
+                value,
+                firstName: "Test",
+                lastName: "Player",
+                primaryPosition: pitchingGames > 0 ? "P" : "OF",
+                age: 27,
+                throws: "R",
+                bats: "R",
+                hitting: {
+                    games: plateAppearances > 0 ? 1 : 0,
+                    pa: plateAppearances
+                },
+                pitching: {
+                    games: pitchingGames,
+                    battersFaced: pitchingGames > 0 ? 3 : 0,
+                    outs: pitchingGames > 0 ? 2 : 0
+                }
             }
-        ]))
+        }
+
+        const recentWindow = (name: string, minimumDaysAgo: number, maximumDaysAgo: number, minimumPlateAppearances = 0): any => {
+            return {
+                name,
+                weight: 0.10,
+                minimumDaysAgo,
+                maximumDaysAgo,
+                minimumPlateAppearances
+            }
+        }
+
+        it("calculates non-overlapping calendar ranges", function () {
+            const service = PlayerRatingService as any
+
+            assert.deepEqual(
+                service.getWindowDateRange("2026-07-20", recentWindow("16-30", 16, 30)),
+                {
+                    startDate: "2026-06-20",
+                    endDateExclusive: "2026-07-05"
+                }
+            )
+
+            assert.deepEqual(
+                service.getWindowDateRange("2026-07-20", recentWindow("8-15", 8, 15)),
+                {
+                    startDate: "2026-07-05",
+                    endDateExclusive: "2026-07-13"
+                }
+            )
+
+            assert.deepEqual(
+                service.getWindowDateRange("2026-07-20", recentWindow("1-7", 1, 7)),
+                {
+                    startDate: "2026-07-13",
+                    endDateExclusive: "2026-07-20"
+                }
+            )
+        })
+
+        it("qualifies a hitter at the minimum plate appearances", function () {
+            const service = PlayerRatingService as any
+
+            assert.equal(
+                service.hasMinimumWindowSample(
+                    buildImport("1", 100, 10),
+                    recentWindow("1-7", 1, 7, 10)
+                ),
+                true
+            )
+        })
+
+        it("rejects a hitter below the minimum plate appearances", function () {
+            const service = PlayerRatingService as any
+
+            assert.equal(
+                service.hasMinimumWindowSample(
+                    buildImport("1", 100, 9),
+                    recentWindow("1-7", 1, 7, 10)
+                ),
+                false
+            )
+        })
+
+        it("qualifies a pitcher with a pitching appearance", function () {
+            const service = PlayerRatingService as any
+
+            assert.equal(
+                service.hasMinimumWindowSample(
+                    buildImport("1", 100, 0, 1),
+                    recentWindow("1-7", 1, 7, 10)
+                ),
+                true
+            )
+        })
+
+        it("rejects a player without a hitting or pitching sample", function () {
+            const service = PlayerRatingService as any
+
+            assert.equal(
+                service.hasMinimumWindowSample(
+                    buildImport("1", 100, 0, 0),
+                    recentWindow("1-7", 1, 7, 10)
+                ),
+                false
+            )
+        })
+
+        it("normalizes weights when only some windows qualify", function () {
+            const service = PlayerRatingService as any
+            const ratings = service.buildWeightedPlayerRatings([
+                {
+                    ratings: buildRatings(100),
+                    weight: 0.75,
+                    generated: true
+                },
+                {
+                    ratings: buildRatings(140),
+                    weight: 0.025,
+                    generated: true
+                }
+            ])
+
+            const expected = (100 * (0.75 / 0.775)) + (140 * (0.025 / 0.775))
+
+            assert.equal(ratings.hittingRatings.speed, expected)
+            assert.equal(ratings.hittingRatings.vsR.contact, expected)
+            assert.equal(ratings.pitchRatings.power, expected)
+            assert.equal(ratings.pitchRatings.vsL.movement, expected)
+        })
+
+        it("returns core ratings unchanged when only the core sample qualifies", function () {
+            const service = PlayerRatingService as any
+            const ratings = service.buildWeightedPlayerRatings([
+                {
+                    ratings: buildRatings(117),
+                    weight: 0.75,
+                    generated: true
+                }
+            ])
+
+            assert.equal(ratings.hittingRatings.speed, 117)
+            assert.equal(ratings.hittingRatings.vsR.contact, 117)
+            assert.equal(ratings.pitchRatings.power, 117)
+            assert.equal(ratings.pitchRatings.vsL.movement, 117)
+        })
+
+        it("uses the first generated set for identity and nonnumeric values", function () {
+            const service = PlayerRatingService as any
+            const core = buildRatings(100, ["FF"])
+            const recent = buildRatings(140, ["SL", "CH"])
+
+            recent.firstName = "Recent"
+            recent.lastName = "Player"
+
+            const ratings = service.buildWeightedPlayerRatings([
+                {
+                    ratings: core,
+                    weight: 0.75,
+                    generated: false
+                },
+                {
+                    ratings: recent,
+                    weight: 0.025,
+                    generated: true
+                }
+            ])
+
+            assert.equal(ratings.firstName, "Recent")
+            assert.equal(ratings.lastName, "Player")
+            assert.deepEqual(ratings.pitchRatings.pitches, ["SL", "CH"])
+        })
+
+        it("throws when no rating sets are supplied", function () {
+            assert.throws(
+                () => (PlayerRatingService as any).buildWeightedPlayerRatings([]),
+                /without rating sets/
+            )
+        })
+
+        it("requests the core and configured recent windows from PlayerImportService", async function () {
+            const requestedCore: any[] = []
+            const requestedRanges: any[] = []
+
+            const playerImportService = {
+                buildCorePlayerImports: async (requestedSeason: number, requestedDate: string, playerIds: Set<string>) => {
+                    requestedCore.push({
+                        season: requestedSeason,
+                        gameDate: requestedDate,
+                        playerIds: Array.from(playerIds)
+                    })
+
+                    return new Map([
+                        ["1", buildImport("1", 100)]
+                    ])
+                },
+                buildDateRangePlayerImports: async (requestedSeason: number, startDate: string, endDateExclusive: string, playerIds: Set<string>) => {
+                    requestedRanges.push({
+                        season: requestedSeason,
+                        startDate,
+                        endDateExclusive,
+                        playerIds: Array.from(playerIds)
+                    })
+
+                    const value = startDate === "2026-06-20"
+                        ? 110
+                        : startDate === "2026-07-05"
+                            ? 120
+                            : 130
+
+                    return new Map([
+                        ["1", buildImport("1", value)]
+                    ])
+                }
+            } as unknown as PlayerImportService
+
+            const service = createServices(playerImportService).playerRatingService
+            const ratingService = PlayerRatingService as any
+            const originalBuildPlayerRatings = ratingService.buildPlayerRatings
+
+            ratingService.buildPlayerRatings = (_pitchEnvironment: PitchEnvironmentTarget, playerImport: any) => {
+                return buildRatings(playerImport.value)
+            }
+
+            try {
+                const ratings = await service.buildPlayerRatingsForDate(
+                    2026,
+                    "2026-07-20",
+                    pitchEnvironment,
+                    new Set(["1"])
+                )
+
+                assert.deepEqual(requestedCore, [
+                    {
+                        season: 2026,
+                        gameDate: "2026-07-20",
+                        playerIds: ["1"]
+                    }
+                ])
+
+                assert.deepEqual(requestedRanges, [
+                    {
+                        season: 2026,
+                        startDate: "2026-06-20",
+                        endDateExclusive: "2026-07-05",
+                        playerIds: ["1"]
+                    },
+                    {
+                        season: 2026,
+                        startDate: "2026-07-05",
+                        endDateExclusive: "2026-07-13",
+                        playerIds: ["1"]
+                    },
+                    {
+                        season: 2026,
+                        startDate: "2026-07-13",
+                        endDateExclusive: "2026-07-20",
+                        playerIds: ["1"]
+                    }
+                ])
+
+                const expected = (100 * 0.75) + (110 * 0.15) + (120 * 0.075) + (130 * 0.025)
+                const player = ratings.get("1")
+
+                assert.ok(player)
+                assert.equal(player.hittingRatings.speed, expected)
+                assert.equal(player.pitchRatings.power, expected)
+            } finally {
+                ratingService.buildPlayerRatings = originalBuildPlayerRatings
+            }
+        })
+
+        it("passes the provided pitch environment into every rating generation", async function () {
+            const receivedTargets: PitchEnvironmentTarget[] = []
+            const playerImportService = {
+                buildCorePlayerImports: async () => new Map([
+                    ["1", buildImport("1", 100)]
+                ]),
+                buildDateRangePlayerImports: async () => new Map()
+            } as unknown as PlayerImportService
+
+            const service = createServices(playerImportService).playerRatingService
+            const ratingService = PlayerRatingService as any
+            const originalBuildPlayerRatings = ratingService.buildPlayerRatings
+
+            ratingService.buildPlayerRatings = (receivedTarget: PitchEnvironmentTarget) => {
+                receivedTargets.push(receivedTarget)
+                return buildRatings(100)
+            }
+
+            try {
+                await service.buildPlayerRatingsForDate(
+                    2026,
+                    "2026-07-20",
+                    pitchEnvironment,
+                    new Set(["1"])
+                )
+
+                assert.equal(receivedTargets.length, 1)
+                assert.equal(receivedTargets[0], pitchEnvironment)
+            } finally {
+                ratingService.buildPlayerRatings = originalBuildPlayerRatings
+            }
+        })
+
+        it("omits a filtered player without a core import", async function () {
+            const playerImportService = {
+                buildCorePlayerImports: async () => new Map(),
+                buildDateRangePlayerImports: async () => new Map([
+                    ["1", buildImport("1", 130)]
+                ])
+            } as unknown as PlayerImportService
+
+            const service = createServices(playerImportService).playerRatingService
+            const ratings = await service.buildPlayerRatingsForDate(
+                2026,
+                "2026-07-20",
+                pitchEnvironment,
+                new Set(["1"])
+            )
+
+            assert.equal(ratings.has("1"), false)
+        })
     })
-})
+}
 
-describe("Aaron Judge Probability Breakdown", function () {
+if (toRun.includes(DiagnosticTest.PLAYER_RATING_DIAGNOSTICS)) {
+    describe("Player Rating Diagnostics", function () {
 
-    it("should show where Aaron Judge loses batting average", function () {
-        const breakdown = RatingTestHarness.getAaronJudgeProbabilityRows()
+        it("should print running, defense, steals, speed, and arm diagnostics", function () {
+            const defenseRows = RatingTestHarness.getDefenseFullContextRows()
+            const runningRows = RatingTestHarness.getRunningFullContextRows()
+            const armRows = RatingTestHarness.getArmFullContextRows()
+            const runningArmRows = [...runningRows, ...armRows]
+            const rangeRows = RatingTestHarness.getRunningArmRangeRows()
+            const generatedRows = RatingTestHarness.getRealPlayerRunningFieldingRows()
 
-        RatingTestHarness.printTable("[AARON JUDGE RATINGS]", breakdown.ratings)
-        RatingTestHarness.printTable("[AARON JUDGE RATING CHANGES]", breakdown.changes)
-        RatingTestHarness.printTable("[AARON JUDGE FAIR-CONTACT POWER CHART]", breakdown.powerChart)
-        RatingTestHarness.printTable("[AARON JUDGE SIM VS REAL]", breakdown.results)
+            RatingTestHarness.printTable("[GENERATED RUNNING/FIELDING RATINGS]", generatedRows)
+            RatingTestHarness.printTable("[RUNNING/ARM FULL-CONTEXT SUMMARY]", RatingTestHarness.getRunningArmSummaryRows(runningArmRows))
+            RatingTestHarness.printTable("[RUNNING/ARM FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getRunningArmCompactRows(runningArmRows))
+            RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT SUMMARY]", RatingTestHarness.getHitterSummaryRows(defenseRows))
+            RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(defenseRows))
+            RatingTestHarness.printTable("[RUNNING/ARM DIRECT RANGE TABLE]", rangeRows)
 
-        const judgeRight = breakdown.powerChart.find(row => row.player === "Aaron Judge vs RHP")
-        const averageRight = breakdown.powerChart.find(row => row.player === "Average hitter vs RHP")
-        const sim = breakdown.results.find(row => row.row === "SIM")
-        const real = breakdown.results.find(row => row.row === "REAL")
+            assert.ok(generatedRows.length > 0)
+            assert.ok(runningRows.length > 0)
+            assert.ok(armRows.length > 0)
+            assert.ok(defenseRows.length > 0)
+            assert.ok(rangeRows.length > 0)
+        })
 
-        assert.ok(judgeRight)
-        assert.ok(averageRight)
-        assert.ok(sim)
-        assert.ok(real)
-        assert.ok(judgeRight.chartBabip > averageRight.chartBabip)
-        assert.ok(Number(sim.avg) < Number(real.avg))
-        assert.ok(Number(sim.babip) < Number(real.babip))
+        it("should validate underlying rating plumbing and print compact roll-chart elasticity", function () {
+            RatingTestHarness.assertUnderlyingChanges()
+
+            const powerChartRows = RatingTestHarness.getUnderlyingPowerChartElasticityRows()
+
+            RatingTestHarness.printTable("[UNDERLYING POWER CHART ELASTICITY]", powerChartRows)
+
+            assert.ok(powerChartRows.length > 0)
+        })
+
+        it("should print isolated hitter PA elasticity diagnostics", function () {
+            const rows = RatingTestHarness.getAllHitterPaRows()
+
+            RatingTestHarness.printTable("[ISOLATED HITTER PA ELASTICITY]", RatingTestHarness.getHitterElasticityRows(rows))
+            RatingTestHarness.printTable("[ISOLATED HITTER PA SUMMARY]", RatingTestHarness.getHitterSummaryRows(rows))
+            RatingTestHarness.printTable("[ISOLATED HITTER PA COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(rows))
+
+            assert.ok(rows.length > 0)
+        })
+
+        it("should print isolated pitcher PA elasticity diagnostics", function () {
+            const rows = RatingTestHarness.getAllPitcherPaRows()
+
+            RatingTestHarness.printTable("[ISOLATED PITCHER PA ELASTICITY]", RatingTestHarness.getPitcherElasticityRows(rows))
+            RatingTestHarness.printTable("[ISOLATED PITCHER PA SUMMARY]", RatingTestHarness.getPitcherSummaryRows(rows))
+            RatingTestHarness.printTable("[ISOLATED PITCHER PA COMPACT DETAIL]", RatingTestHarness.getCompactPitcherRows(rows))
+
+            assert.ok(rows.length > 0)
+        })
+
+        it("should print single-anchor hitter full-context game diagnostics", function () {
+            const rows = RatingTestHarness.getAllAnchorContextRows()
+
+            RatingTestHarness.printTable("[SINGLE-ANCHOR HITTER FULL-CONTEXT SUMMARY]", RatingTestHarness.getHitterSummaryRows(rows))
+            RatingTestHarness.printTable("[SINGLE-ANCHOR HITTER FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(rows))
+
+            assert.ok(rows.length > 0)
+        })
+
+        it("should print running and defense diagnostics", function () {
+            const defenseRows = RatingTestHarness.getDefenseFullContextRows()
+            const runningArmRows = RatingTestHarness.getRunningArmRows()
+
+            RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT SUMMARY]", RatingTestHarness.getHitterSummaryRows(defenseRows))
+            RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(defenseRows))
+            RatingTestHarness.printTable("[RUNNING/ARM RANGES]", runningArmRows)
+
+            assert.ok(defenseRows.length > 0)
+            assert.ok(runningArmRows.length > 0)
+        })
+
+        it("should compare season-generated real player ratings against real life", function () {
+            const diagnostics = diagnosticPlayers.map(player => RatingTestHarness.getRealPlayerDiagnostic(player.name))
+            const hitterDiagnostics = diagnostics.filter(diagnostic => diagnostic.hitter)
+            const pitcherDiagnostics = diagnostics.filter(diagnostic => diagnostic.pitcher)
+
+            assert.equal(diagnostics.length, diagnosticPlayers.length)
+            assert.equal(hitterDiagnostics.length, 5)
+            assert.equal(pitcherDiagnostics.length, 5)
+
+            RatingTestHarness.printTable("[REAL PLAYER HITTER RATINGS]", hitterDiagnostics.map(diagnostic => ({
+                player: diagnostic.name,
+                playerId: diagnostic.player.playerId,
+                ...RatingTestHarness.formatHitterRatingsForTable(diagnostic.ratings)
+            })))
+
+            RatingTestHarness.printTable("[REAL PLAYER PITCHER RATINGS]", pitcherDiagnostics.map(diagnostic => ({
+                player: diagnostic.name,
+                playerId: diagnostic.player.playerId,
+                ...RatingTestHarness.formatPitcherRatingsForTable(diagnostic.ratings)
+            })))
+
+            RatingTestHarness.printTable("[REAL PLAYER HITTER SIM VS REAL]", hitterDiagnostics.flatMap(diagnostic => [
+                {
+                    player: diagnostic.name,
+                    row: "SIM",
+                    ...RatingTestHarness.formatActualForTable(diagnostic.hitter.actual)
+                },
+                {
+                    player: diagnostic.name,
+                    row: "REAL",
+                    ...RatingTestHarness.formatActualForTable(diagnostic.hitter.target)
+                },
+                {
+                    player: diagnostic.name,
+                    row: "DIFF",
+                    ...RatingTestHarness.formatDiffForTable(diagnostic.hitter.actual, diagnostic.hitter.target)
+                }
+            ]))
+
+            RatingTestHarness.printTable("[REAL PLAYER PITCHER SIM VS REAL]", pitcherDiagnostics.flatMap(diagnostic => [
+                {
+                    player: diagnostic.name,
+                    row: "SIM",
+                    ...RatingTestHarness.formatActualForTable(diagnostic.pitcher.actual)
+                },
+                {
+                    player: diagnostic.name,
+                    row: "REAL",
+                    ...RatingTestHarness.formatActualForTable(diagnostic.pitcher.target)
+                },
+                {
+                    player: diagnostic.name,
+                    row: "DIFF",
+                    ...RatingTestHarness.formatDiffForTable(diagnostic.pitcher.actual, diagnostic.pitcher.target)
+                }
+            ]))
+        })
     })
-})
+}
+
+if (toRun.includes(DiagnosticTest.AARON_JUDGE)) {
+    describe("Aaron Judge Probability Breakdown", function () {
+
+        it("should show where Aaron Judge loses batting average", function () {
+            const breakdown = RatingTestHarness.getAaronJudgeProbabilityRows()
+
+            RatingTestHarness.printTable("[AARON JUDGE RATINGS]", breakdown.ratings)
+            RatingTestHarness.printTable("[AARON JUDGE RATING CHANGES]", breakdown.changes)
+            RatingTestHarness.printTable("[AARON JUDGE FAIR-CONTACT POWER CHART]", breakdown.powerChart)
+            RatingTestHarness.printTable("[AARON JUDGE SIM VS REAL]", breakdown.results)
+
+            const judgeRight = breakdown.powerChart.find(row => row.player === "Aaron Judge vs RHP")
+            const averageRight = breakdown.powerChart.find(row => row.player === "Average hitter vs RHP")
+            const sim = breakdown.results.find(row => row.row === "SIM")
+            const real = breakdown.results.find(row => row.row === "REAL")
+
+            assert.ok(judgeRight)
+            assert.ok(averageRight)
+            assert.ok(sim)
+            assert.ok(real)
+            assert.ok(judgeRight.chartBabip > averageRight.chartBabip)
+            assert.ok(Number(sim.avg) < Number(real.avg))
+            assert.ok(Number(sim.babip) < Number(real.babip))
+        })
+    })
+}
+
+
+
+
