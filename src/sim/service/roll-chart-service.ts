@@ -1,251 +1,101 @@
-import Big from 'big.js'
-
-import { ContactProfile, ContactTypeRollInput, FielderChanceRollInput,  HitterChange, HittingRatings,  PitchEnvironmentTarget, PitcherChange, PitchRatings, PowerRollInput, RollChart, ShallowDeepRollInput } from "./interfaces.js"
-import { Contact, PlayResult, Position, ShallowDeep } from './enums.js'
-import { PlayerChange } from './sim-service.js'
+import {
+    ContactProfile,
+    ContactTypeRollInput,
+    FielderChanceRollInput,
+    HitterChange,
+    PitchEnvironmentTarget,
+    PitcherChange,
+    PowerRollInput,
+    RollChart,
+    ShallowDeepRollInput
+} from "./interfaces.js"
+import { Contact, PlayResult, Position, ShallowDeep } from "./enums.js"
+import { PlayerChange } from "./sim-service.js"
+import { getAverage } from "../util.js"
 
 class RollChartService {
 
-    constructor(
-    ) { }
+    constructor() { }
 
-    public getPowerRollChart(input: PowerRollInput): RollChart {
+    public getMatchupPowerRollChart(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange, pitcherChange: PitcherChange): RollChart {
+        const input = PowerModel.getInput(pitchEnvironmentTarget, hitterChange, pitcherChange)
 
-        let chart: RollChart = {}
-        chart.entries = new Map<number, string>()
-
-        let outCount = 0
-        let singleCount = 0
-        let doubleCount = 0
-        let tripleCount = 0
-
-        for (let i = 0; i < 1000; i++) {
-
-            if (outCount < input.out) {
-                chart.entries.set(i, PlayResult.OUT)
-                outCount++
-                continue
-            }
-
-            if (singleCount < input.singles) {
-                chart.entries.set(i, PlayResult.SINGLE)
-                singleCount++
-                continue
-            }
-
-            if (doubleCount < input.doubles) {
-                chart.entries.set(i, PlayResult.DOUBLE)
-                doubleCount++
-                continue
-            }
-
-            if (tripleCount < input.triples) {
-                chart.entries.set(i, PlayResult.TRIPLE)
-                tripleCount++
-                continue
-            }
-
-            chart.entries.set(i, PlayResult.HR)
-
-        }
-
-        return chart
-
+        return this.getRollChart([
+            [PlayResult.OUT, input.out],
+            [PlayResult.SINGLE, input.singles],
+            [PlayResult.DOUBLE, input.doubles],
+            [PlayResult.TRIPLE, input.triples],
+            [PlayResult.HR, input.hr]
+        ])
     }
 
-    public getContactTypeRollChart(input: ContactTypeRollInput): RollChart {
+    public getMatchupContactRollChart(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterContactProfile: ContactProfile, pitcherContactProfile: ContactProfile): RollChart {
+        const input = ContactTypeModel.getInput(pitchEnvironmentTarget, hitterContactProfile, pitcherContactProfile)
 
-        let chart: RollChart = {}
-        chart.entries = new Map<number, string>()
-
-        let gbCount = 0
-        let fbCount = 0
-        let ldCount = 0
-
-        for (let i = 0; i < 1000; i++) {
-
-            if (gbCount < input.groundball) {
-                chart.entries.set(i, Contact.GROUNDBALL)
-                gbCount++
-                continue
-            }
-
-            if (fbCount < input.flyBall) {
-                chart.entries.set(i, Contact.FLY_BALL)
-                fbCount++
-                continue
-            }
-
-            if (ldCount < input.lineDrive) {
-                chart.entries.set(i, Contact.LINE_DRIVE)
-                ldCount++
-                continue
-            }
-
-        }
-
-        return chart
-
+        return this.getRollChart([
+            [Contact.GROUNDBALL, input.groundball],
+            [Contact.FLY_BALL, input.flyBall],
+            [Contact.LINE_DRIVE, input.lineDrive]
+        ])
     }
 
     public getFielderChanceRollChart(input: FielderChanceRollInput): RollChart {
-
-        let chart: RollChart = {}
-        chart.entries = new Map<number, string>()
-
-        let firstCount = 0
-        let secondCount = 0
-        let thirdCount = 0
-        let catcherCount = 0
-        let shortstopCount = 0
-        let leftFieldCount = 0
-        let centerFieldCount = 0
-        let rightFieldCount = 0
-        let pitcherCount = 0
-
-        for (let i = 0; i < 100; i++) {
-
-            if (firstCount < input.first) {
-                chart.entries.set(i, Position.FIRST_BASE)
-                firstCount++
-                continue
-            }
-
-            if (secondCount < input.second) {
-                chart.entries.set(i, Position.SECOND_BASE)
-                secondCount++
-                continue
-            }
-
-            if (thirdCount < input.third) {
-                chart.entries.set(i, Position.THIRD_BASE)
-                thirdCount++
-                continue
-            }
-
-            if (catcherCount < input.catcher) {
-                chart.entries.set(i, Position.CATCHER)
-                catcherCount++
-                continue
-            }
-
-            if (shortstopCount < input.shortstop) {
-                chart.entries.set(i, Position.SHORTSTOP)
-                shortstopCount++
-                continue
-            }
-
-            if (leftFieldCount < input.leftField) {
-                chart.entries.set(i, Position.LEFT_FIELD)
-                leftFieldCount++
-                continue
-            }
-
-            if (rightFieldCount < input.rightField) {
-                chart.entries.set(i, Position.RIGHT_FIELD)
-                rightFieldCount++
-                continue
-            }
-
-            if (centerFieldCount < input.centerField) {
-                chart.entries.set(i, Position.CENTER_FIELD)
-                centerFieldCount++
-                continue
-            }
-
-            if (pitcherCount < input.pitcher) {
-                chart.entries.set(i, Position.PITCHER)
-                pitcherCount++
-                continue
-            }
-
-        }
-
-        return chart
-
+        return this.getRollChart([
+            [Position.FIRST_BASE, input.first],
+            [Position.SECOND_BASE, input.second],
+            [Position.THIRD_BASE, input.third],
+            [Position.CATCHER, input.catcher],
+            [Position.SHORTSTOP, input.shortstop],
+            [Position.LEFT_FIELD, input.leftField],
+            [Position.CENTER_FIELD, input.centerField],
+            [Position.RIGHT_FIELD, input.rightField],
+            [Position.PITCHER, input.pitcher]
+        ])
     }
 
     public getShallowDeepRollChart(input: ShallowDeepRollInput): RollChart {
+        return this.getRollChart([
+            [ShallowDeep.SHALLOW, input.shallow],
+            [ShallowDeep.NORMAL, input.normal],
+            [ShallowDeep.DEEP, input.deep]
+        ])
+    }
 
-        let chart: RollChart = {}
-        chart.entries = new Map<number, string>()
+    private getRollChart(entries: [string, number][]): RollChart {
+        const chart: RollChart = {
+            entries: new Map<number, string>()
+        }
 
-        let shallowCount = 0
-        let normalCount = 0
-        let deepCount = 0
+        let index = 0
 
-        for (let i = 0; i < 100; i++) {
-
-            if (shallowCount < input.shallow) {
-                chart.entries.set(i, ShallowDeep.SHALLOW)
-                shallowCount++
-                continue
+        for (const [value, count] of entries) {
+            for (let i = 0; i < count; i++) {
+                chart.entries.set(index++, value)
             }
-
-            if (normalCount < input.normal) {
-                chart.entries.set(i, ShallowDeep.NORMAL)
-                normalCount++
-                continue
-            }
-
-            if (deepCount < input.deep) {
-                chart.entries.set(i, ShallowDeep.DEEP)
-                deepCount++
-                continue
-            }
-
         }
 
         return chart
-
     }
 
-    public sortRollChart(rollChart: RollChart) {
+}
 
-        let values = Array.from(rollChart.entries.values())
+class PowerModel {
 
-        let item_order = ["K", "O", "H", "BB", "1B", "2B", "3B", "HR"]
+    public static getInput(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange, pitcherChange: PitcherChange): PowerRollInput {
+        const base = pitchEnvironmentTarget.battedBall.powerRollInput
+        const hitter = this.getHitterInput(pitchEnvironmentTarget, hitterChange)
+        const pitcher = this.getPitcherInput(pitchEnvironmentTarget, pitcherChange)
 
-        values.sort((a, b) => item_order.indexOf(a) - item_order.indexOf(b))
-
-        for (let i = 0; i < 100; i++) {
-            rollChart.entries.set(i, values[i])
-        }
+        return this.normalize({
+            out: Math.max(0, base.out + (hitter.out - base.out) + (pitcher.out - base.out)),
+            singles: Math.max(0, base.singles + (hitter.singles - base.singles) + (pitcher.singles - base.singles)),
+            doubles: Math.max(0, base.doubles + (hitter.doubles - base.doubles) + (pitcher.doubles - base.doubles)),
+            triples: Math.max(0, base.triples + (hitter.triples - base.triples) + (pitcher.triples - base.triples)),
+            hr: Math.max(0, base.hr + (hitter.hr - base.hr) + (pitcher.hr - base.hr))
+        })
     }
 
-    diffRollChart(average: RollChart, override: RollChart): RollChart {
-
-        let result: RollChart = {}
-        result.entries = new Map<number, string>()
-
-        for (let i = 0; i < average.entries.size; i++) {
-            if (override.entries.get(i) != average.entries.get(i)) {
-                result.entries.set(i, override.entries.get(i))
-            }
-        }
-
-        return result
-
-    }
-
-    public applyChartDiffs(hitterDiff: RollChart, pitcherDiff: RollChart, average: RollChart): RollChart {
-        for (let i = 0; i < average.entries.size; i++) {
-            let hitterValue = hitterDiff.entries.get(i)
-            let pitcherValue = pitcherDiff.entries.get(i)
-
-            if (hitterValue && !pitcherValue) {
-                average.entries.set(i, hitterValue)
-            }
-
-            if (pitcherValue && !hitterValue) {
-                average.entries.set(i, pitcherValue)
-            }
-        }
-
-        return average
-    }
-
-    public buildHitterPowerRollInput(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange): PowerRollInput {
+    private static getHitterInput(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange): PowerRollInput {
         const base = pitchEnvironmentTarget.battedBall.powerRollInput
 
         const total = Math.max(1, base.out + base.singles + base.doubles + base.triples + base.hr)
@@ -265,34 +115,43 @@ class RollChartService {
         const gapPowerChange = Number(hitterChange.gapPowerChange)
         const hrPowerChange = Number(hitterChange.hrPowerChange)
 
-        if (!Number.isFinite(gapPowerChange)) throw new Error(`Invalid hitter gap power change ${hitterChange.gapPowerChange}.`)
-        if (!Number.isFinite(hrPowerChange)) throw new Error(`Invalid hitter home run power change ${hitterChange.hrPowerChange}.`)
+        if (!Number.isFinite(gapPowerChange)) {
+            throw new Error(`Invalid hitter gap power change ${hitterChange.gapPowerChange}.`)
+        }
 
-        const move = (from: "out" | "singles" | "doubles" | "triples" | "hr", to: "out" | "singles" | "doubles" | "triples" | "hr", amount: number): void => {
+        if (!Number.isFinite(hrPowerChange)) {
+            throw new Error(`Invalid hitter home run power change ${hitterChange.hrPowerChange}.`)
+        }
+
+        const move = (from: keyof PowerRollInput, to: keyof PowerRollInput, amount: number): void => {
             const rounded = Math.max(0, Math.round(amount))
-            if (rounded <= 0) return
 
-            const available =
-                from === "out" ? out :
-                from === "singles" ? singles :
-                from === "doubles" ? doubles :
-                from === "triples" ? triples :
+            if (rounded <= 0) {
+                return
+            }
+
+            const values: PowerRollInput = {
+                out,
+                singles,
+                doubles,
+                triples,
                 hr
+            }
 
-            const actual = Math.min(available, rounded)
-            if (actual <= 0) return
+            const actual = Math.min(values[from], rounded)
 
-            if (from === "out") out -= actual
-            if (from === "singles") singles -= actual
-            if (from === "doubles") doubles -= actual
-            if (from === "triples") triples -= actual
-            if (from === "hr") hr -= actual
+            if (actual <= 0) {
+                return
+            }
 
-            if (to === "out") out += actual
-            if (to === "singles") singles += actual
-            if (to === "doubles") doubles += actual
-            if (to === "triples") triples += actual
-            if (to === "hr") hr += actual
+            values[from] -= actual
+            values[to] += actual
+
+            out = values.out
+            singles = values.singles
+            doubles = values.doubles
+            triples = values.triples
+            hr = values.hr
         }
 
         if (gapPowerChange > 0) {
@@ -319,7 +178,7 @@ class RollChartService {
             move("hr", "singles", base.hr * Math.abs(hrPowerChange) * hrPowerScale)
         }
 
-        return this.normalizePowerRollInput({
+        return this.normalize({
             out,
             singles,
             doubles,
@@ -328,7 +187,7 @@ class RollChartService {
         })
     }
 
-    public buildPitcherPowerRollInput(pitchEnvironmentTarget: PitchEnvironmentTarget, pitcherChange: PitcherChange): PowerRollInput {
+    private static getPitcherInput(pitchEnvironmentTarget: PitchEnvironmentTarget, pitcherChange: PitcherChange): PowerRollInput {
         const base = pitchEnvironmentTarget.battedBall.powerRollInput
 
         const powerChange = Number(pitcherChange.powerChange)
@@ -349,8 +208,7 @@ class RollChartService {
 
         const outSingleTotal = Math.max(1, base.out + base.singles)
         const contactSingleShare = base.singles / outSingleTotal
-
-        const outSingleChange = this._getAverage([
+        const outSingleChange = getAverage([
             powerChange,
             controlChange,
             controlChange
@@ -365,40 +223,43 @@ class RollChartService {
         const move = (from: "singles" | "doubles" | "triples" | "hr", to: "singles" | "doubles" | "triples" | "hr", amount: number): void => {
             const rounded = Math.max(0, Math.round(amount))
 
-            if (rounded <= 0) return
+            if (rounded <= 0) {
+                return
+            }
 
-            const available =
-                from === "singles" ? singles :
-                from === "doubles" ? doubles :
-                from === "triples" ? triples :
+            const values = {
+                singles,
+                doubles,
+                triples,
                 hr
+            }
 
-            const actual = Math.min(available, rounded)
+            const actual = Math.min(values[from], rounded)
 
-            if (actual <= 0) return
+            if (actual <= 0) {
+                return
+            }
 
-            if (from === "singles") singles -= actual
-            if (from === "doubles") doubles -= actual
-            if (from === "triples") triples -= actual
-            if (from === "hr") hr -= actual
+            values[from] -= actual
+            values[to] += actual
 
-            if (to === "singles") singles += actual
-            if (to === "doubles") doubles += actual
-            if (to === "triples") triples += actual
-            if (to === "hr") hr += actual
+            singles = values.singles
+            doubles = values.doubles
+            triples = values.triples
+            hr = values.hr
         }
 
         if (movementChange > 0) {
             move("hr", "singles", base.hr * movementChange)
             move("doubles", "singles", base.doubles * movementChange)
-            move("triples", "singles", base.triples * this._getAverage([movementChange, Math.max(0, powerChange)]))
+            move("triples", "singles", base.triples * getAverage([movementChange, Math.max(0, powerChange)]))
         } else if (movementChange < 0) {
             move("singles", "hr", base.hr * Math.abs(movementChange))
             move("singles", "doubles", base.doubles * Math.abs(movementChange))
             move("singles", "triples", base.triples * Math.abs(movementChange))
         }
 
-        return this.normalizePowerRollInput({
+        return this.normalize({
             out,
             singles,
             doubles,
@@ -407,14 +268,14 @@ class RollChartService {
         })
     }
 
-    private normalizePowerRollInput(input: PowerRollInput): PowerRollInput {
+    private static normalize(input: PowerRollInput): PowerRollInput {
         const total = input.out + input.singles + input.doubles + input.triples + input.hr
 
         if (total <= 0) {
             throw new Error("Power roll input total must be greater than zero.")
         }
 
-        let normalized: PowerRollInput = {
+        const normalized: PowerRollInput = {
             out: Math.max(0, Math.round((input.out / total) * 1000)),
             singles: Math.max(0, Math.round((input.singles / total) * 1000)),
             doubles: Math.max(0, Math.round((input.doubles / total) * 1000)),
@@ -428,68 +289,85 @@ class RollChartService {
             if (diff > 0) {
                 normalized.out++
                 diff--
-            } else {
-                const fields: (keyof PowerRollInput)[] = ["out", "singles", "doubles", "triples", "hr"]
-                const field = fields.sort((a, b) => normalized[b] - normalized[a])[0]
-
-                if (normalized[field] <= 0) {
-                    throw new Error("Could not normalize power roll input.")
-                }
-
-                normalized[field]--
-                diff++
+                continue
             }
+
+            const fields: (keyof PowerRollInput)[] = [
+                "out",
+                "singles",
+                "doubles",
+                "triples",
+                "hr"
+            ]
+
+            const field = fields.sort((a, b) => normalized[b] - normalized[a])[0]
+
+            if (normalized[field] <= 0) {
+                throw new Error("Could not normalize power roll input.")
+            }
+
+            normalized[field]--
+            diff++
         }
 
         return normalized
     }
 
-    getMatchupPowerRollChart(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange, pitcherChange: PitcherChange): RollChart {
-        const matchupInput = this.buildMatchupPowerRollInput(pitchEnvironmentTarget, hitterChange, pitcherChange)
+}
 
-        return this.getPowerRollChart(matchupInput)
-    }
+class ContactTypeModel {
 
-    private buildMatchupPowerRollInput(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterChange: HitterChange, pitcherChange: PitcherChange): PowerRollInput {
-        const base = pitchEnvironmentTarget.battedBall.powerRollInput
-        const hitter = this.buildHitterPowerRollInput(pitchEnvironmentTarget, hitterChange)
-        const pitcher = this.buildPitcherPowerRollInput(pitchEnvironmentTarget, pitcherChange)
+    public static getInput(pitchEnvironmentTarget: PitchEnvironmentTarget, hitterContactProfile: ContactProfile, pitcherContactProfile: ContactProfile): ContactTypeRollInput {
+        const base = pitchEnvironmentTarget.battedBall.contactRollInput
 
-        return this.normalizePowerRollInput({
-            out: Math.max(0, base.out + (hitter.out - base.out) + (pitcher.out - base.out)),
-            singles: Math.max(0, base.singles + (hitter.singles - base.singles) + (pitcher.singles - base.singles)),
-            doubles: Math.max(0, base.doubles + (hitter.doubles - base.doubles) + (pitcher.doubles - base.doubles)),
-            triples: Math.max(0, base.triples + (hitter.triples - base.triples) + (pitcher.triples - base.triples)),
-            hr: Math.max(0, base.hr + (hitter.hr - base.hr) + (pitcher.hr - base.hr))
+        return this.normalize({
+            groundball: Math.max(0, base.groundball + (hitterContactProfile.groundball - base.groundball) + (pitcherContactProfile.groundball - base.groundball)),
+            flyBall: Math.max(0, base.flyBall + (hitterContactProfile.flyBall - base.flyBall) + (pitcherContactProfile.flyBall - base.flyBall)),
+            lineDrive: Math.max(0, base.lineDrive + (hitterContactProfile.lineDrive - base.lineDrive) + (pitcherContactProfile.lineDrive - base.lineDrive))
         })
     }
 
-    getMatchupContactRollChart(pitchEnvironmentTarget:PitchEnvironmentTarget, hitterContactProfile:ContactProfile, pitcherContactProfile:ContactProfile): RollChart {
+    private static normalize(input: ContactTypeRollInput): ContactTypeRollInput {
+        const total = input.groundball + input.flyBall + input.lineDrive
 
-        let leagueAvgChart: RollChart = this.getContactTypeRollChart(pitchEnvironmentTarget.battedBall.contactRollInput)
-
-        let hitter:RollChart = this.getContactTypeRollChart(hitterContactProfile)
-        let pitcher:RollChart = this.getContactTypeRollChart(pitcherContactProfile)
-
-        let hitterDiffChart: RollChart = this.diffRollChart(leagueAvgChart, hitter)
-        let pitcherDiffChart: RollChart = this.diffRollChart(leagueAvgChart, pitcher)
-
-        return this.applyChartDiffs(hitterDiffChart, pitcherDiffChart, leagueAvgChart)
-
-    }
-
-    getFirstRollIndex(chart: RollChart, result: string): number {
-        for (let i = 0; i < 1000; i++) {
-            if (chart.entries.get(i) === result) return i
+        if (total <= 0) {
+            throw new Error("Contact type roll input total must be greater than zero.")
         }
-        return 999
-    }
 
-    private _getAverage(array: number[]) {
-        if (array.length == 0) return 0
-        return array.reduce((a, b) => a + b) / array.length
+        const normalized: ContactTypeRollInput = {
+            groundball: Math.max(0, Math.round((input.groundball / total) * 1000)),
+            flyBall: Math.max(0, Math.round((input.flyBall / total) * 1000)),
+            lineDrive: Math.max(0, Math.round((input.lineDrive / total) * 1000))
+        }
+
+        let diff = 1000 - (normalized.groundball + normalized.flyBall + normalized.lineDrive)
+
+        while (diff !== 0) {
+            if (diff > 0) {
+                normalized.groundball++
+                diff--
+                continue
+            }
+
+            const fields: (keyof ContactTypeRollInput)[] = [
+                "groundball",
+                "flyBall",
+                "lineDrive"
+            ]
+
+            const field = fields.sort((a, b) => normalized[b] - normalized[a])[0]
+
+            if (normalized[field] <= 0) {
+                throw new Error("Could not normalize contact type roll input.")
+            }
+
+            normalized[field]--
+            diff++
+        }
+
+        return normalized
     }
 
 }
 
-export { RollChartService }
+export { RollChartService, PowerModel, ContactTypeModel }

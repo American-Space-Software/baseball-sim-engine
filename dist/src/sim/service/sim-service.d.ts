@@ -51,16 +51,23 @@ declare class SimRolls {
     getIntentZone(rng: () => number): PitchZone;
     getHitQuality(gameRNG: () => number, pitchEnvironmentTarget: PitchEnvironmentTarget, pitchQualityChange: number, guessPitch: boolean, contact: Contact, playResult?: PlayResult, hitterChange?: HitterChange): ContactQuality;
     getSwingResult(gameRNG: () => number, hitterChange: HitterChange, pitcherChange: PitcherChange, pitchEnvironmentTarget: PitchEnvironmentTarget, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult;
+    private getSwingDecisionChange;
+    private getZoneSwingDecisionAdjustment;
+    private getChaseSwingDecisionAdjustment;
+    private getHitterContactAdjustment;
+    private getPitcherPowerContactAdjustment;
+    private getPitchQualityFoulAdjustment;
+    private getPitcherPowerFoulAdjustment;
+    private getHitterContactFoulAdjustment;
+    private getSwingDecisionPointsPerFullChange;
+    private getContactPointsPerFullContactChange;
+    private getPitcherPowerContactPointsPerFullPowerChange;
     isInZone(gameRNG: () => number, locationQuality: number, inZoneRate: number): boolean;
     getFielder(gameRNG: () => number, pitchEnvironmentTarget: PitchEnvironmentTarget, hitterHandedness: Handedness): Position;
     getShallowDeep(gameRNG: any, pitchEnvironmentTarget: PitchEnvironmentTarget): ShallowDeep;
     getThrowResult(gameRNG: () => number, overallSafeChance: number): ThrowRoll;
     getStealResult(gameRNG: () => number): number;
-    private getPlateOutcomeChange;
-    private getChaseSwingPointsPerFullDisciplineChange;
-    private getContactPointsPerFullContactChange;
     private getRateStdDev;
-    private getPitcherPowerContactPointsPerFullPowerChange;
     getFullRatingChange(): number;
     private getRateRange;
 }

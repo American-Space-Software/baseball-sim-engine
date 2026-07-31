@@ -3,8 +3,7 @@ import path from "path"
 
 import {
     downloadSeason as downloadDatabaseSeason,
-    getGame as getDatabaseGame,
-    getSchedule as getDatabaseSchedule
+    queries
 } from "baseball-database"
 
 import type { PlayerImportRaw } from "../../sim/service/interfaces.js"
@@ -249,7 +248,7 @@ class PlayerImportService {
         this.appearanceIndexes.delete(season)
 
         for (const key of Array.from(this.gameFeeds.keys())) {
-            const game = getDatabaseGame(key)
+            const game = queries.getGame(key)
             const gameSeason = Number(
                 game?.data?.gameData?.game?.season ??
                 game?.data?.gameData?.datetime?.originalDate?.slice(0, 4) ??
@@ -362,7 +361,7 @@ class PlayerImportService {
     private async getSeasonScheduleGames(sourceSeason: number): Promise<PlayerGameReference[]> {
         await downloadDatabaseSeason(sourceSeason)
 
-        const storedSchedule = getDatabaseSchedule(sourceSeason)
+        const storedSchedule = queries.getSchedule(sourceSeason)
 
         if (!storedSchedule) {
             throw new Error(
@@ -402,7 +401,7 @@ class PlayerImportService {
             return this.gameFeeds.get(gamePk)
         }
 
-        const storedGame = getDatabaseGame(gamePk)
+        const storedGame = queries.getGame(gamePk)
 
         if (!storedGame) {
             throw new Error(
@@ -572,16 +571,48 @@ class PlayerImportService {
 
     private isCompletedScheduleGame(game: any): boolean {
         const abstractState = String(
-            game?.status?.abstractGameState ?? ""
+            game?.status?.abstractGameState ??
+            ""
         )
 
         const detailedState = String(
-            game?.status?.detailedState ?? ""
+            game?.status?.detailedState ??
+            ""
         )
 
         const codedState = String(
-            game?.status?.codedGameState ?? ""
+            game?.status?.codedGameState ??
+            ""
         )
+
+        const statusCode = String(
+            game?.status?.statusCode ??
+            ""
+        )
+
+        const excludedDetailedStates = new Set([
+            "Postponed",
+            "Cancelled",
+            "Canceled",
+            "Suspended",
+            "Delayed"
+        ])
+
+        const excludedStatusCodes = new Set([
+            "DR",
+            "PO",
+            "CA",
+            "CR",
+            "SU"
+        ])
+
+        if (
+            excludedDetailedStates.has(detailedState) ||
+            excludedStatusCodes.has(statusCode) ||
+            codedState === "D"
+        ) {
+            return false
+        }
 
         return abstractState === "Final" ||
             detailedState === "Final" ||

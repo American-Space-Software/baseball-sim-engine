@@ -19,8 +19,8 @@ const GENERATED_FULL_CHANGE = Math.max(
 )
 
 
-const PLATE_OUTCOME_DISCIPLINE_SHARE = 1
-const PLATE_OUTCOME_CONTACT_SHARE = 0 
+const SWING_DECISION_DISCIPLINE_WEIGHT = 1
+const SWING_DECISION_CONTACT_WEIGHT = 0 
 
 const PITCH_QUALITY_WEIGHTS = {
     velocity: 33.3,
@@ -37,6 +37,10 @@ const STRIKE_ZONE_LEFT = -0.83
 const STRIKE_ZONE_RIGHT = 0.83
 const STRIKE_ZONE_BOTTOM = 1.5
 const STRIKE_ZONE_TOP = 3.5
+
+const HOME_FIELD_ADVANTAGE_RATING_MULTIPLIER = 1.213 //work in progress
+
+
 
 class SimService {
 
@@ -1806,29 +1810,25 @@ class SimRolls {
     }
         
     getSwingResult(gameRNG: () => number, hitterChange: HitterChange, pitcherChange: PitcherChange, pitchEnvironmentTarget: PitchEnvironmentTarget, inZone: boolean, pitchQuality: number, guessPitch: boolean, pitchCount: PitchCount): SwingResult {
-        let pitchQualityChange = PlayerChange.getChange(AVG_PITCH_QUALITY, pitchQuality)
+        const pitchQualityChange = PlayerChange.getChange(AVG_PITCH_QUALITY, pitchQuality)
 
-        const t = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning
-        const swingTuning = t?.swing
-        const contactTuning = t?.contact
+        const tuning = pitchEnvironmentTarget.pitchEnvironmentTuning?.tuning
+        const swingTuning = tuning?.swing
+        const contactTuning = tuning?.contact
         const behavior = pitchEnvironmentTarget.swing.behaviorByCount.find(b => b.balls === pitchCount.balls && b.strikes === pitchCount.strikes)
 
         if (!behavior) {
             throw new Error(`Missing swing behavior for count ${pitchCount.balls}-${pitchCount.strikes}`)
         }
 
-        const chaseSwingPointsPerFullDisciplineChange = this.getChaseSwingPointsPerFullDisciplineChange(pitchEnvironmentTarget)
-        const contactPointsPerFullContactChange = this.getContactPointsPerFullContactChange(pitchEnvironmentTarget)
-        const pitcherPowerContactPointsPerFullPowerChange = this.getPitcherPowerContactPointsPerFullPowerChange(pitchEnvironmentTarget)
-
+        const swingDecisionChange = this.getSwingDecisionChange(hitterChange)
         const fullRatingChange = this.getFullRatingChange()
-        const plateOutcomeChange = this.getPlateOutcomeChange(hitterChange)
-        const positivePlateOutcomeShare = clamp(Math.max(0, plateOutcomeChange) / fullRatingChange, 0, 1)
-        const negativePlateOutcomeShare = clamp(Math.max(0, plateOutcomeChange * -1) / fullRatingChange, 0, 1)
+        const positiveSwingDecisionShare = clamp(Math.max(0, swingDecisionChange) / fullRatingChange, 0, 1)
+        const negativeSwingDecisionShare = clamp(Math.max(0, swingDecisionChange * -1) / fullRatingChange, 0, 1)
 
         const aheadInCountScale = 1 + (Math.max(0, pitchCount.balls - pitchCount.strikes) / 3)
         const twoStrikeProtectionScale = pitchCount.strikes >= 2 ? 0.5 : 1
-        const disciplineCountScale = aheadInCountScale * twoStrikeProtectionScale
+        const countDecisionScale = aheadInCountScale * twoStrikeProtectionScale
 
         const disciplineChaseSwingEffect = Number(swingTuning?.disciplineChaseSwingEffect ?? 0)
         const disciplineZoneSwingEffect = Number(swingTuning?.disciplineZoneSwingEffect ?? 0)
@@ -1846,75 +1846,167 @@ class SimRolls {
             : behavior.chaseSwingPercent
 
         if (inZone) {
-            swingRate += pitchQualityChange * (swingTuning?.pitchQualityZoneSwingEffect ?? 0) * -1
-
-            if (disciplineZoneSwingEffect !== 0) {
-                swingRate += plateOutcomeChange * chaseSwingPointsPerFullDisciplineChange * disciplineCountScale * disciplineZoneSwingEffect * -1
-            }
+            swingRate += pitchQualityChange * Number(swingTuning?.pitchQualityZoneSwingEffect ?? 0) * -1
+            swingRate += this.getZoneSwingDecisionAdjustment(
+                swingDecisionChange,
+                pitchEnvironmentTarget,
+                countDecisionScale,
+                disciplineZoneSwingEffect
+            )
         } else {
-            swingRate += pitchQualityChange * (swingTuning?.pitchQualityChaseSwingEffect ?? 0)
-
-            const elitePlateOutcomeScale = 1 + positivePlateOutcomeShare
-            const poorPlateOutcomeScale = 1 + negativePlateOutcomeShare
-            const plateOutcomeScale = plateOutcomeChange >= 0 ? elitePlateOutcomeScale : poorPlateOutcomeScale
-
-            swingRate += plateOutcomeChange * chaseSwingPointsPerFullDisciplineChange * disciplineCountScale * plateOutcomeScale * (1 + disciplineChaseSwingEffect) * -1
+            swingRate += pitchQualityChange * Number(swingTuning?.pitchQualityChaseSwingEffect ?? 0)
+            swingRate += this.getChaseSwingDecisionAdjustment(
+                swingDecisionChange,
+                pitchEnvironmentTarget,
+                countDecisionScale,
+                disciplineChaseSwingEffect,
+                positiveSwingDecisionShare,
+                negativeSwingDecisionShare
+            )
         }
 
-        swingRate = Math.max(0, Math.min(100, swingRate))
+        swingRate = clamp(swingRate, 0, 100)
 
-        let die = Rolls.getRollUnrounded(gameRNG, 0, 100)
+        if (Rolls.getRollUnrounded(gameRNG, 0, 100) >= swingRate) {
+            return SwingResult.NO_SWING
+        }
 
-        if (die < swingRate) {
-            let swingContactRate = inZone
-                ? behavior.zoneContactPercent
-                : behavior.chaseContactPercent
+        let swingContactRate = inZone
+            ? behavior.zoneContactPercent
+            : behavior.chaseContactPercent
 
-            const contactSkillEffect = Number(contactTuning?.contactSkillEffect ?? 0)
-            const contactWhiffScale = Number(pitchEnvironmentTarget.outcome.soPercent)
+        const contactSkillEffect = Number(contactTuning?.contactSkillEffect ?? 0)
 
-            if (!Number.isFinite(contactSkillEffect)) {
-                throw new Error(`Invalid contactSkillEffect ${contactTuning?.contactSkillEffect}.`)
-            }
+        if (!Number.isFinite(contactSkillEffect)) {
+            throw new Error(`Invalid contactSkillEffect ${contactTuning?.contactSkillEffect}.`)
+        }
 
-            if (!Number.isFinite(contactWhiffScale) || contactWhiffScale <= 0) {
-                throw new Error(`Invalid league strikeout rate ${pitchEnvironmentTarget.outcome.soPercent}.`)
-            }
+        swingContactRate += pitchQualityChange * (1 + Number(contactTuning?.pitchQualityContactEffect ?? 0)) * -1
+        swingContactRate += this.getPitcherPowerContactAdjustment(pitcherChange, pitchEnvironmentTarget)
+        swingContactRate += this.getHitterContactAdjustment(hitterChange, pitchEnvironmentTarget, contactSkillEffect)
+        swingContactRate = clamp(swingContactRate, 0, 100)
 
-            swingContactRate += pitchQualityChange * (1 + (contactTuning?.pitchQualityContactEffect ?? 0)) * -1
-            swingContactRate += pitcherChange.powerChange * pitcherPowerContactPointsPerFullPowerChange * -1
-            swingContactRate += hitterChange.contactChange * contactPointsPerFullContactChange * contactWhiffScale * (1 + contactSkillEffect)
-
-            swingContactRate = Math.max(0, Math.min(100, swingContactRate))
-
-            let die2 = Rolls.getRollUnrounded(gameRNG, 0, 100)
-
-            if (die2 < swingContactRate) {
-                let foulContactRate = behavior.foulContactPercent
-
-                foulContactRate += pitchQualityChange * contactPointsPerFullContactChange
-                foulContactRate += pitcherChange.powerChange * pitcherPowerContactPointsPerFullPowerChange
-                foulContactRate += hitterChange.contactChange * contactPointsPerFullContactChange * -1
-
-                if (guessPitch) {
-                    foulContactRate -= Math.max(0, pitchQualityChange) * contactPointsPerFullContactChange
-                }
-
-                foulContactRate = Math.max(0, Math.min(100, foulContactRate))
-
-                let die3 = Rolls.getRollUnrounded(gameRNG, 0, 100)
-
-                if (die3 < foulContactRate) {
-                    return SwingResult.FOUL
-                }
-
-                return SwingResult.FAIR
-            }
-
+        if (Rolls.getRollUnrounded(gameRNG, 0, 100) >= swingContactRate) {
             return SwingResult.STRIKE
         }
 
-        return SwingResult.NO_SWING
+        let foulContactRate = behavior.foulContactPercent
+
+        foulContactRate += this.getPitchQualityFoulAdjustment(pitchQualityChange, pitchEnvironmentTarget)
+        foulContactRate += this.getPitcherPowerFoulAdjustment(pitcherChange, pitchEnvironmentTarget)
+        foulContactRate += this.getHitterContactFoulAdjustment(hitterChange, pitchEnvironmentTarget)
+
+        if (guessPitch) {
+            foulContactRate -= Math.max(0, pitchQualityChange) * this.getContactPointsPerFullContactChange(pitchEnvironmentTarget)
+        }
+
+        foulContactRate = clamp(foulContactRate, 0, 100)
+
+        return Rolls.getRollUnrounded(gameRNG, 0, 100) < foulContactRate
+            ? SwingResult.FOUL
+            : SwingResult.FAIR
+    }
+
+    private getSwingDecisionChange(hitterChange: HitterChange): number {
+        return (
+            hitterChange.plateDisiplineChange * SWING_DECISION_DISCIPLINE_WEIGHT
+        ) + (
+            hitterChange.contactChange * SWING_DECISION_CONTACT_WEIGHT
+        )
+    }
+
+    private getZoneSwingDecisionAdjustment(swingDecisionChange: number, pitchEnvironmentTarget: PitchEnvironmentTarget, countDecisionScale: number, disciplineZoneSwingEffect: number): number {
+        if (disciplineZoneSwingEffect === 0) {
+            return 0
+        }
+
+        const decisionPoints = this.getSwingDecisionPointsPerFullChange(pitchEnvironmentTarget)
+
+        return swingDecisionChange *
+            decisionPoints *
+            countDecisionScale *
+            disciplineZoneSwingEffect *
+            -1
+    }
+
+    private getChaseSwingDecisionAdjustment(swingDecisionChange: number, pitchEnvironmentTarget: PitchEnvironmentTarget, countDecisionScale: number, disciplineChaseSwingEffect: number, positiveSwingDecisionShare: number, negativeSwingDecisionShare: number): number {
+        const decisionPoints = this.getSwingDecisionPointsPerFullChange(pitchEnvironmentTarget)
+        const ratingScale = swingDecisionChange >= 0
+            ? 1 + positiveSwingDecisionShare
+            : 1 + negativeSwingDecisionShare
+
+        return swingDecisionChange *
+            decisionPoints *
+            countDecisionScale *
+            ratingScale *
+            (1 + disciplineChaseSwingEffect) *
+            -1
+    }
+
+    private getHitterContactAdjustment(hitterChange: HitterChange, pitchEnvironmentTarget: PitchEnvironmentTarget, contactSkillEffect: number): number {
+        const contactPoints = this.getContactPointsPerFullContactChange(pitchEnvironmentTarget)
+        const strikeoutEnvironmentScale = Number(pitchEnvironmentTarget.outcome.soPercent)
+
+        if (!Number.isFinite(strikeoutEnvironmentScale) || strikeoutEnvironmentScale <= 0) {
+            throw new Error(`Invalid league strikeout rate ${pitchEnvironmentTarget.outcome.soPercent}.`)
+        }
+
+        return hitterChange.contactChange *
+            contactPoints *
+            strikeoutEnvironmentScale *
+            (1 + contactSkillEffect)
+    }
+
+    private getPitcherPowerContactAdjustment(pitcherChange: PitcherChange, pitchEnvironmentTarget: PitchEnvironmentTarget): number {
+        return pitcherChange.powerChange *
+            this.getPitcherPowerContactPointsPerFullPowerChange(pitchEnvironmentTarget) *
+            -1
+    }
+
+    private getPitchQualityFoulAdjustment(pitchQualityChange: number, pitchEnvironmentTarget: PitchEnvironmentTarget): number {
+        return pitchQualityChange *
+            this.getContactPointsPerFullContactChange(pitchEnvironmentTarget)
+    }
+
+    private getPitcherPowerFoulAdjustment(pitcherChange: PitcherChange, pitchEnvironmentTarget: PitchEnvironmentTarget): number {
+        return pitcherChange.powerChange *
+            this.getPitcherPowerContactPointsPerFullPowerChange(pitchEnvironmentTarget)
+    }
+
+    private getHitterContactFoulAdjustment(hitterChange: HitterChange, pitchEnvironmentTarget: PitchEnvironmentTarget): number {
+        return hitterChange.contactChange *
+            this.getContactPointsPerFullContactChange(pitchEnvironmentTarget) *
+            -1
+    }
+
+    private getSwingDecisionPointsPerFullChange(pitchEnvironmentTarget: PitchEnvironmentTarget): number {
+        const chaseSwingRates = pitchEnvironmentTarget.swing.behaviorByCount.map(behavior =>
+            asNumber(behavior.chaseSwingPercent)
+        )
+
+        return this.getRateStdDev(chaseSwingRates, "swing decision calculation") / this.getFullRatingChange()
+    }
+
+    private getContactPointsPerFullContactChange(pitchEnvironmentTarget: PitchEnvironmentTarget): number {
+        const contactRates = pitchEnvironmentTarget.swing.behaviorByCount.map(behavior =>
+            getAverage([
+                asNumber(behavior.zoneContactPercent),
+                asNumber(behavior.chaseContactPercent)
+            ])
+        )
+
+        return this.getRateStdDev(contactRates, "hitter contact calculation") / this.getFullRatingChange()
+    }
+
+    private getPitcherPowerContactPointsPerFullPowerChange(pitchEnvironmentTarget: PitchEnvironmentTarget): number {
+        const contactRates = pitchEnvironmentTarget.swing.behaviorByCount.map(behavior =>
+            getAverage([
+                asNumber(behavior.zoneContactPercent),
+                asNumber(behavior.chaseContactPercent)
+            ])
+        )
+
+        return this.getRateStdDev(contactRates, "pitcher power contact calculation") / this.getFullRatingChange()
     }
 
     isInZone(gameRNG: () => number, locationQuality:number, inZoneRate:number) {
@@ -1971,32 +2063,6 @@ class SimRolls {
 
     }
 
-    private getPlateOutcomeChange(hitterChange: HitterChange): number {
-        return (
-            hitterChange.plateDisiplineChange * PLATE_OUTCOME_DISCIPLINE_SHARE
-        ) + (
-            hitterChange.contactChange * PLATE_OUTCOME_CONTACT_SHARE
-        )
-    }
-
-
-    private getChaseSwingPointsPerFullDisciplineChange(pitchEnvironmentTarget: PitchEnvironmentTarget): number {
-        const values = pitchEnvironmentTarget.swing.behaviorByCount.map(b => asNumber(b.chaseSwingPercent))
-
-        return this.getRateStdDev(values, "chase swing discipline calculation") / this.getFullRatingChange()
-    }
-
-    private getContactPointsPerFullContactChange(pitchEnvironmentTarget: PitchEnvironmentTarget): number {
-        const values = pitchEnvironmentTarget.swing.behaviorByCount.map(b => {
-            const zoneContact = asNumber(b.zoneContactPercent)
-            const chaseContact = asNumber(b.chaseContactPercent)
-
-            return (zoneContact + chaseContact) / 2
-        })
-
-        return this.getRateStdDev(values, "contact calculation") / this.getFullRatingChange()
-    }
-
     private getRateStdDev(values: number[], label: string): number {
         if (values.length === 0) {
             throw new Error(`Missing swing behavior for ${label}.`)
@@ -2011,17 +2077,6 @@ class SimRolls {
         }
 
         return stdDev
-    }
-
-    private getPitcherPowerContactPointsPerFullPowerChange(pitchEnvironmentTarget: PitchEnvironmentTarget): number {
-        const values = pitchEnvironmentTarget.swing.behaviorByCount.map(b => {
-            const zoneContact = asNumber(b.zoneContactPercent)
-            const chaseContact = asNumber(b.chaseContactPercent)
-
-            return (zoneContact + chaseContact) / 2
-        })
-
-        return this.getRateStdDev(values, "pitcher power contact calculation") / this.getFullRatingChange()
     }
 
     getFullRatingChange(): number {
@@ -2047,7 +2102,7 @@ class GamePlayers {
     constructor() {}
 
     initGamePlayers(pitchEnvironmentTarget: PitchEnvironmentTarget, players: Player[], startingPitcher: RotationPitcher, teamId: string, color1: string, color2: string, startingId: number, homeFieldAdvantage: number = 0): GamePlayer[] {
-        let gamePlayers: GamePlayer[] = []
+        const gamePlayers: GamePlayer[] = []
 
         if (!Number.isFinite(homeFieldAdvantage)) {
             throw new Error(`Invalid home field advantage ${homeFieldAdvantage}.`)
@@ -2060,28 +2115,30 @@ class GamePlayers {
             const pitchRatings: PitchRatings = JSON.parse(JSON.stringify(p.pitchRatings))
 
             if (homeFieldAdvantage !== 0) {
-                hittingRatings.defense = PlayerChange.applyChange(hittingRatings.defense, homeFieldAdvantage)
-                hittingRatings.arm = PlayerChange.applyChange(hittingRatings.arm, homeFieldAdvantage)
-                hittingRatings.speed = PlayerChange.applyChange(hittingRatings.speed, homeFieldAdvantage)
-                hittingRatings.steals = PlayerChange.applyChange(hittingRatings.steals, homeFieldAdvantage)
+                const homeFieldRatingChange = homeFieldAdvantage * HOME_FIELD_ADVANTAGE_RATING_MULTIPLIER
 
-                hittingRatings.vsL.plateDiscipline = PlayerChange.applyChange(hittingRatings.vsL.plateDiscipline, homeFieldAdvantage)
-                hittingRatings.vsL.contact = PlayerChange.applyChange(hittingRatings.vsL.contact, homeFieldAdvantage)
-                hittingRatings.vsL.gapPower = PlayerChange.applyChange(hittingRatings.vsL.gapPower, homeFieldAdvantage)
-                hittingRatings.vsL.homerunPower = PlayerChange.applyChange(hittingRatings.vsL.homerunPower, homeFieldAdvantage)
+                hittingRatings.defense = PlayerChange.applyChange(hittingRatings.defense, homeFieldRatingChange)
+                hittingRatings.arm = PlayerChange.applyChange(hittingRatings.arm, homeFieldRatingChange)
+                hittingRatings.speed = PlayerChange.applyChange(hittingRatings.speed, homeFieldRatingChange)
+                hittingRatings.steals = PlayerChange.applyChange(hittingRatings.steals, homeFieldRatingChange)
 
-                hittingRatings.vsR.plateDiscipline = PlayerChange.applyChange(hittingRatings.vsR.plateDiscipline, homeFieldAdvantage)
-                hittingRatings.vsR.contact = PlayerChange.applyChange(hittingRatings.vsR.contact, homeFieldAdvantage)
-                hittingRatings.vsR.gapPower = PlayerChange.applyChange(hittingRatings.vsR.gapPower, homeFieldAdvantage)
-                hittingRatings.vsR.homerunPower = PlayerChange.applyChange(hittingRatings.vsR.homerunPower, homeFieldAdvantage)
+                hittingRatings.vsL.plateDiscipline = PlayerChange.applyChange(hittingRatings.vsL.plateDiscipline, homeFieldRatingChange)
+                hittingRatings.vsL.contact = PlayerChange.applyChange(hittingRatings.vsL.contact, homeFieldRatingChange)
+                hittingRatings.vsL.gapPower = PlayerChange.applyChange(hittingRatings.vsL.gapPower, homeFieldRatingChange)
+                hittingRatings.vsL.homerunPower = PlayerChange.applyChange(hittingRatings.vsL.homerunPower, homeFieldRatingChange)
 
-                pitchRatings.power = PlayerChange.applyChange(pitchRatings.power, homeFieldAdvantage)
+                hittingRatings.vsR.plateDiscipline = PlayerChange.applyChange(hittingRatings.vsR.plateDiscipline, homeFieldRatingChange)
+                hittingRatings.vsR.contact = PlayerChange.applyChange(hittingRatings.vsR.contact, homeFieldRatingChange)
+                hittingRatings.vsR.gapPower = PlayerChange.applyChange(hittingRatings.vsR.gapPower, homeFieldRatingChange)
+                hittingRatings.vsR.homerunPower = PlayerChange.applyChange(hittingRatings.vsR.homerunPower, homeFieldRatingChange)
 
-                pitchRatings.vsL.control = PlayerChange.applyChange(pitchRatings.vsL.control, homeFieldAdvantage)
-                pitchRatings.vsL.movement = PlayerChange.applyChange(pitchRatings.vsL.movement, homeFieldAdvantage)
+                pitchRatings.power = PlayerChange.applyChange(pitchRatings.power, homeFieldRatingChange)
 
-                pitchRatings.vsR.control = PlayerChange.applyChange(pitchRatings.vsR.control, homeFieldAdvantage)
-                pitchRatings.vsR.movement = PlayerChange.applyChange(pitchRatings.vsR.movement, homeFieldAdvantage)
+                pitchRatings.vsL.control = PlayerChange.applyChange(pitchRatings.vsL.control, homeFieldRatingChange)
+                pitchRatings.vsL.movement = PlayerChange.applyChange(pitchRatings.vsL.movement, homeFieldRatingChange)
+
+                pitchRatings.vsR.control = PlayerChange.applyChange(pitchRatings.vsR.control, homeFieldRatingChange)
+                pitchRatings.vsR.movement = PlayerChange.applyChange(pitchRatings.vsR.movement, homeFieldRatingChange)
             }
 
             gamePlayers.push({

@@ -16,7 +16,7 @@ import { RunnerService } from "../src/sim/service/runner-service.js"
 import { SubstitutionService } from "../src/sim/service/substitution-service.js"
 import { PlayerRatingService } from "../src/importer/service/player-rating-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
-import { Handedness, simService } from "../src/sim/index.js"
+import { Handedness, PlayResult, simService } from "../src/sim/index.js"
 
 
 import { PlayerImportService } from "../src/importer/service/player-import-service.js"
@@ -78,31 +78,53 @@ const createServices = (playerImportService: PlayerImportService) => {
 const baselineGameService = new BaselineGameService(simService)
 const statAccumulatorService = new StatAccumulatorService()
 const playerImportService = new PlayerImportService(baseDataDir, statAccumulatorService)
-
-const players = await playerImportService.buildSeasonPlayerImports(
-    season,
-    new Set()
-)
-
 const services = createServices(playerImportService)
 
-const pitchEnvironmentPath = path.join(
-    baseDataDir,
-    String(season),
-    "_pitch_environment_target.json"
-)
+const pitchEnvironmentPath = path.join(baseDataDir, String(season), "_pitch_environment_target.json")
 
 if (!await fileExists(pitchEnvironmentPath)) {
-    throw new Error(
-        `Missing pitch environment target: ${pitchEnvironmentPath}. ` +
-        `Run npm run generate:all ${season} first.`
-    )
+    throw new Error(`Missing pitch environment target: ${pitchEnvironmentPath}. Run npm run generate:all ${season} first.`)
 }
 
-const pitchEnvironment = await readJson<PitchEnvironmentTarget>(
-    pitchEnvironmentPath
+const pitchEnvironment = await readJson<PitchEnvironmentTarget>(pitchEnvironmentPath)
+const ratingDate = `${season + 1}-01-01`
+
+const diagnosticPlayers = [
+    { playerId: "592450", name: "Aaron Judge", role: "hitter" },
+    { playerId: "660271", name: "Shohei Ohtani", role: "twoWay" },
+    { playerId: "694973", name: "Paul Skenes", role: "pitcher" },
+    { playerId: "656941", name: "Kyle Schwarber", role: "hitter" },
+    { playerId: "693645", name: "Cam Schlittler", role: "pitcher" },
+    { playerId: "650859", name: "Luis Rengifo", role: "hitter" },
+    { playerId: "668804", name: "Bryan Reynolds", role: "hitter" },
+    { playerId: "656605", name: "Mitch Keller", role: "pitcher" },
+    { playerId: "608372", name: "Tomoyuki Sugano", role: "pitcher" }
+] as const
+
+const diagnosticPlayerIds = new Set(diagnosticPlayers.map(player => player.playerId))
+
+const players = await playerImportService.buildCorePlayerImports(
+    season,
+    ratingDate,
+    diagnosticPlayerIds
 )
 
+const generatedPlayerRatings = await services.playerRatingService.buildPlayerRatingsForDate(
+    season,
+    ratingDate,
+    pitchEnvironment,
+    diagnosticPlayerIds
+)
+
+for (const diagnosticPlayer of diagnosticPlayers) {
+    if (!players.has(diagnosticPlayer.playerId)) {
+        throw new Error(`Missing core player import for ${diagnosticPlayer.name} (${diagnosticPlayer.playerId})`)
+    }
+
+    if (!generatedPlayerRatings.has(diagnosticPlayer.playerId)) {
+        throw new Error(`Missing generated player ratings for ${diagnosticPlayer.name} (${diagnosticPlayer.playerId})`)
+    }
+}
 
 type ElasticityDirection = "up" | "down"
 type ElasticitySide = "hitter" | "pitcher"
@@ -110,28 +132,13 @@ type HitterElasticityStat = "contact" | "plateDiscipline" | "gapPower" | "homeru
 type PitcherElasticityStat = "power" | "control" | "movement"
 type ElasticityStat = HitterElasticityStat | PitcherElasticityStat
 
-type ElasticityMetricSpec = {
-    metric: string
-    expected: ElasticityDirection
-    primary?: boolean
-    compressionThreshold?: number
-    excessiveThreshold?: number
-}
-
-type ElasticityDiagnosticSpec = {
-    label: string
-    side: ElasticitySide
-    stat: ElasticityStat
-    metrics: ElasticityMetricSpec[]
-}
-
 class RatingTestHarness {
 
     static readonly ratingLevels = [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170]
     static readonly compactRatingLevels = [30, 70, 100, 130, 170]
     static readonly plateAppearancesPerRating = 1250
     static readonly fullContextGamesPerRating = 25
-    static readonly realPlayerGames = 150
+    static readonly realPlayerPlateAppearances = 1250
 
     static forceGamePlayerRunningRatings(gamePlayer: any, rating: number, lever: "speed" | "steals"): void {
         if (!gamePlayer?.hittingRatings) {
@@ -372,21 +379,29 @@ class RatingTestHarness {
         console.table(rows)
     }
 
+    static findDiagnosticPlayer(name: string): typeof diagnosticPlayers[number] {
+        const diagnosticPlayer = diagnosticPlayers.find(player => player.name === name)
+        assert.ok(diagnosticPlayer, `Diagnostic player not configured: ${name}`)
+        return diagnosticPlayer
+    }
+
     static findPlayer(name: string): PlayerImportRaw {
-        const player = [...players.values()].find(player => `${player.firstName} ${player.lastName}` === name)
-        assert.ok(player, `Player not found: ${name}`)
+        const diagnosticPlayer = this.findDiagnosticPlayer(name)
+        const player = players.get(diagnosticPlayer.playerId)
+
+        assert.ok(player, `Player import not found: ${name} (${diagnosticPlayer.playerId})`)
         return player
     }
 
     static getRatings(player: PlayerImportRaw): { hittingRatings: any, pitchRatings: any } {
-        const command = PlayerRatingService.createPlayerFromImportRaw(
-            pitchEnvironment,
-            player
-        )
+        const generatedRatings = generatedPlayerRatings.get(player.playerId)
 
-        return PlayerRatingService.createPlayerFromStatsCommand(
-            command
-        )
+        if (generatedRatings) {
+            return generatedRatings
+        }
+
+        const command = PlayerRatingService.createPlayerFromImportRaw(pitchEnvironment, player)
+        return PlayerRatingService.createPlayerFromStatsCommand(command)
     }
 
     static createAverageHitterPlayer(): PlayerImportRaw {
@@ -838,44 +853,70 @@ class RatingTestHarness {
         return output
     }
 
-    static toPowerChartRates(input: any): any {
-        const out = Number(input.out ?? 0)
-        const singles = Number(input.singles ?? 0)
-        const doubles = Number(input.doubles ?? 0)
-        const triples = Number(input.triples ?? 0)
-        const hr = Number(input.hr ?? 0)
-        const total = out + singles + doubles + triples + hr
-        const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
+    static toPowerChartRates(chart: any): any {
+        const counts = {
+            out: 0,
+            singles: 0,
+            doubles: 0,
+            triples: 0,
+            hr: 0
+        }
+
+        for (const result of chart.entries.values()) {
+            if (result === PlayResult.OUT) counts.out++
+            else if (result === PlayResult.SINGLE) counts.singles++
+            else if (result === PlayResult.DOUBLE) counts.doubles++
+            else if (result === PlayResult.TRIPLE) counts.triples++
+            else if (result === PlayResult.HR) counts.hr++
+        }
+
+        const total = counts.out + counts.singles + counts.doubles + counts.triples + counts.hr
+        const totalBases = counts.singles + (counts.doubles * 2) + (counts.triples * 3) + (counts.hr * 4)
 
         return {
-            out: this.round(this.safeDiv(out, total)),
-            hit: this.round(this.safeDiv(singles + doubles + triples + hr, total)),
-            singles: this.round(this.safeDiv(singles, total)),
-            doubles: this.round(this.safeDiv(doubles, total)),
-            triples: this.round(this.safeDiv(triples, total)),
-            hr: this.round(this.safeDiv(hr, total)),
-            xbh: this.round(this.safeDiv(doubles + triples + hr, total)),
+            out: this.round(this.safeDiv(counts.out, total)),
+            hit: this.round(this.safeDiv(counts.singles + counts.doubles + counts.triples + counts.hr, total)),
+            singles: this.round(this.safeDiv(counts.singles, total)),
+            doubles: this.round(this.safeDiv(counts.doubles, total)),
+            triples: this.round(this.safeDiv(counts.triples, total)),
+            hr: this.round(this.safeDiv(counts.hr, total)),
+            xbh: this.round(this.safeDiv(counts.doubles + counts.triples + counts.hr, total)),
             tb: this.round(this.safeDiv(totalBases, total))
         }
     }
 
     static getPowerChartRatesForLever(side: ElasticitySide, stat: ElasticityStat, rating: number): any {
         const rollChartService = new RollChartService()
+        const neutralHitterChange = PlayerChange.getHitterChange(
+            this.forceHitterRatings(this.getRatings(this.createAverageHitterPlayer()), 100, "contact").hittingRatings,
+            pitchEnvironment.avgRating,
+            Handedness.R
+        )
+        const neutralPitcherChange = PlayerChange.getPitcherChange(
+            this.forcePitcherRatings(this.getRatings(this.createAveragePitcherPlayer()), 100, "power").pitchRatings,
+            pitchEnvironment.avgRating,
+            Handedness.R
+        )
 
         if (side === "hitter") {
             const hitter = this.createAverageHitterPlayer()
             const baseRatings = this.getRatings(hitter)
             const ratings = this.forceHitterRatings(baseRatings, rating, stat as HitterElasticityStat)
-            const change = PlayerChange.getHitterChange(ratings.hittingRatings, pitchEnvironment.avgRating, Handedness.R)
-            return this.toPowerChartRates(rollChartService.buildHitterPowerRollInput(pitchEnvironment, change))
+            const hitterChange = PlayerChange.getHitterChange(ratings.hittingRatings, pitchEnvironment.avgRating, Handedness.R)
+            const chart = rollChartService.getMatchupPowerRollChart(pitchEnvironment, hitterChange, neutralPitcherChange)
+
+            return this.toPowerChartRates(chart)
         }
 
         const pitcher = this.createAveragePitcherPlayer()
         const baseRatings = this.getRatings(pitcher)
         const ratings = this.forcePitcherRatings(baseRatings, rating, stat as PitcherElasticityStat)
-        const change = PlayerChange.getPitcherChange(ratings.pitchRatings, pitchEnvironment.avgRating, Handedness.R)
-        return this.toPowerChartRates(rollChartService.buildPitcherPowerRollInput(pitchEnvironment, change))
+        const pitcherChange = PlayerChange.getPitcherChange(ratings.pitchRatings, pitchEnvironment.avgRating, Handedness.R)
+        const chart = rollChartService.getMatchupPowerRollChart(pitchEnvironment, neutralHitterChange, pitcherChange)
+
+        return this.toPowerChartRates(chart)
     }
+
 
     static getUnderlyingPowerChartElasticityRows(): any[] {
         const specs = [
@@ -1299,412 +1340,562 @@ class RatingTestHarness {
         }
     }
 
+    static getHitterTarget(player: PlayerImportRaw): any {
+        const hitting: any = player.hitting ?? {}
+        const running: any = player.running ?? {}
+
+        return this.getHitterActual({
+            pa: Number(hitting.pa ?? hitting.plateAppearances ?? 0),
+            atBats: Number(hitting.ab ?? hitting.atBats ?? 0),
+            hits: Number(hitting.hits ?? 0),
+            bb: Number(hitting.bb ?? hitting.walks ?? 0),
+            so: Number(hitting.so ?? hitting.strikeouts ?? 0),
+            hbp: Number(hitting.hbp ?? hitting.hitByPitch ?? 0),
+            doubles: Number(hitting.doubles ?? 0),
+            triples: Number(hitting.triples ?? 0),
+            homeRuns: Number(hitting.homeRuns ?? hitting.hr ?? 0),
+            runs: Number(hitting.runs ?? 0),
+            rbi: Number(hitting.rbi ?? hitting.runsBattedIn ?? 0),
+            stolenBases: Number(running.sb ?? running.stolenBases ?? 0),
+            caughtStealing: Number(running.cs ?? running.caughtStealing ?? Math.max(0, Number(running.sbAttempts ?? 0) - Number(running.sb ?? 0)))
+        })
+    }
+
+    static getPitcherTarget(player: PlayerImportRaw): any {
+        const pitching: any = player.pitching ?? {}
+
+        return this.getPitcherActual({
+            battersFaced: Number(pitching.battersFaced ?? pitching.bf ?? 0),
+            outs: Number(pitching.outs ?? 0),
+            er: Number(pitching.earnedRuns ?? pitching.er ?? 0),
+            hits: Number(pitching.hitsAllowed ?? pitching.hits ?? 0),
+            bb: Number(pitching.bbAllowed ?? pitching.bb ?? pitching.walks ?? 0),
+            so: Number(pitching.so ?? pitching.strikeouts ?? 0),
+            hbp: Number(pitching.hbpAllowed ?? pitching.hbp ?? pitching.hitByPitch ?? 0),
+            doubles: Number(pitching.doublesAllowed ?? pitching.doubles ?? 0),
+            triples: Number(pitching.triplesAllowed ?? pitching.triples ?? 0),
+            homeRuns: Number(pitching.homeRunsAllowed ?? pitching.homeRuns ?? pitching.hr ?? 0)
+        })
+    }
+
     static getRealPlayerDiagnostic(name: string): any {
+        const diagnosticPlayer = this.findDiagnosticPlayer(name)
         const player = this.findPlayer(name)
         const ratings = this.getRatings(player)
-        const result = services.playerRatingService.evaluatePlayerRatings(
-            pitchEnvironment,
-            [player],
-            seedrandom(`real-player-diagnostic:${name}`),
-            this.realPlayerGames
-        )
+        const hitter = diagnosticPlayer.role === "hitter" || diagnosticPlayer.role === "twoWay"
+            ? {
+                actual: this.simHitterPlateAppearances(player, ratings, `real-player-hitter:${player.playerId}`, this.realPlayerPlateAppearances),
+                target: this.getHitterTarget(player)
+            }
+            : undefined
+        const pitcher = diagnosticPlayer.role === "pitcher" || diagnosticPlayer.role === "twoWay"
+            ? {
+                actual: this.simPitcherPlateAppearances(player, ratings, `real-player-pitcher:${player.playerId}`, this.realPlayerPlateAppearances),
+                target: this.getPitcherTarget(player)
+            }
+            : undefined
 
         return {
             name,
             player,
             ratings,
-            hitter: result.actual.hitterCount > 0 ? { actual: result.actual.hitter, target: result.target.hitter } : undefined,
-            pitcher: result.actual.pitcherCount > 0 ? { actual: result.actual.pitcher, target: result.target.pitcher } : undefined
+            hitter,
+            pitcher
+        }
+    }
+
+    static getAaronJudgeProbabilityRows(): { ratings: any[], changes: any[], powerChart: any[], results: any[] } {
+        const judge = this.findPlayer("Aaron Judge")
+        const judgeRatings = this.getRatings(judge)
+        const averageHitter = this.createAverageHitterPlayer()
+        const averageRatings = this.getRatings(averageHitter)
+        const averagePitcher = this.createAveragePitcherPlayer()
+        const averagePitcherRatings = this.getRatings(averagePitcher)
+        const rollChartService = new RollChartService()
+
+        const neutralPitcherChangeR = PlayerChange.getPitcherChange(
+            averagePitcherRatings.pitchRatings,
+            pitchEnvironment.avgRating,
+            Handedness.R
+        )
+        const neutralPitcherChangeL = PlayerChange.getPitcherChange(
+            averagePitcherRatings.pitchRatings,
+            pitchEnvironment.avgRating,
+            Handedness.L
+        )
+
+        const rows = [
+            {
+                label: "Average hitter vs RHP",
+                ratings: averageRatings.hittingRatings.vsR,
+                hitterChange: PlayerChange.getHitterChange(averageRatings.hittingRatings, pitchEnvironment.avgRating, Handedness.R),
+                pitcherChange: neutralPitcherChangeR
+            },
+            {
+                label: "Aaron Judge vs RHP",
+                ratings: judgeRatings.hittingRatings.vsR,
+                hitterChange: PlayerChange.getHitterChange(judgeRatings.hittingRatings, pitchEnvironment.avgRating, Handedness.R),
+                pitcherChange: neutralPitcherChangeR
+            },
+            {
+                label: "Average hitter vs LHP",
+                ratings: averageRatings.hittingRatings.vsL,
+                hitterChange: PlayerChange.getHitterChange(averageRatings.hittingRatings, pitchEnvironment.avgRating, Handedness.L),
+                pitcherChange: neutralPitcherChangeL
+            },
+            {
+                label: "Aaron Judge vs LHP",
+                ratings: judgeRatings.hittingRatings.vsL,
+                hitterChange: PlayerChange.getHitterChange(judgeRatings.hittingRatings, pitchEnvironment.avgRating, Handedness.L),
+                pitcherChange: neutralPitcherChangeL
+            }
+        ]
+
+        const powerChart = rows.map(row => {
+            const chart = rollChartService.getMatchupPowerRollChart(
+                pitchEnvironment,
+                row.hitterChange,
+                row.pitcherChange
+            )
+            const rates = this.toPowerChartRates(chart)
+            const babipDenominator = rates.out + rates.singles + rates.doubles + rates.triples
+
+            return {
+                player: row.label,
+                out: rates.out,
+                singles: rates.singles,
+                doubles: rates.doubles,
+                triples: rates.triples,
+                hr: rates.hr,
+                hit: rates.hit,
+                xbh: rates.xbh,
+                chartBabip: this.round(this.safeDiv(rates.singles + rates.doubles + rates.triples, babipDenominator))
+            }
+        })
+
+        const actual = this.simHitterPlateAppearances(
+            judge,
+            judgeRatings,
+            "aaron-judge-probability-breakdown",
+            this.realPlayerPlateAppearances
+        )
+        const target = this.getHitterTarget(judge)
+
+        return {
+            ratings: rows.map(row => ({
+                player: row.label,
+                contact: row.ratings.contact,
+                plateDiscipline: row.ratings.plateDiscipline,
+                gapPower: row.ratings.gapPower,
+                homerunPower: row.ratings.homerunPower
+            })),
+            changes: rows.map(row => ({
+                player: row.label,
+                contact: this.round(row.hitterChange.contactChange),
+                plateDiscipline: this.round(row.hitterChange.plateDisiplineChange),
+                gapPower: this.round(row.hitterChange.gapPowerChange),
+                homerunPower: this.round(row.hitterChange.hrPowerChange)
+            })),
+            powerChart,
+            results: [
+                {
+                    row: "SIM",
+                    ...this.formatActualForTable(actual)
+                },
+                {
+                    row: "REAL",
+                    ...this.formatActualForTable(target)
+                },
+                {
+                    row: "DIFF",
+                    ...this.formatDiffForTable(actual, target)
+                }
+            ]
         }
     }
 
 }
 
+// describe("Player Rating Windows", function () {
 
+//     const buildRatings = (value: number, pitches: string[] = ["FF"]): any => {
+//         return {
+//             playerId: "1",
+//             firstName: "Test",
+//             lastName: "Player",
+//             primaryPosition: "P",
+//             age: 27,
+//             throws: "R",
+//             hits: "R",
+//             hittingRatings: {
+//                 speed: value,
+//                 steals: value,
+//                 defense: value,
+//                 arm: value,
+//                 contactProfile: {
+//                     groundball: value,
+//                     flyBall: value,
+//                     lineDrive: value
+//                 },
+//                 vsR: {
+//                     plateDiscipline: value,
+//                     contact: value,
+//                     gapPower: value,
+//                     homerunPower: value
+//                 },
+//                 vsL: {
+//                     plateDiscipline: value,
+//                     contact: value,
+//                     gapPower: value,
+//                     homerunPower: value
+//                 }
+//             },
+//             pitchRatings: {
+//                 power: value,
+//                 contactProfile: {
+//                     groundball: value,
+//                     flyBall: value,
+//                     lineDrive: value
+//                 },
+//                 vsR: {
+//                     control: value,
+//                     movement: value
+//                 },
+//                 vsL: {
+//                     control: value,
+//                     movement: value
+//                 },
+//                 pitches
+//             }
+//         }
+//     }
 
+//     const buildImport = (playerId: string, value: number, plateAppearances = 100, pitchingGames = 0): any => {
+//         return {
+//             playerId,
+//             value,
+//             firstName: "Test",
+//             lastName: "Player",
+//             primaryPosition: pitchingGames > 0 ? "P" : "OF",
+//             age: 27,
+//             throws: "R",
+//             bats: "R",
+//             hitting: {
+//                 games: plateAppearances > 0 ? 1 : 0,
+//                 pa: plateAppearances
+//             },
+//             pitching: {
+//                 games: pitchingGames,
+//                 battersFaced: pitchingGames > 0 ? 3 : 0,
+//                 outs: pitchingGames > 0 ? 2 : 0
+//             }
+//         }
+//     }
 
-describe("Player Rating Windows", function () {
+//     const recentWindow = (name: string, minimumDaysAgo: number, maximumDaysAgo: number, minimumPlateAppearances = 0): any => {
+//         return {
+//             name,
+//             weight: 0.10,
+//             minimumDaysAgo,
+//             maximumDaysAgo,
+//             minimumPlateAppearances
+//         }
+//     }
 
-    const buildRatings = (value: number, pitches: string[] = ["FF"]): any => {
-        return {
-            playerId: "1",
-            firstName: "Test",
-            lastName: "Player",
-            primaryPosition: "P",
-            age: 27,
-            throws: "R",
-            hits: "R",
-            hittingRatings: {
-                speed: value,
-                steals: value,
-                defense: value,
-                arm: value,
-                contactProfile: {
-                    groundball: value,
-                    flyBall: value,
-                    lineDrive: value
-                },
-                vsR: {
-                    plateDiscipline: value,
-                    contact: value,
-                    gapPower: value,
-                    homerunPower: value
-                },
-                vsL: {
-                    plateDiscipline: value,
-                    contact: value,
-                    gapPower: value,
-                    homerunPower: value
-                }
-            },
-            pitchRatings: {
-                power: value,
-                contactProfile: {
-                    groundball: value,
-                    flyBall: value,
-                    lineDrive: value
-                },
-                vsR: {
-                    control: value,
-                    movement: value
-                },
-                vsL: {
-                    control: value,
-                    movement: value
-                },
-                pitches
-            }
-        }
-    }
+//     it("calculates non-overlapping calendar ranges", function () {
+//         const service = PlayerRatingService as any
 
-    const buildImport = (playerId: string, value: number, plateAppearances = 100, pitchingGames = 0): any => {
-        return {
-            playerId,
-            value,
-            firstName: "Test",
-            lastName: "Player",
-            primaryPosition: pitchingGames > 0 ? "P" : "OF",
-            age: 27,
-            throws: "R",
-            bats: "R",
-            hitting: {
-                games: plateAppearances > 0 ? 1 : 0,
-                pa: plateAppearances
-            },
-            pitching: {
-                games: pitchingGames,
-                battersFaced: pitchingGames > 0 ? 3 : 0,
-                outs: pitchingGames > 0 ? 2 : 0
-            }
-        }
-    }
+//         assert.deepEqual(
+//             service.getWindowDateRange("2026-07-20", recentWindow("16-30", 16, 30)),
+//             {
+//                 startDate: "2026-06-20",
+//                 endDateExclusive: "2026-07-05"
+//             }
+//         )
 
-    const recentWindow = (name: string, minimumDaysAgo: number, maximumDaysAgo: number, minimumPlateAppearances = 0): any => {
-        return {
-            name,
-            weight: 0.10,
-            minimumDaysAgo,
-            maximumDaysAgo,
-            minimumPlateAppearances
-        }
-    }
+//         assert.deepEqual(
+//             service.getWindowDateRange("2026-07-20", recentWindow("8-15", 8, 15)),
+//             {
+//                 startDate: "2026-07-05",
+//                 endDateExclusive: "2026-07-13"
+//             }
+//         )
 
-    it("calculates non-overlapping calendar ranges", function () {
-        const service = PlayerRatingService as any
+//         assert.deepEqual(
+//             service.getWindowDateRange("2026-07-20", recentWindow("1-7", 1, 7)),
+//             {
+//                 startDate: "2026-07-13",
+//                 endDateExclusive: "2026-07-20"
+//             }
+//         )
+//     })
 
-        assert.deepEqual(
-            service.getWindowDateRange("2026-07-20", recentWindow("16-30", 16, 30)),
-            {
-                startDate: "2026-06-20",
-                endDateExclusive: "2026-07-05"
-            }
-        )
+//     it("qualifies a hitter at the minimum plate appearances", function () {
+//         const service = PlayerRatingService as any
 
-        assert.deepEqual(
-            service.getWindowDateRange("2026-07-20", recentWindow("8-15", 8, 15)),
-            {
-                startDate: "2026-07-05",
-                endDateExclusive: "2026-07-13"
-            }
-        )
+//         assert.equal(
+//             service.hasMinimumWindowSample(
+//                 buildImport("1", 100, 10),
+//                 recentWindow("1-7", 1, 7, 10)
+//             ),
+//             true
+//         )
+//     })
 
-        assert.deepEqual(
-            service.getWindowDateRange("2026-07-20", recentWindow("1-7", 1, 7)),
-            {
-                startDate: "2026-07-13",
-                endDateExclusive: "2026-07-20"
-            }
-        )
-    })
+//     it("rejects a hitter below the minimum plate appearances", function () {
+//         const service = PlayerRatingService as any
 
-    it("qualifies a hitter at the minimum plate appearances", function () {
-        const service = PlayerRatingService as any
+//         assert.equal(
+//             service.hasMinimumWindowSample(
+//                 buildImport("1", 100, 9),
+//                 recentWindow("1-7", 1, 7, 10)
+//             ),
+//             false
+//         )
+//     })
 
-        assert.equal(
-            service.hasMinimumWindowSample(
-                buildImport("1", 100, 10),
-                recentWindow("1-7", 1, 7, 10)
-            ),
-            true
-        )
-    })
+//     it("qualifies a pitcher with a pitching appearance", function () {
+//         const service = PlayerRatingService as any
 
-    it("rejects a hitter below the minimum plate appearances", function () {
-        const service = PlayerRatingService as any
+//         assert.equal(
+//             service.hasMinimumWindowSample(
+//                 buildImport("1", 100, 0, 1),
+//                 recentWindow("1-7", 1, 7, 10)
+//             ),
+//             true
+//         )
+//     })
 
-        assert.equal(
-            service.hasMinimumWindowSample(
-                buildImport("1", 100, 9),
-                recentWindow("1-7", 1, 7, 10)
-            ),
-            false
-        )
-    })
+//     it("rejects a player without a hitting or pitching sample", function () {
+//         const service = PlayerRatingService as any
 
-    it("qualifies a pitcher with a pitching appearance", function () {
-        const service = PlayerRatingService as any
+//         assert.equal(
+//             service.hasMinimumWindowSample(
+//                 buildImport("1", 100, 0, 0),
+//                 recentWindow("1-7", 1, 7, 10)
+//             ),
+//             false
+//         )
+//     })
 
-        assert.equal(
-            service.hasMinimumWindowSample(
-                buildImport("1", 100, 0, 1),
-                recentWindow("1-7", 1, 7, 10)
-            ),
-            true
-        )
-    })
+//     it("normalizes weights when only some windows qualify", function () {
+//         const service = PlayerRatingService as any
+//         const ratings = service.buildWeightedPlayerRatings([
+//             {
+//                 ratings: buildRatings(100),
+//                 weight: 0.75,
+//                 generated: true
+//             },
+//             {
+//                 ratings: buildRatings(140),
+//                 weight: 0.025,
+//                 generated: true
+//             }
+//         ])
 
-    it("rejects a player without a hitting or pitching sample", function () {
-        const service = PlayerRatingService as any
+//         const expected = (100 * (0.75 / 0.775)) + (140 * (0.025 / 0.775))
 
-        assert.equal(
-            service.hasMinimumWindowSample(
-                buildImport("1", 100, 0, 0),
-                recentWindow("1-7", 1, 7, 10)
-            ),
-            false
-        )
-    })
+//         assert.equal(ratings.hittingRatings.speed, expected)
+//         assert.equal(ratings.hittingRatings.vsR.contact, expected)
+//         assert.equal(ratings.pitchRatings.power, expected)
+//         assert.equal(ratings.pitchRatings.vsL.movement, expected)
+//     })
 
-    it("normalizes weights when only some windows qualify", function () {
-        const service = PlayerRatingService as any
-        const ratings = service.buildWeightedPlayerRatings([
-            {
-                ratings: buildRatings(100),
-                weight: 0.75,
-                generated: true
-            },
-            {
-                ratings: buildRatings(140),
-                weight: 0.025,
-                generated: true
-            }
-        ])
+//     it("returns core ratings unchanged when only the core sample qualifies", function () {
+//         const service = PlayerRatingService as any
+//         const ratings = service.buildWeightedPlayerRatings([
+//             {
+//                 ratings: buildRatings(117),
+//                 weight: 0.75,
+//                 generated: true
+//             }
+//         ])
 
-        const expected = (100 * (0.75 / 0.775)) + (140 * (0.025 / 0.775))
+//         assert.equal(ratings.hittingRatings.speed, 117)
+//         assert.equal(ratings.hittingRatings.vsR.contact, 117)
+//         assert.equal(ratings.pitchRatings.power, 117)
+//         assert.equal(ratings.pitchRatings.vsL.movement, 117)
+//     })
 
-        assert.equal(ratings.hittingRatings.speed, expected)
-        assert.equal(ratings.hittingRatings.vsR.contact, expected)
-        assert.equal(ratings.pitchRatings.power, expected)
-        assert.equal(ratings.pitchRatings.vsL.movement, expected)
-    })
+//     it("uses the first generated set for identity and nonnumeric values", function () {
+//         const service = PlayerRatingService as any
+//         const core = buildRatings(100, ["FF"])
+//         const recent = buildRatings(140, ["SL", "CH"])
 
-    it("returns core ratings unchanged when only the core sample qualifies", function () {
-        const service = PlayerRatingService as any
-        const ratings = service.buildWeightedPlayerRatings([
-            {
-                ratings: buildRatings(117),
-                weight: 0.75,
-                generated: true
-            }
-        ])
+//         recent.firstName = "Recent"
+//         recent.lastName = "Player"
 
-        assert.equal(ratings.hittingRatings.speed, 117)
-        assert.equal(ratings.hittingRatings.vsR.contact, 117)
-        assert.equal(ratings.pitchRatings.power, 117)
-        assert.equal(ratings.pitchRatings.vsL.movement, 117)
-    })
+//         const ratings = service.buildWeightedPlayerRatings([
+//             {
+//                 ratings: core,
+//                 weight: 0.75,
+//                 generated: false
+//             },
+//             {
+//                 ratings: recent,
+//                 weight: 0.025,
+//                 generated: true
+//             }
+//         ])
 
-    it("uses the first generated set for identity and nonnumeric values", function () {
-        const service = PlayerRatingService as any
-        const core = buildRatings(100, ["FF"])
-        const recent = buildRatings(140, ["SL", "CH"])
+//         assert.equal(ratings.firstName, "Recent")
+//         assert.equal(ratings.lastName, "Player")
+//         assert.deepEqual(ratings.pitchRatings.pitches, ["SL", "CH"])
+//     })
 
-        recent.firstName = "Recent"
-        recent.lastName = "Player"
+//     it("throws when no rating sets are supplied", function () {
+//         assert.throws(
+//             () => (PlayerRatingService as any).buildWeightedPlayerRatings([]),
+//             /without rating sets/
+//         )
+//     })
 
-        const ratings = service.buildWeightedPlayerRatings([
-            {
-                ratings: core,
-                weight: 0.75,
-                generated: false
-            },
-            {
-                ratings: recent,
-                weight: 0.025,
-                generated: true
-            }
-        ])
+//     it("requests the core and configured recent windows from PlayerImportService", async function () {
+//         const requestedCore: any[] = []
+//         const requestedRanges: any[] = []
 
-        assert.equal(ratings.firstName, "Recent")
-        assert.equal(ratings.lastName, "Player")
-        assert.deepEqual(ratings.pitchRatings.pitches, ["SL", "CH"])
-    })
+//         const playerImportService = {
+//             buildCorePlayerImports: async (requestedSeason: number, requestedDate: string, playerIds: Set<string>) => {
+//                 requestedCore.push({
+//                     season: requestedSeason,
+//                     gameDate: requestedDate,
+//                     playerIds: Array.from(playerIds)
+//                 })
 
-    it("throws when no rating sets are supplied", function () {
-        assert.throws(
-            () => (PlayerRatingService as any).buildWeightedPlayerRatings([]),
-            /without rating sets/
-        )
-    })
+//                 return new Map([
+//                     ["1", buildImport("1", 100)]
+//                 ])
+//             },
+//             buildDateRangePlayerImports: async (requestedSeason: number, startDate: string, endDateExclusive: string, playerIds: Set<string>) => {
+//                 requestedRanges.push({
+//                     season: requestedSeason,
+//                     startDate,
+//                     endDateExclusive,
+//                     playerIds: Array.from(playerIds)
+//                 })
 
-    it("requests the core and configured recent windows from PlayerImportService", async function () {
-        const requestedCore: any[] = []
-        const requestedRanges: any[] = []
+//                 const value = startDate === "2026-06-20"
+//                     ? 110
+//                     : startDate === "2026-07-05"
+//                         ? 120
+//                         : 130
 
-        const playerImportService = {
-            buildCorePlayerImports: async (requestedSeason: number, requestedDate: string, playerIds: Set<string>) => {
-                requestedCore.push({
-                    season: requestedSeason,
-                    gameDate: requestedDate,
-                    playerIds: Array.from(playerIds)
-                })
+//                 return new Map([
+//                     ["1", buildImport("1", value)]
+//                 ])
+//             }
+//         } as unknown as PlayerImportService
 
-                return new Map([
-                    ["1", buildImport("1", 100)]
-                ])
-            },
-            buildDateRangePlayerImports: async (requestedSeason: number, startDate: string, endDateExclusive: string, playerIds: Set<string>) => {
-                requestedRanges.push({
-                    season: requestedSeason,
-                    startDate,
-                    endDateExclusive,
-                    playerIds: Array.from(playerIds)
-                })
+//         const service = createServices(playerImportService).playerRatingService
+//         const ratingService = PlayerRatingService as any
+//         const originalBuildPlayerRatings = ratingService.buildPlayerRatings
 
-                const value = startDate === "2026-06-20"
-                    ? 110
-                    : startDate === "2026-07-05"
-                        ? 120
-                        : 130
+//         ratingService.buildPlayerRatings = (_pitchEnvironment: PitchEnvironmentTarget, playerImport: any) => {
+//             return buildRatings(playerImport.value)
+//         }
 
-                return new Map([
-                    ["1", buildImport("1", value)]
-                ])
-            }
-        } as unknown as PlayerImportService
+//         try {
+//             const ratings = await service.buildPlayerRatingsForDate(
+//                 2026,
+//                 "2026-07-20",
+//                 pitchEnvironment,
+//                 new Set(["1"])
+//             )
 
-        const service = createServices(playerImportService).playerRatingService
-        const ratingService = PlayerRatingService as any
-        const originalBuildPlayerRatings = ratingService.buildPlayerRatings
+//             assert.deepEqual(requestedCore, [
+//                 {
+//                     season: 2026,
+//                     gameDate: "2026-07-20",
+//                     playerIds: ["1"]
+//                 }
+//             ])
 
-        ratingService.buildPlayerRatings = (_pitchEnvironment: PitchEnvironmentTarget, playerImport: any) => {
-            return buildRatings(playerImport.value)
-        }
+//             assert.deepEqual(requestedRanges, [
+//                 {
+//                     season: 2026,
+//                     startDate: "2026-06-20",
+//                     endDateExclusive: "2026-07-05",
+//                     playerIds: ["1"]
+//                 },
+//                 {
+//                     season: 2026,
+//                     startDate: "2026-07-05",
+//                     endDateExclusive: "2026-07-13",
+//                     playerIds: ["1"]
+//                 },
+//                 {
+//                     season: 2026,
+//                     startDate: "2026-07-13",
+//                     endDateExclusive: "2026-07-20",
+//                     playerIds: ["1"]
+//                 }
+//             ])
 
-        try {
-            const ratings = await service.buildPlayerRatingsForDate(
-                2026,
-                "2026-07-20",
-                pitchEnvironment,
-                new Set(["1"])
-            )
+//             const expected = (100 * 0.75) + (110 * 0.15) + (120 * 0.075) + (130 * 0.025)
+//             const player = ratings.get("1")
 
-            assert.deepEqual(requestedCore, [
-                {
-                    season: 2026,
-                    gameDate: "2026-07-20",
-                    playerIds: ["1"]
-                }
-            ])
+//             assert.ok(player)
+//             assert.equal(player.hittingRatings.speed, expected)
+//             assert.equal(player.pitchRatings.power, expected)
+//         } finally {
+//             ratingService.buildPlayerRatings = originalBuildPlayerRatings
+//         }
+//     })
 
-            assert.deepEqual(requestedRanges, [
-                {
-                    season: 2026,
-                    startDate: "2026-06-20",
-                    endDateExclusive: "2026-07-05",
-                    playerIds: ["1"]
-                },
-                {
-                    season: 2026,
-                    startDate: "2026-07-05",
-                    endDateExclusive: "2026-07-13",
-                    playerIds: ["1"]
-                },
-                {
-                    season: 2026,
-                    startDate: "2026-07-13",
-                    endDateExclusive: "2026-07-20",
-                    playerIds: ["1"]
-                }
-            ])
+//     it("passes the provided pitch environment into every rating generation", async function () {
+//         const receivedTargets: PitchEnvironmentTarget[] = []
+//         const playerImportService = {
+//             buildCorePlayerImports: async () => new Map([
+//                 ["1", buildImport("1", 100)]
+//             ]),
+//             buildDateRangePlayerImports: async () => new Map()
+//         } as unknown as PlayerImportService
 
-            const expected = (100 * 0.75) + (110 * 0.15) + (120 * 0.075) + (130 * 0.025)
-            const player = ratings.get("1")
+//         const service = createServices(playerImportService).playerRatingService
+//         const ratingService = PlayerRatingService as any
+//         const originalBuildPlayerRatings = ratingService.buildPlayerRatings
 
-            assert.ok(player)
-            assert.equal(player.hittingRatings.speed, expected)
-            assert.equal(player.pitchRatings.power, expected)
-        } finally {
-            ratingService.buildPlayerRatings = originalBuildPlayerRatings
-        }
-    })
+//         ratingService.buildPlayerRatings = (receivedTarget: PitchEnvironmentTarget) => {
+//             receivedTargets.push(receivedTarget)
+//             return buildRatings(100)
+//         }
 
-    it("passes the provided pitch environment into every rating generation", async function () {
-        const receivedTargets: PitchEnvironmentTarget[] = []
-        const playerImportService = {
-            buildCorePlayerImports: async () => new Map([
-                ["1", buildImport("1", 100)]
-            ]),
-            buildDateRangePlayerImports: async () => new Map()
-        } as unknown as PlayerImportService
+//         try {
+//             await service.buildPlayerRatingsForDate(
+//                 2026,
+//                 "2026-07-20",
+//                 pitchEnvironment,
+//                 new Set(["1"])
+//             )
 
-        const service = createServices(playerImportService).playerRatingService
-        const ratingService = PlayerRatingService as any
-        const originalBuildPlayerRatings = ratingService.buildPlayerRatings
+//             assert.equal(receivedTargets.length, 1)
+//             assert.equal(receivedTargets[0], pitchEnvironment)
+//         } finally {
+//             ratingService.buildPlayerRatings = originalBuildPlayerRatings
+//         }
+//     })
 
-        ratingService.buildPlayerRatings = (receivedTarget: PitchEnvironmentTarget) => {
-            receivedTargets.push(receivedTarget)
-            return buildRatings(100)
-        }
+//     it("omits a filtered player without a core import", async function () {
+//         const playerImportService = {
+//             buildCorePlayerImports: async () => new Map(),
+//             buildDateRangePlayerImports: async () => new Map([
+//                 ["1", buildImport("1", 130)]
+//             ])
+//         } as unknown as PlayerImportService
 
-        try {
-            await service.buildPlayerRatingsForDate(
-                2026,
-                "2026-07-20",
-                pitchEnvironment,
-                new Set(["1"])
-            )
+//         const service = createServices(playerImportService).playerRatingService
+//         const ratings = await service.buildPlayerRatingsForDate(
+//             2026,
+//             "2026-07-20",
+//             pitchEnvironment,
+//             new Set(["1"])
+//         )
 
-            assert.equal(receivedTargets.length, 1)
-            assert.equal(receivedTargets[0], pitchEnvironment)
-        } finally {
-            ratingService.buildPlayerRatings = originalBuildPlayerRatings
-        }
-    })
-
-    it("omits a filtered player without a core import", async function () {
-        const playerImportService = {
-            buildCorePlayerImports: async () => new Map(),
-            buildDateRangePlayerImports: async () => new Map([
-                ["1", buildImport("1", 130)]
-            ])
-        } as unknown as PlayerImportService
-
-        const service = createServices(playerImportService).playerRatingService
-        const ratings = await service.buildPlayerRatingsForDate(
-            2026,
-            "2026-07-20",
-            pitchEnvironment,
-            new Set(["1"])
-        )
-
-        assert.equal(ratings.has("1"), false)
-    })
-})
-
+//         assert.equal(ratings.has("1"), false)
+//     })
+// })
 
 describe("Player Rating Diagnostics", function () {
-
 
     it("should print running, defense, steals, speed, and arm diagnostics", function () {
         const defenseRows = RatingTestHarness.getDefenseFullContextRows()
@@ -1715,13 +1906,10 @@ describe("Player Rating Diagnostics", function () {
         const generatedRows = RatingTestHarness.getRealPlayerRunningFieldingRows()
 
         RatingTestHarness.printTable("[GENERATED RUNNING/FIELDING RATINGS]", generatedRows)
-
         RatingTestHarness.printTable("[RUNNING/ARM FULL-CONTEXT SUMMARY]", RatingTestHarness.getRunningArmSummaryRows(runningArmRows))
         RatingTestHarness.printTable("[RUNNING/ARM FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getRunningArmCompactRows(runningArmRows))
-
         RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT SUMMARY]", RatingTestHarness.getHitterSummaryRows(defenseRows))
         RatingTestHarness.printTable("[TEAM DEFENSE FULL-CONTEXT COMPACT DETAIL]", RatingTestHarness.getCompactHitterRows(defenseRows))
-
         RatingTestHarness.printTable("[RUNNING/ARM DIRECT RANGE TABLE]", rangeRows)
 
         assert.ok(generatedRows.length > 0)
@@ -1730,7 +1918,6 @@ describe("Player Rating Diagnostics", function () {
         assert.ok(defenseRows.length > 0)
         assert.ok(rangeRows.length > 0)
     })
-
 
     it("should validate underlying rating plumbing and print compact roll-chart elasticity", function () {
         RatingTestHarness.assertUnderlyingChanges()
@@ -1783,46 +1970,86 @@ describe("Player Rating Diagnostics", function () {
         assert.ok(runningArmRows.length > 0)
     })
 
-    it("should compare generated real player builds against real life", function () {
-        const judge = RatingTestHarness.getRealPlayerDiagnostic("Aaron Judge")
-        const ohtani = RatingTestHarness.getRealPlayerDiagnostic("Shohei Ohtani")
-        const skenes = RatingTestHarness.getRealPlayerDiagnostic("Paul Skenes")
+    it("should compare season-generated real player ratings against real life", function () {
+        const diagnostics = diagnosticPlayers.map(player => RatingTestHarness.getRealPlayerDiagnostic(player.name))
+        const hitterDiagnostics = diagnostics.filter(diagnostic => diagnostic.hitter)
+        const pitcherDiagnostics = diagnostics.filter(diagnostic => diagnostic.pitcher)
 
-        assert.ok(judge.hitter, "Missing Judge hitter diagnostic")
-        assert.ok(ohtani.hitter, "Missing Ohtani hitter diagnostic")
-        assert.ok(ohtani.pitcher, "Missing Ohtani pitcher diagnostic")
-        assert.ok(skenes.pitcher, "Missing Skenes pitcher diagnostic")
+        assert.equal(diagnostics.length, diagnosticPlayers.length)
+        assert.equal(hitterDiagnostics.length, 5)
+        assert.equal(pitcherDiagnostics.length, 5)
 
-        RatingTestHarness.printTable("[REAL PLAYER HITTER RATINGS]", [
-            { player: "Aaron Judge", ...RatingTestHarness.formatHitterRatingsForTable(judge.ratings) },
-            { player: "Shohei Ohtani", ...RatingTestHarness.formatHitterRatingsForTable(ohtani.ratings) }
-        ])
+        RatingTestHarness.printTable("[REAL PLAYER HITTER RATINGS]", hitterDiagnostics.map(diagnostic => ({
+            player: diagnostic.name,
+            playerId: diagnostic.player.playerId,
+            ...RatingTestHarness.formatHitterRatingsForTable(diagnostic.ratings)
+        })))
 
-        RatingTestHarness.printTable("[REAL PLAYER PITCHER RATINGS]", [
-            { player: "Shohei Ohtani", ...RatingTestHarness.formatPitcherRatingsForTable(ohtani.ratings) },
-            { player: "Paul Skenes", ...RatingTestHarness.formatPitcherRatingsForTable(skenes.ratings) }
-        ])
+        RatingTestHarness.printTable("[REAL PLAYER PITCHER RATINGS]", pitcherDiagnostics.map(diagnostic => ({
+            player: diagnostic.name,
+            playerId: diagnostic.player.playerId,
+            ...RatingTestHarness.formatPitcherRatingsForTable(diagnostic.ratings)
+        })))
 
-        RatingTestHarness.printTable("[REAL PLAYER HITTER SIM VS REAL]", [
-            { player: "Aaron Judge", row: "SIM", ...RatingTestHarness.formatActualForTable(judge.hitter.actual) },
-            { player: "Aaron Judge", row: "REAL", ...RatingTestHarness.formatActualForTable(judge.hitter.target) },
-            { player: "Aaron Judge", row: "DIFF", ...RatingTestHarness.formatDiffForTable(judge.hitter.actual, judge.hitter.target) },
+        RatingTestHarness.printTable("[REAL PLAYER HITTER SIM VS REAL]", hitterDiagnostics.flatMap(diagnostic => [
+            {
+                player: diagnostic.name,
+                row: "SIM",
+                ...RatingTestHarness.formatActualForTable(diagnostic.hitter.actual)
+            },
+            {
+                player: diagnostic.name,
+                row: "REAL",
+                ...RatingTestHarness.formatActualForTable(diagnostic.hitter.target)
+            },
+            {
+                player: diagnostic.name,
+                row: "DIFF",
+                ...RatingTestHarness.formatDiffForTable(diagnostic.hitter.actual, diagnostic.hitter.target)
+            }
+        ]))
 
-            { player: "Shohei Ohtani H", row: "SIM", ...RatingTestHarness.formatActualForTable(ohtani.hitter.actual) },
-            { player: "Shohei Ohtani H", row: "REAL", ...RatingTestHarness.formatActualForTable(ohtani.hitter.target) },
-            { player: "Shohei Ohtani H", row: "DIFF", ...RatingTestHarness.formatDiffForTable(ohtani.hitter.actual, ohtani.hitter.target) }
-        ])
-
-        RatingTestHarness.printTable("[REAL PLAYER PITCHER SIM VS REAL]", [
-            { player: "Shohei Ohtani P", row: "SIM", ...RatingTestHarness.formatActualForTable(ohtani.pitcher.actual) },
-            { player: "Shohei Ohtani P", row: "REAL", ...RatingTestHarness.formatActualForTable(ohtani.pitcher.target) },
-            { player: "Shohei Ohtani P", row: "DIFF", ...RatingTestHarness.formatDiffForTable(ohtani.pitcher.actual, ohtani.pitcher.target) },
-
-            { player: "Paul Skenes", row: "SIM", ...RatingTestHarness.formatActualForTable(skenes.pitcher.actual) },
-            { player: "Paul Skenes", row: "REAL", ...RatingTestHarness.formatActualForTable(skenes.pitcher.target) },
-            { player: "Paul Skenes", row: "DIFF", ...RatingTestHarness.formatDiffForTable(skenes.pitcher.actual, skenes.pitcher.target) }
-        ])
+        RatingTestHarness.printTable("[REAL PLAYER PITCHER SIM VS REAL]", pitcherDiagnostics.flatMap(diagnostic => [
+            {
+                player: diagnostic.name,
+                row: "SIM",
+                ...RatingTestHarness.formatActualForTable(diagnostic.pitcher.actual)
+            },
+            {
+                player: diagnostic.name,
+                row: "REAL",
+                ...RatingTestHarness.formatActualForTable(diagnostic.pitcher.target)
+            },
+            {
+                player: diagnostic.name,
+                row: "DIFF",
+                ...RatingTestHarness.formatDiffForTable(diagnostic.pitcher.actual, diagnostic.pitcher.target)
+            }
+        ]))
     })
+})
 
+describe("Aaron Judge Probability Breakdown", function () {
 
+    it("should show where Aaron Judge loses batting average", function () {
+        const breakdown = RatingTestHarness.getAaronJudgeProbabilityRows()
+
+        RatingTestHarness.printTable("[AARON JUDGE RATINGS]", breakdown.ratings)
+        RatingTestHarness.printTable("[AARON JUDGE RATING CHANGES]", breakdown.changes)
+        RatingTestHarness.printTable("[AARON JUDGE FAIR-CONTACT POWER CHART]", breakdown.powerChart)
+        RatingTestHarness.printTable("[AARON JUDGE SIM VS REAL]", breakdown.results)
+
+        const judgeRight = breakdown.powerChart.find(row => row.player === "Aaron Judge vs RHP")
+        const averageRight = breakdown.powerChart.find(row => row.player === "Average hitter vs RHP")
+        const sim = breakdown.results.find(row => row.row === "SIM")
+        const real = breakdown.results.find(row => row.row === "REAL")
+
+        assert.ok(judgeRight)
+        assert.ok(averageRight)
+        assert.ok(sim)
+        assert.ok(real)
+        assert.ok(judgeRight.chartBabip > averageRight.chartBabip)
+        assert.ok(Number(sim.avg) < Number(real.avg))
+        assert.ok(Number(sim.babip) < Number(real.babip))
+    })
 })

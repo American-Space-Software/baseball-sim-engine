@@ -18,8 +18,7 @@ import { BaselineGameService } from "./service/baseline-game-service.js"
 
 import {
     downloadSeason as downloadDatabaseSeason,
-    getGame as getDatabaseGame,
-    getSchedule as getDatabaseSchedule
+    queries
 } from "baseball-database"
 
 import { PlayerImportService } from "./service/player-import-service.js"
@@ -346,7 +345,7 @@ async function exportAll(season: number, baseDataDir: string, options?: any): Pr
 async function getSeasonHomeFieldAdvantage(season: number): Promise<number> {
     await downloadDatabaseSeason(season)
 
-    const schedule = getDatabaseSchedule(season)
+    const schedule = queries.getSchedule(season)
 
     if (!schedule) {
         throw new Error(
@@ -367,7 +366,7 @@ async function getSeasonHomeFieldAdvantage(season: number): Promise<number> {
                 continue
             }
 
-            const storedGame = getDatabaseGame(gamePk)
+            const storedGame = queries.getGame(gamePk)
 
             if (!storedGame) {
                 throw new Error(
