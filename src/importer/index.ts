@@ -1632,34 +1632,32 @@ class TuningSupportService {
 
 
 }
-
 export {
     exportPitchEnvironmentTarget,
     exportPlayerRatings,
     exportAll,
     playerImportService,
-    playerRatingService
+    playerRatingService,
+    PlayerImportService,
+    PlayerRatingService,
+    StatAccumulatorService,
+    PitchEnvironmentService
 }
 
 export type {
-  PlayerFromStatsCommand,
-  PlayerHittingStats,
-  PlayerPitchingStats,
-  PlayerFieldingStats,
-  PlayerRunningStats,
-  PlayerSplitsStats,
-  PlayerHittingSplitStats,
-  PlayerPitchingSplitStats,
-  PlayerImportRaw,
-  PitchEnvironmentTuning,
-  RatingTuning,
-  PlayerImportService,
-  PlayerRatingService,
-  StatAccumulatorService,
-  PitchEnvironmentService,
-  ExportPitchEnvironmentTargetResult,
-  ExportAllResult
-
+    PlayerFromStatsCommand,
+    PlayerHittingStats,
+    PlayerPitchingStats,
+    PlayerFieldingStats,
+    PlayerRunningStats,
+    PlayerSplitsStats,
+    PlayerHittingSplitStats,
+    PlayerPitchingSplitStats,
+    PlayerImportRaw,
+    PitchEnvironmentTuning,
+    RatingTuning,
+    ExportPitchEnvironmentTargetResult,
+    ExportAllResult
 }
 
 

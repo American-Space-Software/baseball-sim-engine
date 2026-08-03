@@ -8,7 +8,6 @@ import { StatService } from "./service/stat-service.js"
 import defaultPitchEnvironmentTargetJson from "./_pitch_environment_target.json" with { type: "json" }
 import { RunnerService } from "./service/runner-service.js"
 import { SubstitutionService } from "./service/substitution-service.js"
-import { PlayerRatingService } from "../importer/service/player-rating-service.js"
 
 let rollChartService = new RollChartService()
 
@@ -28,7 +27,6 @@ export {
   SimService,
   StatService,
   RollChartService,
-  PlayerRatingService,
   PlayResult,
   Contact,
   ShallowDeep,
