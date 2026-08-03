@@ -1,11 +1,9 @@
 import fs from "fs"
 import path from "path"
 
-import {
-    downloadSeason as downloadDatabaseSeason,
-    queries
-} from "baseball-database"
+import {  queries } from "baseball-database"
 
+import type { StatExport } from "baseball-database"
 import type { PlayerImportRaw } from "../../sim/service/interfaces.js"
 
 import { StatAccumulatorService } from "./stat-accumulator-service.js"
@@ -13,19 +11,15 @@ import { StatAccumulatorService } from "./stat-accumulator-service.js"
 class PlayerImportService {
 
     private readonly importCache = new Map<string, Map<string, PlayerImportRaw>>()
-    private readonly appearanceIndexes = new Map<number, Promise<PlayerAppearanceIndex>>()
-    private readonly gameFeeds = new Map<number, any>()
+    private readonly states: PlayerImportState[] = []
 
     public constructor(
-        private readonly baseDataDir: string, 
+        private readonly baseDataDir: string,
         private readonly statAccumulatorService: StatAccumulatorService
     ) {}
 
     public async buildSeasonPlayerImports(season: number, filterPlayerIds?: Set<string>, forceFullReimport = false): Promise<Map<string, PlayerImportRaw>> {
-        const cutoffDate = this.isCurrentSeason(season)
-            ? this.getTomorrowUtcDate()
-            : `${season + 1}-01-01`
-
+        const cutoffDate = this.isCurrentSeason(season) ? this.getTomorrowUtcDate() : `${season + 1}-01-01`
         const normalizedPlayerIds = this.normalizePlayerIds(filterPlayerIds)
         const resultsFilePath = this.getResultsFilePath(season)
 
@@ -37,29 +31,15 @@ class PlayerImportService {
             }
         }
 
-        const players = await this.buildCorePlayerImports(
-            season,
-            cutoffDate,
-            filterPlayerIds,
-            forceFullReimport
-        )
+        const players = await this.buildCorePlayerImports(season, cutoffDate, filterPlayerIds, forceFullReimport)
 
-        await this.writeResultsFile(
-            resultsFilePath,
-            season,
-            normalizedPlayerIds,
-            players
-        )
+        await this.writeResultsFile(resultsFilePath, season, normalizedPlayerIds, players)
 
         return players
     }
 
     public async buildSeasonPlayerImportRaw(season: number, playerId: string, forceFullReimport = false): Promise<PlayerImportRaw | undefined> {
-        const players = await this.buildSeasonPlayerImports(
-            season,
-            new Set([String(playerId)]),
-            forceFullReimport
-        )
+        const players = await this.buildSeasonPlayerImports(season, new Set([String(playerId)]), forceFullReimport)
 
         return players.get(String(playerId))
     }
@@ -72,67 +52,10 @@ class PlayerImportService {
         }
 
         const normalizedPlayerIds = this.normalizePlayerIds(filterPlayerIds)
-        const cacheKey = this.getCacheKey("core", season, gameDate, normalizedPlayerIds)
-        const cached = this.importCache.get(cacheKey)
-
-        if (cached) {
-            return this.clonePlayerImportMap(cached)
-        }
-
-        const appearanceIndex = await this.getAppearanceIndex(season)
-        const playerIds = this.resolvePlayerIds(
-            appearanceIndex,
-            filterPlayerIds
-        )
-
-        const selectedGames = new Map<string, SelectedGame>()
-
-        for (const playerId of playerIds) {
-            const appearances = (appearanceIndex.appearancesByPlayerId.get(playerId) ?? [])
-                .filter(appearance => appearance.gameDate < gameDate)
-                .slice(-162)
-
-            for (const appearance of appearances) {
-                this.addSelectedGamePlayer(
-                    selectedGames,
-                    appearance,
-                    playerId
-                )
-            }
-        }
-
-        const players = await this.buildFromSelectedGames(
-            season,
-            selectedGames
-        )
-
-        this.importCache.set(
-            cacheKey,
-            this.clonePlayerImportMap(players)
-        )
-
-        return players
-    }
-
-    public async buildDateRangePlayerImports(season: number, startDate: string, endDateExclusive: string, filterPlayerIds?: Set<string>, forceFullReimport = false): Promise<Map<string, PlayerImportRaw>> {
-        this.validateIsoDate(startDate)
-        this.validateIsoDate(endDateExclusive)
-
-        if (startDate >= endDateExclusive) {
-            throw new Error(
-                `Start date ${startDate} must be before end date ${endDateExclusive}.`
-            )
-        }
-
-        if (forceFullReimport) {
-            this.clearCache(season)
-        }
-
-        const normalizedPlayerIds = this.normalizePlayerIds(filterPlayerIds)
         const cacheKey = this.getCacheKey(
-            "range",
+            "core",
             season,
-            `${startDate}:${endDateExclusive}`,
+            gameDate,
             normalizedPlayerIds
         )
 
@@ -142,33 +65,31 @@ class PlayerImportService {
             return this.clonePlayerImportMap(cached)
         }
 
-        const appearanceIndex = await this.getAppearanceIndex(season)
-        const playerIds = this.resolvePlayerIds(
-            appearanceIndex,
-            filterPlayerIds
+        const existingState = this.states.find(state =>
+            state.season === season
         )
 
-        const selectedGames = new Map<string, SelectedGame>()
-
-        for (const playerId of playerIds) {
-            const appearances = appearanceIndex.appearancesByPlayerId.get(playerId) ?? []
-
-            for (const appearance of appearances) {
-                if (appearance.gameDate < startDate || appearance.gameDate >= endDateExclusive) {
-                    continue
-                }
-
-                this.addSelectedGamePlayer(
-                    selectedGames,
-                    appearance,
-                    playerId
-                )
-            }
+        if (!existingState) {
+            console.log(`Building player imports through ${gameDate}.`)
+        } else if (existingState.currentDate < gameDate) {
+            console.log(
+                `Advancing player imports from ${existingState.currentDate} to ${gameDate}.`
+            )
         }
 
-        const players = await this.buildFromSelectedGames(
+        const state = await this.getOrCreateState(
             season,
-            selectedGames
+            gameDate
+        )
+
+        await this.advanceState(
+            state,
+            gameDate
+        )
+
+        const players = this.filterPlayerImports(
+            state.players,
+            filterPlayerIds
         )
 
         this.importCache.set(
@@ -179,63 +100,76 @@ class PlayerImportService {
         return players
     }
 
+    
+
+    public async buildDateRangePlayerImports(season: number, startDate: string, endDateExclusive: string, filterPlayerIds?: Set<string>, forceFullReimport = false): Promise<Map<string, PlayerImportRaw>> {
+        this.validateIsoDate(startDate)
+        this.validateIsoDate(endDateExclusive)
+
+        if (startDate >= endDateExclusive) {
+            throw new Error(`Start date ${startDate} must be before end date ${endDateExclusive}.`)
+        }
+
+        if (forceFullReimport) {
+            this.clearCache(season)
+        }
+
+        const normalizedPlayerIds = this.normalizePlayerIds(filterPlayerIds)
+        const cacheKey = this.getCacheKey("range", season, `${startDate}:${endDateExclusive}`, normalizedPlayerIds)
+        const cached = this.importCache.get(cacheKey)
+
+        if (cached) {
+            return this.clonePlayerImportMap(cached)
+        }
+
+        const statExports = this.loadDatedStatExports(startDate, endDateExclusive)
+        const selections = this.buildDateRangeSelections(statExports, filterPlayerIds)
+        const players = this.buildFromExports(season, statExports, selections)
+
+        this.importCache.set(cacheKey, this.clonePlayerImportMap(players))
+
+        return players
+    }
+
     public async getAppearanceCountsBeforeDate(season: number, gameDate: string, filterPlayerIds?: Set<string>): Promise<Map<string, number>> {
         this.validateIsoDate(gameDate)
 
-        const appearanceIndex = await this.getAppearanceIndex(season)
-        const playerIds = this.resolvePlayerIds(
-            appearanceIndex,
-            filterPlayerIds
+        const state = await this.getOrCreateState(
+            season,
+            gameDate
         )
+
+        await this.advanceState(
+            state,
+            gameDate
+        )
+
+        const playerIds = filterPlayerIds && filterPlayerIds.size > 0
+            ? Array.from(filterPlayerIds)
+                .map(playerId => String(playerId))
+                .sort((a, b) => a.localeCompare(b))
+            : Object.keys(state.appearancesByPlayer)
+                .sort((a, b) => a.localeCompare(b))
 
         const counts = new Map<string, number>()
 
         for (const playerId of playerIds) {
-            const appearances = appearanceIndex.appearancesByPlayerId.get(playerId) ?? []
-
             counts.set(
                 playerId,
-                appearances
-                    .filter(appearance => appearance.gameDate < gameDate)
-                    .slice(-162)
-                    .length
+                Math.min(
+                    162,
+                    state.appearancesByPlayer[playerId]?.length ?? 0
+                )
             )
         }
 
         return counts
     }
 
-    public buildFromGameFeeds(season: number, gameFeeds: PlayerImportGameFeed[]): Map<string, PlayerImportRaw> {
-        const players = new Map<string, PlayerImportRaw>()
-
-        for (const gameFeed of gameFeeds) {
-            if (!gameFeed.gamePk || !gameFeed.data || gameFeed.playerIds.length === 0) {
-                continue
-            }
-
-            this.accumulateGame(
-                season,
-                gameFeed.gamePk,
-                gameFeed.data,
-                players,
-                new Set(
-                    gameFeed.playerIds.map(playerId =>
-                        String(playerId)
-                    )
-                )
-            )
-        }
-
-        this.finalizePlayers(players)
-
-        return this.clonePlayerImportMap(players)
-    }
-
     public clearCache(season?: number): void {
         if (season === undefined) {
             this.importCache.clear()
-            this.appearanceIndexes.clear()
-            this.gameFeeds.clear()
+            this.states.length = 0
             return
         }
 
@@ -245,220 +179,422 @@ class PlayerImportService {
             }
         }
 
-        this.appearanceIndexes.delete(season)
+        const stateIndex = this.states.findIndex(state => state.season === season)
 
-        for (const key of Array.from(this.gameFeeds.keys())) {
-            const game = queries.getGame(key)
-            const gameSeason = Number(
-                game?.data?.gameData?.game?.season ??
-                game?.data?.gameData?.datetime?.originalDate?.slice(0, 4) ??
-                0
-            )
-
-            if (gameSeason === season || gameSeason === season - 1) {
-                this.gameFeeds.delete(key)
-            }
+        if (stateIndex >= 0) {
+            this.states.splice(stateIndex, 1)
         }
     }
 
-    private async buildFromSelectedGames(season: number, selectedGames: Map<string, SelectedGame>): Promise<Map<string, PlayerImportRaw>> {
-        const gameFeeds: PlayerImportGameFeed[] = []
-
-        const games = Array.from(selectedGames.values()).sort((a, b) => {
-            if (a.gameDate !== b.gameDate) {
-                return a.gameDate.localeCompare(b.gameDate)
-            }
-
-            return a.gamePk - b.gamePk
-        })
-
-        for (const selectedGame of games) {
-            gameFeeds.push({
-                sourceSeason: selectedGame.sourceSeason,
-                gamePk: selectedGame.gamePk,
-                data: await this.getGameFeed(selectedGame.gamePk),
-                playerIds: Array.from(selectedGame.playerIds)
-            })
-        }
-
-        return this.buildFromGameFeeds(
-            season,
-            gameFeeds
+    private async getOrCreateState(season: number, gameDate: string): Promise<PlayerImportState> {
+        const existing = this.states.find(state =>
+            state.season === season
         )
-    }
 
-    private async getAppearanceIndex(season: number): Promise<PlayerAppearanceIndex> {
-        const existing = this.appearanceIndexes.get(season)
+        if (existing && gameDate >= existing.currentDate) {
+            return existing
+        }
 
         if (existing) {
-            return await existing
+            this.states.splice(
+                this.states.indexOf(existing),
+                1
+            )
         }
 
-        const pending = this.buildAppearanceIndex(season)
-
-        this.appearanceIndexes.set(
+        const created: PlayerImportState = {
             season,
-            pending
-        )
-
-        try {
-            return await pending
-        } catch (error) {
-            this.appearanceIndexes.delete(season)
-            throw error
+            currentDate: `${season - 1}-01-01`,
+            statExports: [],
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
         }
+
+        this.states.push(created)
+
+        return created
     }
 
-    private async buildAppearanceIndex(season: number): Promise<PlayerAppearanceIndex> {
-        const appearancesByPlayerId = new Map<string, PlayerGameReference[]>()
+    private async advanceState(state: PlayerImportState, gameDate: string): Promise<void> {
+        if (gameDate < state.currentDate) {
+            throw new Error(
+                `Cannot move player import state backward from ${state.currentDate} to ${gameDate}.`
+            )
+        }
 
-        const scheduleRows = [
-            ...await this.getSeasonScheduleGames(season - 1),
-            ...await this.getSeasonScheduleGames(season)
-        ].sort((a, b) =>
-            a.gameDate.localeCompare(b.gameDate) ||
-            a.gamePk - b.gamePk
+        if (state.currentDate === gameDate) {
+            return
+        }
+
+        for (const key of Array.from(this.importCache.keys())) {
+            if (key.startsWith(`core:${state.season}:${gameDate}:`)) {
+                this.importCache.delete(key)
+            }
+        }
+
+        const startedAt = Date.now()
+        const startDate = state.currentDate
+        const statExport = this.getStatExport(startDate, gameDate)
+        const addedStatExports = this.splitStatExportByDate(statExport)
+
+        state.statExports.push(...addedStatExports)
+        this.addAppearancesToState(state, addedStatExports)
+
+        state.currentDate = gameDate
+
+        const exportsBeforeRemoval = state.statExports.length
+
+        this.removeUnneededDates(state)
+
+        const removedDates = exportsBeforeRemoval - state.statExports.length
+        const rebuildingAllPlayers = state.players.size === 0
+        const affectedPlayerIds = rebuildingAllPlayers
+            ? undefined
+            : this.getPlayerIdsFromExports(addedStatExports)
+
+        const selections = this.buildCoreSelections(
+            state,
+            affectedPlayerIds
+        )
+
+        const selectedGameCount = this.getSelectedGameCount(
+            selections
         )
 
         console.log(
-            `Building player appearance index from ${scheduleRows.length} completed games for seasons ${season - 1}-${season}.`
+            `Loaded stat exports from ${startDate} through ${this.addDays(gameDate, -1)}: ` +
+            `${statExport.games.length} games, ${statExport.appearances.length} appearances, ` +
+            `${statExport.plateAppearances.length} plate appearances, ${statExport.pitches.length} pitches, ` +
+            `${removedDates} old dates removed, ${state.statExports.length} retained, ` +
+            `${this.formatDuration(Date.now() - startedAt)}.`
         )
 
-        for (let index = 0; index < scheduleRows.length; index++) {
-            const scheduleRow = scheduleRows[index]
-            const feed = await this.getGameFeed(scheduleRow.gamePk)
+        if (selections.length === 0 || selectedGameCount === 0) {
+            return
+        }
 
-            if (!this.isGameComplete(feed)) {
-                continue
+        console.log(
+            `${rebuildingAllPlayers ? "Building" : "Updating"} ` +
+            `${selections.length} player imports across ${selectedGameCount} games.`
+        )
+
+        const accumulationStartedAt = Date.now()
+        const rebuiltPlayers = this.buildFromState(
+            state.season,
+            state,
+            selections
+        )
+
+        if (rebuildingAllPlayers) {
+            state.players.clear()
+        } else {
+            for (const playerId of affectedPlayerIds ?? []) {
+                state.players.delete(String(playerId))
             }
+        }
 
-            for (const playerId of this.getParticipatingPlayerIds(feed)) {
-                const appearances =
-                    appearancesByPlayerId.get(playerId) ??
-                    []
+        for (const [playerId, player] of rebuiltPlayers) {
+            state.players.set(playerId, player)
+        }
 
-                appearances.push(scheduleRow)
+        console.log(
+            `${rebuildingAllPlayers ? "Built" : "Updated"} ${rebuiltPlayers.size} player imports ` +
+            `in ${this.formatDuration(Date.now() - accumulationStartedAt)}.`
+        )
+    }
 
-                appearancesByPlayerId.set(
-                    playerId,
-                    appearances
-                )
+    private addAppearancesToState(state: PlayerImportState, statExports: DatedStatExport[]): void {
+        for (const datedExport of statExports) {
+            for (const appearance of datedExport.statExport.appearances) {
+                const playerId = String(appearance.playerId)
+                const appearances = state.appearancesByPlayer[playerId] ?? []
+
+                appearances.push({
+                    gamePk: Number(appearance.gamePk),
+                    date: datedExport.date
+                })
+
+                state.appearancesByPlayer[playerId] = appearances
             }
+        }
 
-            if ((index + 1) % 250 === 0 || index === scheduleRows.length - 1) {
-                console.log(
-                    `Indexed ${index + 1}/${scheduleRows.length} completed games and ${appearancesByPlayerId.size} players.`
+        for (const appearances of Object.values(state.appearancesByPlayer)) {
+            appearances.sort((a, b) =>
+                a.date.localeCompare(b.date) ||
+                a.gamePk - b.gamePk
+            )
+        }
+    }    
+
+    private getStatExport(startDate: string, endDateExclusive: string): StatExport {
+        return queries.getStatExport(startDate, endDateExclusive)
+    }
+
+    private getPlayerIdsFromExports(statExports: DatedStatExport[]): Set<string> {
+        const playerIds = new Set<string>()
+
+        for (const datedExport of statExports) {
+            for (const appearance of datedExport.statExport.appearances) {
+                playerIds.add(
+                    String(appearance.playerId)
                 )
             }
         }
 
+        return playerIds
+    }    
+
+    private splitStatExportByDate(statExport: StatExport): DatedStatExport[] {
+        const dates = Array.from(
+            new Set(
+                statExport.games.map(game =>
+                    game.gameDate
+                )
+            )
+        ).sort()
+
+        return dates.map(date => ({
+            date,
+            statExport: this.filterStatExportByDate(
+                statExport,
+                date
+            )
+        }))
+    }  
+
+    private filterStatExportByDate(statExport: StatExport, gameDate: string): StatExport {
+        const games = statExport.games.filter(game =>
+            game.gameDate === gameDate
+        )
+
+        const gamePks = new Set(
+            games.map(game =>
+                Number(game.gamePk)
+            )
+        )
+
         return {
-            season,
-            appearancesByPlayerId
+            games,
+            appearances: statExport.appearances.filter(appearance =>
+                gamePks.has(Number(appearance.gamePk))
+            ),
+            plateAppearances: statExport.plateAppearances.filter(plateAppearance =>
+                gamePks.has(Number(plateAppearance.gamePk))
+            ),
+            pitches: statExport.pitches.filter(pitch =>
+                gamePks.has(Number(pitch.gamePk))
+            ),
+            runnerMovements: statExport.runnerMovements.filter(runnerMovement =>
+                gamePks.has(Number(runnerMovement.gamePk))
+            ),
+            fieldingCredits: statExport.fieldingCredits.filter(fieldingCredit =>
+                gamePks.has(Number(fieldingCredit.gamePk))
+            ),
+            defensiveEvents: statExport.defensiveEvents.filter(defensiveEvent =>
+                gamePks.has(Number(defensiveEvent.gamePk))
+            )
+        }
+    }    
+
+    private removeUnneededDates(state: PlayerImportState): void {
+        const requiredStartDate = this.getRequiredStartDate(state)
+
+        if (!requiredStartDate) {
+            return
+        }
+
+        while (state.statExports.length > 0 && state.statExports[0].date < requiredStartDate) {
+            state.statExports.shift()
+        }
+
+        for (const [playerId, appearances] of Object.entries(state.appearancesByPlayer)) {
+            const retainedAppearances = appearances.filter(appearance =>
+                appearance.date >= requiredStartDate
+            )
+
+            if (retainedAppearances.length === 0) {
+                delete state.appearancesByPlayer[playerId]
+                continue
+            }
+
+            state.appearancesByPlayer[playerId] = retainedAppearances
         }
     }
 
-    private async getSeasonScheduleGames(sourceSeason: number): Promise<PlayerGameReference[]> {
-        await downloadDatabaseSeason(sourceSeason)
+    private getRequiredStartDate(state: PlayerImportState): string | undefined {
+        let requiredStartDate: string | undefined
 
-        const storedSchedule = queries.getSchedule(sourceSeason)
+        for (const appearances of Object.values(state.appearancesByPlayer)) {
+            const firstRequiredAppearance = appearances[
+                Math.max(
+                    0,
+                    appearances.length - 162
+                )
+            ]
 
-        if (!storedSchedule) {
-            throw new Error(
-                `Schedule ${sourceSeason} was not found after synchronization.`
-            )
-        }
-
-        const games: PlayerGameReference[] = []
-
-        for (const date of storedSchedule.data?.dates ?? []) {
-            const gameDate = String(date?.date ?? "")
-
-            if (!gameDate) {
+            if (!firstRequiredAppearance) {
                 continue
             }
 
-            for (const game of date?.games ?? []) {
-                const gamePk = Number(game?.gamePk)
+            if (!requiredStartDate || firstRequiredAppearance.date < requiredStartDate) {
+                requiredStartDate = firstRequiredAppearance.date
+            }
+        }
 
-                if (!gamePk || !this.isCompletedScheduleGame(game)) {
+        return requiredStartDate
+    }
+
+    private buildCoreSelections(state: PlayerImportState, filterPlayerIds?: Set<string>): PlayerImportSelection[] {
+        const playerIds = filterPlayerIds && filterPlayerIds.size > 0
+            ? Array.from(filterPlayerIds)
+                .map(playerId => String(playerId))
+                .sort((a, b) => a.localeCompare(b))
+            : Object.keys(state.appearancesByPlayer)
+                .sort((a, b) => a.localeCompare(b))
+
+        return playerIds.map(playerId => ({
+            playerId,
+            gamePks: (state.appearancesByPlayer[playerId] ?? [])
+                .slice(-162)
+                .map(appearance =>
+                    appearance.gamePk
+                )
+        }))
+    }
+
+    private filterPlayerImports(players: Map<string, PlayerImportRaw>, filterPlayerIds?: Set<string>): Map<string, PlayerImportRaw> {
+        if (!filterPlayerIds || filterPlayerIds.size === 0) {
+            return this.clonePlayerImportMap(players)
+        }
+
+        const filtered = new Map<string, PlayerImportRaw>()
+
+        for (const playerId of filterPlayerIds) {
+            const normalizedPlayerId = String(playerId)
+            const player = players.get(normalizedPlayerId)
+
+            if (!player) {
+                continue
+            }
+
+            filtered.set(
+                normalizedPlayerId,
+                structuredClone(player)
+            )
+        }
+
+        return filtered
+    }
+    
+    private buildDateRangeSelections(statExports: DatedStatExport[], filterPlayerIds?: Set<string>): PlayerImportSelection[] {
+        return this.resolvePlayerIds(statExports, filterPlayerIds).map(playerId => ({
+            playerId,
+            gamePks: this.getPlayerAppearances(statExports, playerId).map(appearance => Number(appearance.gamePk))
+        }))
+    }
+
+    private buildFromState(season: number, state: PlayerImportState, selections: PlayerImportSelection[]): Map<string, PlayerImportRaw> {
+        return this.buildFromExports(
+            season,
+            state.statExports,
+            selections,
+            true
+        )
+    }
+
+    private buildFromExports(season: number, statExports: DatedStatExport[], selections: PlayerImportSelection[], logProgress = false): Map<string, PlayerImportRaw> {
+        const players = new Map<string, PlayerImportRaw>()
+
+        if (selections.length === 0) {
+            return players
+        }
+
+        const selectedGameCount = this.getSelectedGameCount(selections)
+
+        if (selectedGameCount === 0) {
+            return players
+        }
+
+        const startedAt = Date.now()
+
+        if (logProgress) {
+            console.log(`Starting stat accumulation for ${selections.length} players across ${selectedGameCount} games.`)
+        }
+
+        this.statAccumulatorService.accumulateStatExportsIntoPlayerImports(
+            season,
+            statExports,
+            selections,
+            players
+        )
+
+        this.finalizePlayers(players)
+
+        if (logProgress) {
+            console.log(`Completed stat accumulation for ${players.size} players in ${this.formatDuration(Date.now() - startedAt)}.`)
+        }
+
+        return this.clonePlayerImportMap(players)
+    }
+
+    private getSelectedGameCount(selections: PlayerImportSelection[]): number {
+        const gamePks = new Set<number>()
+
+        for (const selection of selections) {
+            for (const gamePk of selection.gamePks) {
+                gamePks.add(gamePk)
+            }
+        }
+
+        return gamePks.size
+    }    
+
+    private loadDatedStatExports(startDate: string, endDateExclusive: string): DatedStatExport[] {
+        return this.splitStatExportByDate(
+            this.getStatExport(
+                startDate,
+                endDateExclusive
+            )
+        )
+    }
+
+    private resolvePlayerIds(statExports: DatedStatExport[], filterPlayerIds?: Set<string>): string[] {
+        if (filterPlayerIds && filterPlayerIds.size > 0) {
+            return Array.from(filterPlayerIds)
+                .map(playerId => String(playerId))
+                .sort((a, b) => a.localeCompare(b))
+        }
+
+        const playerIds = new Set<string>()
+
+        for (const datedExport of statExports) {
+            for (const appearance of datedExport.statExport.appearances) {
+                playerIds.add(String(appearance.playerId))
+            }
+        }
+
+        return Array.from(playerIds).sort((a, b) => a.localeCompare(b))
+    }
+
+    private getPlayerAppearances(statExports: DatedStatExport[], playerId: string): PlayerAppearanceReference[] {
+        const appearances: PlayerAppearanceReference[] = []
+
+        for (const datedExport of statExports) {
+            for (const appearance of datedExport.statExport.appearances) {
+                if (String(appearance.playerId) !== playerId) {
                     continue
                 }
 
-                games.push({
-                    sourceSeason,
-                    gamePk,
-                    gameDate
+                appearances.push({
+                    gamePk: Number(appearance.gamePk),
+                    date: datedExport.date
                 })
             }
         }
 
-        return games
-    }
-
-    private async getGameFeed(gamePk: number): Promise<any> {
-        if (this.gameFeeds.has(gamePk)) {
-            return this.gameFeeds.get(gamePk)
-        }
-
-        const storedGame = queries.getGame(gamePk)
-
-        if (!storedGame) {
-            throw new Error(
-                `Game ${gamePk} was not found in baseball-database.`
-            )
-        }
-
-        this.gameFeeds.set(
-            gamePk,
-            storedGame.data
-        )
-
-        return storedGame.data
-    }
-
-    private resolvePlayerIds(appearanceIndex: PlayerAppearanceIndex, filterPlayerIds?: Set<string>): Set<string> {
-        if (filterPlayerIds && filterPlayerIds.size > 0) {
-            return new Set(
-                Array.from(filterPlayerIds).map(playerId =>
-                    String(playerId)
-                )
-            )
-        }
-
-        return new Set(
-            appearanceIndex.appearancesByPlayerId.keys()
-        )
-    }
-
-    private addSelectedGamePlayer(selectedGames: Map<string, SelectedGame>, appearance: PlayerGameReference, playerId: string): void {
-        const key = this.getGameKey(
-            appearance.sourceSeason,
-            appearance.gamePk
-        )
-
-        const selectedGame = selectedGames.get(key) ?? {
-            sourceSeason: appearance.sourceSeason,
-            gamePk: appearance.gamePk,
-            gameDate: appearance.gameDate,
-            playerIds: new Set<string>()
-        }
-
-        selectedGame.playerIds.add(playerId)
-
-        selectedGames.set(
-            key,
-            selectedGame
-        )
-    }
-
-    private accumulateGame(season: number, gamePk: number, gameData: any, players: Map<string, PlayerImportRaw>, filterPlayerIds?: Set<string>): void {
-        this.statAccumulatorService.accumulateGameIntoSeasonPlayerImports(
-            season,
-            gamePk,
-            gameData,
-            players,
-            filterPlayerIds
+        return appearances.sort((a, b) =>
+            a.date.localeCompare(b.date) ||
+            a.gamePk - b.gamePk
         )
     }
 
@@ -469,13 +605,45 @@ class PlayerImportService {
     }
 
     private finalizePlayer(player: PlayerImportRaw): void {
-        player.hitting.exitVelocity.avgExitVelo =
-            player.hitting.exitVelocity.count > 0
-                ? Number((
-                    player.hitting.exitVelocity.totalExitVelo /
-                    player.hitting.exitVelocity.count
-                ).toFixed(3))
-                : 0
+        player.hitting.exitVelocity.avgExitVelo = player.hitting.exitVelocity.count > 0
+            ? Number((player.hitting.exitVelocity.totalExitVelo / player.hitting.exitVelocity.count).toFixed(3))
+            : 0
+
+        player.hitting.launchAngle.avgLaunchAngle = player.hitting.launchAngle.count > 0
+            ? Number((player.hitting.launchAngle.totalLaunchAngle / player.hitting.launchAngle.count).toFixed(3))
+            : 0
+
+        player.hitting.distance.avgDistance = player.hitting.distance.count > 0
+            ? Number((player.hitting.distance.totalDistance / player.hitting.distance.count).toFixed(3))
+            : 0
+
+        player.hitting.coordinates.avgCoordX = player.hitting.coordinates.count > 0
+            ? Number((player.hitting.coordinates.totalCoordX / player.hitting.coordinates.count).toFixed(3))
+            : 0
+
+        player.hitting.coordinates.avgCoordY = player.hitting.coordinates.count > 0
+            ? Number((player.hitting.coordinates.totalCoordY / player.hitting.coordinates.count).toFixed(3))
+            : 0
+
+        player.pitching.exitVelocityAllowed.avgExitVelo = player.pitching.exitVelocityAllowed.count > 0
+            ? Number((player.pitching.exitVelocityAllowed.totalExitVelo / player.pitching.exitVelocityAllowed.count).toFixed(3))
+            : 0
+
+        player.pitching.launchAngleAllowed.avgLaunchAngle = player.pitching.launchAngleAllowed.count > 0
+            ? Number((player.pitching.launchAngleAllowed.totalLaunchAngle / player.pitching.launchAngleAllowed.count).toFixed(3))
+            : 0
+
+        player.pitching.distanceAllowed.avgDistance = player.pitching.distanceAllowed.count > 0
+            ? Number((player.pitching.distanceAllowed.totalDistance / player.pitching.distanceAllowed.count).toFixed(3))
+            : 0
+
+        player.pitching.coordinatesAllowed.avgCoordX = player.pitching.coordinatesAllowed.count > 0
+            ? Number((player.pitching.coordinatesAllowed.totalCoordX / player.pitching.coordinatesAllowed.count).toFixed(3))
+            : 0
+
+        player.pitching.coordinatesAllowed.avgCoordY = player.pitching.coordinatesAllowed.count > 0
+            ? Number((player.pitching.coordinatesAllowed.totalCoordY / player.pitching.coordinatesAllowed.count).toFixed(3))
+            : 0
 
         for (const pitchTypeStat of Object.values(player.pitching.pitchTypes ?? {})) {
             if (!pitchTypeStat) {
@@ -483,24 +651,15 @@ class PlayerImportService {
             }
 
             pitchTypeStat.avgMph = pitchTypeStat.count > 0
-                ? Number((
-                    pitchTypeStat.totalMph /
-                    pitchTypeStat.count
-                ).toFixed(3))
+                ? Number((pitchTypeStat.totalMph / pitchTypeStat.count).toFixed(3))
                 : 0
 
             pitchTypeStat.avgHorizontalBreak = pitchTypeStat.count > 0
-                ? Number((
-                    pitchTypeStat.totalHorizontalBreak /
-                    pitchTypeStat.count
-                ).toFixed(3))
+                ? Number((pitchTypeStat.totalHorizontalBreak / pitchTypeStat.count).toFixed(3))
                 : 0
 
             pitchTypeStat.avgVerticalBreak = pitchTypeStat.count > 0
-                ? Number((
-                    pitchTypeStat.totalVerticalBreak /
-                    pitchTypeStat.count
-                ).toFixed(3))
+                ? Number((pitchTypeStat.totalVerticalBreak / pitchTypeStat.count).toFixed(3))
                 : 0
         }
 
@@ -511,134 +670,6 @@ class PlayerImportService {
         delete (player as any).__fieldedBallPlayKeys
         delete (player as any).__outsAtPosition
         delete (player as any).__splitExitVelocity
-    }
-
-    private getParticipatingPlayerIds(gameData: any): Set<string> {
-        const playerIds = new Set<string>()
-
-        for (const side of ["home", "away"] as const) {
-            const team =
-                gameData
-                    ?.liveData
-                    ?.boxscore
-                    ?.teams
-                    ?.[side]
-
-            for (const playerId of team?.battingOrder ?? []) {
-                playerIds.add(
-                    String(playerId)
-                )
-            }
-
-            for (const playerId of team?.pitchers ?? []) {
-                playerIds.add(
-                    String(playerId)
-                )
-            }
-
-            for (const [key, player] of Object.entries(team?.players ?? {})) {
-                const typedPlayer = player as any
-
-                const playerId =
-                    typedPlayer?.person?.id ??
-                    key.replace(/^ID/, "")
-
-                if (!playerId) {
-                    continue
-                }
-
-                const batting = typedPlayer?.stats?.batting
-                const pitching = typedPlayer?.stats?.pitching
-                const fielding = typedPlayer?.stats?.fielding
-
-                const appeared =
-                    Number(batting?.plateAppearances ?? 0) > 0 ||
-                    Number(batting?.atBats ?? 0) > 0 ||
-                    Number(pitching?.numberOfPitches ?? 0) > 0 ||
-                    Number(pitching?.battersFaced ?? 0) > 0 ||
-                    Number(fielding?.gamesStarted ?? 0) > 0
-
-                if (appeared) {
-                    playerIds.add(
-                        String(playerId)
-                    )
-                }
-            }
-        }
-
-        return playerIds
-    }
-
-    private isCompletedScheduleGame(game: any): boolean {
-        const abstractState = String(
-            game?.status?.abstractGameState ??
-            ""
-        )
-
-        const detailedState = String(
-            game?.status?.detailedState ??
-            ""
-        )
-
-        const codedState = String(
-            game?.status?.codedGameState ??
-            ""
-        )
-
-        const statusCode = String(
-            game?.status?.statusCode ??
-            ""
-        )
-
-        const excludedDetailedStates = new Set([
-            "Postponed",
-            "Cancelled",
-            "Canceled",
-            "Suspended",
-            "Delayed"
-        ])
-
-        const excludedStatusCodes = new Set([
-            "DR",
-            "PO",
-            "CA",
-            "CR",
-            "SU"
-        ])
-
-        if (
-            excludedDetailedStates.has(detailedState) ||
-            excludedStatusCodes.has(statusCode) ||
-            codedState === "D"
-        ) {
-            return false
-        }
-
-        return abstractState === "Final" ||
-            detailedState === "Final" ||
-            detailedState === "Game Over" ||
-            detailedState === "Completed Early" ||
-            codedState === "F"
-    }
-
-    private isGameComplete(gameData: any): boolean {
-        const abstractState = String(
-            gameData?.gameData?.status?.abstractGameState ?? ""
-        )
-
-        const detailedState = String(
-            gameData?.gameData?.status?.detailedState ?? ""
-        )
-
-        const codedState = String(
-            gameData?.gameData?.status?.codedGameState ?? ""
-        )
-
-        return abstractState === "Final" ||
-            detailedState === "Final" ||
-            detailedState === "Game Over" ||
-            detailedState === "Completed Early" ||
-            codedState === "F"
     }
 
     private normalizePlayerIds(filterPlayerIds?: Set<string>): string[] {
@@ -671,22 +702,12 @@ class PlayerImportService {
             type,
             season,
             dateKey,
-            playerIds.length > 0
-                ? playerIds.join(",")
-                : "*"
+            playerIds.length > 0 ? playerIds.join(",") : "*"
         ].join(":")
     }
 
-    private getGameKey(sourceSeason: number, gamePk: number): string {
-        return `${sourceSeason}:${gamePk}`
-    }
-
     private getResultsFilePath(season: number): string {
-        return path.join(
-            this.baseDataDir,
-            String(season),
-            "_results.json"
-        )
+        return path.join(this.baseDataDir, String(season), "_results.json")
     }
 
     private async readResultsFile(filePath: string): Promise<PlayerImportResultsFile | undefined> {
@@ -694,27 +715,15 @@ class PlayerImportService {
             return undefined
         }
 
-        const data = JSON.parse(
-            await fs.promises.readFile(
-                filePath,
-                "utf8"
-            )
-        )
+        const data = JSON.parse(await fs.promises.readFile(filePath, "utf8"))
 
-        if (
-            !data ||
-            !Array.isArray(data.players) ||
-            !Array.isArray(data.playerIds)
-        ) {
+        if (!data || !Array.isArray(data.players) || !Array.isArray(data.playerIds)) {
             return undefined
         }
 
         return {
             season: Number(data.season),
-            playerIds: data.playerIds.map(
-                (playerId: unknown) =>
-                    String(playerId)
-            ),
+            playerIds: data.playerIds.map((playerId: unknown) => String(playerId)),
             players: data.players
         }
     }
@@ -727,28 +736,15 @@ class PlayerImportService {
             players: Array.from(players.values())
         }
 
-        await fs.promises.mkdir(
-            path.dirname(filePath),
-            {
-                recursive: true
-            }
-        )
-
-        await fs.promises.writeFile(
-            filePath,
-            JSON.stringify(data, null, 2),
-            "utf8"
-        )
+        await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
+        await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), "utf8")
     }
 
     private resultsFileToPlayerMap(players: PlayerImportRaw[]): Map<string, PlayerImportRaw> {
         const result = new Map<string, PlayerImportRaw>()
 
         for (const player of players) {
-            result.set(
-                String(player.playerId),
-                structuredClone(player)
-            )
+            result.set(String(player.playerId), structuredClone(player))
         }
 
         return result
@@ -758,10 +754,7 @@ class PlayerImportService {
         const result = new Map<string, PlayerImportRaw>()
 
         for (const [playerId, player] of players) {
-            result.set(
-                playerId,
-                structuredClone(player)
-            )
+            result.set(playerId, structuredClone(player))
         }
 
         return result
@@ -769,23 +762,22 @@ class PlayerImportService {
 
     private validateIsoDate(value: string): void {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-            throw new Error(
-                `Invalid date: ${value}.`
-            )
+            throw new Error(`Invalid date: ${value}.`)
         }
 
-        const parsed = new Date(
-            `${value}T12:00:00.000Z`
-        )
+        const parsed = new Date(`${value}T12:00:00.000Z`)
 
-        if (
-            Number.isNaN(parsed.getTime()) ||
-            parsed.toISOString().slice(0, 10) !== value
-        ) {
-            throw new Error(
-                `Invalid date: ${value}.`
-            )
+        if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+            throw new Error(`Invalid date: ${value}.`)
         }
+    }
+
+    private addDays(value: string, days: number): string {
+        const date = new Date(`${value}T12:00:00.000Z`)
+
+        date.setUTCDate(date.getUTCDate() + days)
+
+        return date.toISOString().slice(0, 10)
     }
 
     private isCurrentSeason(season: number): boolean {
@@ -795,50 +787,60 @@ class PlayerImportService {
     private getTomorrowUtcDate(): string {
         const date = new Date()
 
-        date.setUTCDate(
-            date.getUTCDate() + 1
-        )
+        date.setUTCDate(date.getUTCDate() + 1)
 
         return date.toISOString().slice(0, 10)
     }
 
     private async fileExists(filePath: string): Promise<boolean> {
         try {
-            await fs.promises.access(
-                filePath,
-                fs.constants.F_OK
-            )
+            await fs.promises.access(filePath, fs.constants.F_OK)
 
             return true
         } catch {
             return false
         }
     }
+
+    private formatDuration(milliseconds: number): string {
+        if (milliseconds < 1000) {
+            return `${milliseconds}ms`
+        }
+
+        const seconds = milliseconds / 1000
+
+        if (seconds < 60) {
+            return `${seconds.toFixed(2)}s`
+        }
+
+        const minutes = Math.floor(seconds / 60)
+        const remainingSeconds = Math.round(seconds % 60)
+
+        return `${minutes}m ${remainingSeconds}s`
+    }    
 }
 
-interface PlayerImportGameFeed {
-    sourceSeason: number
-    gamePk: number
-    data: any
-    playerIds: string[]
+interface DatedStatExport {
+    date: string
+    statExport: StatExport
 }
 
-interface PlayerGameReference {
-    sourceSeason: number
-    gamePk: number
-    gameDate: string
-}
-
-interface PlayerAppearanceIndex {
+interface PlayerImportState {
     season: number
-    appearancesByPlayerId: Map<string, PlayerGameReference[]>
+    currentDate: string
+    statExports: DatedStatExport[]
+    players: Map<string, PlayerImportRaw>
+    appearancesByPlayer: Record<string, PlayerAppearanceReference[]>
 }
 
-interface SelectedGame {
-    sourceSeason: number
+interface PlayerImportSelection {
+    playerId: string
+    gamePks: number[]
+}
+
+interface PlayerAppearanceReference {
     gamePk: number
-    gameDate: string
-    playerIds: Set<string>
+    date: string
 }
 
 interface PlayerImportResultsFile {
@@ -852,7 +854,7 @@ export {
 }
 
 export type {
-    PlayerImportGameFeed,
-    PlayerGameReference,
-    PlayerAppearanceIndex
+    DatedStatExport,
+    PlayerImportSelection,
+    PlayerImportState
 }

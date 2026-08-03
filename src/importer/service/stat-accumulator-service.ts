@@ -1,6 +1,11 @@
 import { Handedness, PitchType, Position } from "../../sim/service/enums.js"
 import { BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, ExitVelocityStat, LaunchAngleStat, PitchTypeMovementStat, PlayerFieldingPositionRaw, PlayerHittingSplitStats, PlayerImportRaw, PlayerPitchingSplitStats, PlayerRunningStatsRaw } from "../../sim/service/interfaces.js"
 
+import type { DefensiveEvent, FieldingCredit, Pitch, PlateAppearance, PlayerAppearance, RunnerMovement, StatExport } from "baseball-database"
+
+import type { DatedStatExport, PlayerImportSelection } from "./player-import-service.js"
+
+
 class StatAccumulatorService {
 
     private readonly IN_ZONE = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9])
@@ -873,6 +878,87 @@ class StatAccumulatorService {
                 }
             }
         }
+    }
+
+    public accumulateStatExportsIntoPlayerImports(season: number, statExports: DatedStatExport[], selections: PlayerImportSelection[], players: Map<string, PlayerImportRaw>): void {
+        const selectedPlayerIds = this.getSelectedPlayerIds(selections)
+        const playerIdsByGamePk = new Map<number, Set<string>>()
+
+        for (const selection of selections) {
+            for (const gamePk of selection.gamePks) {
+                const playerIds = playerIdsByGamePk.get(gamePk) ?? new Set<string>()
+
+                playerIds.add(String(selection.playerId))
+                playerIdsByGamePk.set(gamePk, playerIds)
+            }
+        }
+
+        for (const datedStatExport of statExports) {
+            const availableGamePks = new Set(
+                datedStatExport.statExport.games.map(game =>
+                    Number(game.gamePk)
+                )
+            )
+
+            const selectedGamePks = Array.from(playerIdsByGamePk.keys())
+                .filter(gamePk =>
+                    availableGamePks.has(gamePk)
+                )
+                .sort((a, b) =>
+                    a - b
+                )
+
+            if (selectedGamePks.length === 0) {
+                continue
+            }
+
+            const appearancesByGamePk = this.groupByGamePk(datedStatExport.statExport.appearances)
+            const plateAppearancesByGamePk = this.groupByGamePk(datedStatExport.statExport.plateAppearances)
+            const pitchesByGamePk = this.groupByGamePk(datedStatExport.statExport.pitches)
+            const runnerMovementsByGamePk = this.groupByGamePk(datedStatExport.statExport.runnerMovements)
+            const fieldingCreditsByGamePk = this.groupByGamePk(datedStatExport.statExport.fieldingCredits)
+            const defensiveEventsByGamePk = this.groupByGamePk(datedStatExport.statExport.defensiveEvents)
+
+            for (const gamePk of selectedGamePks) {
+                const selectedPlayerIdsForGame = playerIdsByGamePk.get(gamePk)
+
+                if (!selectedPlayerIdsForGame || selectedPlayerIdsForGame.size === 0) {
+                    continue
+                }
+
+                const gameData = this.buildGameDataFromStatExport(
+                    gamePk,
+                    appearancesByGamePk.get(gamePk) ?? [],
+                    plateAppearancesByGamePk.get(gamePk) ?? [],
+                    pitchesByGamePk.get(gamePk) ?? [],
+                    runnerMovementsByGamePk.get(gamePk) ?? [],
+                    fieldingCreditsByGamePk.get(gamePk) ?? [],
+                    defensiveEventsByGamePk.get(gamePk) ?? []
+                )
+
+                this.accumulateGameIntoSeasonPlayerImports(
+                    season,
+                    gamePk,
+                    gameData,
+                    players,
+                    selectedPlayerIdsForGame
+                )
+            }
+        }
+
+        for (const playerId of Array.from(players.keys())) {
+            if (!selectedPlayerIds.has(playerId)) {
+                players.delete(playerId)
+            }
+        }
+    }  
+
+    private getSelectedPlayerIds(selections: PlayerImportSelection[]): Set<string> {
+        return new Set(
+            selections.map(selection =>
+                String(selection.playerId)
+            )
+        )
     }
 
     private getFlyBallDepth(coordY: number | undefined, totalDistance: number | undefined): "shallow" | "normal" | "deep" {
@@ -2029,7 +2115,6 @@ class StatAccumulatorService {
         return Handedness.R
     }
 
-
     private chargePitcherRunsForPlay(play: any, players: Map<string, PlayerImportRaw>, pitcherId: string, pitchingSplitKey: "vsL" | "vsR", filterPlayerIds?: Set<string>): void {
         for (const runner of play?.runners ?? []) {
             const scored = runner?.movement?.end === "score" || runner?.details?.isScoringEvent === true
@@ -2065,6 +2150,389 @@ class StatAccumulatorService {
             }
         }
     }
+
+    private buildGameDataFromStatExport(gamePk: number, appearances: PlayerAppearance[], plateAppearances: PlateAppearance[], pitches: Pitch[], runnerMovements: RunnerMovement[], fieldingCredits: FieldingCredit[], defensiveEvents: DefensiveEvent[]): any {
+        const sortedPlateAppearances = [...plateAppearances].sort((a, b) =>
+            Number(a.atBatIndex) - Number(b.atBatIndex)
+        )
+
+        const pitchesByAtBatIndex = this.groupByAtBatIndex(pitches)
+        const runnerMovementsByAtBatIndex = this.groupByAtBatIndex(runnerMovements)
+        const fieldingCreditsByAtBatIndex = this.groupByAtBatIndex(fieldingCredits)
+        const teamIds = this.getGameTeamIds(
+            sortedPlateAppearances,
+            appearances
+        )
+
+        return {
+            liveData: {
+                boxscore: {
+                    teams: {
+                        away: this.buildBoxscoreTeam(
+                            teamIds.awayTeamId,
+                            appearances,
+                            defensiveEvents
+                        ),
+                        home: this.buildBoxscoreTeam(
+                            teamIds.homeTeamId,
+                            appearances,
+                            defensiveEvents
+                        )
+                    }
+                },
+                plays: {
+                    allPlays: sortedPlateAppearances.map(plateAppearance => {
+                        const atBatIndex = Number(plateAppearance.atBatIndex)
+
+                        return this.buildPlayFromStatExport(
+                            plateAppearance,
+                            pitchesByAtBatIndex.get(atBatIndex) ?? [],
+                            runnerMovementsByAtBatIndex.get(atBatIndex) ?? [],
+                            fieldingCreditsByAtBatIndex.get(atBatIndex) ?? []
+                        )
+                    })
+                }
+            }
+        }
+    }
+
+    private getGameTeamIds(plateAppearances: PlateAppearance[], appearances: PlayerAppearance[]): { awayTeamId: number | undefined, homeTeamId: number | undefined } {
+        const topPlateAppearance = plateAppearances.find(plateAppearance => String((plateAppearance as any).topBottom ?? "").toLowerCase() === "top")
+        const bottomPlateAppearance = plateAppearances.find(plateAppearance => String((plateAppearance as any).topBottom ?? "").toLowerCase() === "bottom")
+
+        const awayTeamId = this.getOptionalNumber((topPlateAppearance as any)?.battingTeamId) ?? this.getOptionalNumber((bottomPlateAppearance as any)?.fieldingTeamId)
+        const homeTeamId = this.getOptionalNumber((bottomPlateAppearance as any)?.battingTeamId) ?? this.getOptionalNumber((topPlateAppearance as any)?.fieldingTeamId)
+
+        if (awayTeamId !== undefined || homeTeamId !== undefined) {
+            return {
+                awayTeamId,
+                homeTeamId
+            }
+        }
+
+        const teamIds = Array.from(new Set(appearances.map(appearance => this.getOptionalNumber(appearance.teamId)).filter((teamId): teamId is number => teamId !== undefined)))
+
+        return {
+            awayTeamId: teamIds[0],
+            homeTeamId: teamIds[1]
+        }
+    }
+
+    private buildBoxscoreTeam(teamId: number | undefined, appearances: PlayerAppearance[], defensiveEvents: DefensiveEvent[]): any {
+        if (teamId === undefined) {
+            return {
+                team: {},
+                pitchers: [],
+                players: {}
+            }
+        }
+
+        const teamAppearances = appearances.filter(appearance => this.getOptionalNumber(appearance.teamId) === teamId)
+        const pitchers = teamAppearances
+            .filter(appearance => Boolean(appearance.appearedAsPitcher))
+            .sort((a, b) => Number(Boolean(b.startedAsPitcher)) - Number(Boolean(a.startedAsPitcher)))
+            .map(appearance => Number(appearance.playerId))
+
+        const players: Record<string, any> = {}
+
+        for (const appearance of teamAppearances) {
+            const playerId = Number(appearance.playerId)
+            const positions = this.getAppearancePositions(appearance, defensiveEvents)
+
+            players[`ID${playerId}`] = {
+                person: {
+                    id: playerId
+                },
+                allPositions: positions.map(position => ({
+                    abbreviation: position
+                })),
+                stats: {
+                    batting: {
+                        plateAppearances: appearance.appearedAsBatter ? 1 : 0
+                    },
+                    pitching: {
+                        gamesPlayed: appearance.appearedAsPitcher ? 1 : 0,
+                        gamesStarted: appearance.startedAsPitcher ? 1 : 0
+                    },
+                    fielding: {}
+                }
+            }
+        }
+
+        return {
+            team: {
+                id: teamId
+            },
+            pitchers,
+            players
+        }
+    }
+
+    private getAppearancePositions(appearance: PlayerAppearance, defensiveEvents: DefensiveEvent[]): string[] {
+        const positions = new Set<string>()
+
+        for (const defensiveEvent of defensiveEvents) {
+            if (Number(defensiveEvent.gamePk) !== Number(appearance.gamePk) || Number(defensiveEvent.playerId) !== Number(appearance.playerId)) {
+                continue
+            }
+
+            const fromPosition = String(defensiveEvent.fromPosition ?? "")
+            const toPosition = String(defensiveEvent.toPosition ?? "")
+
+            if (fromPosition) {
+                positions.add(fromPosition)
+            }
+
+            if (toPosition) {
+                positions.add(toPosition)
+            }
+        }
+
+        return Array.from(positions)
+    }
+
+    private buildPlayFromStatExport(plateAppearance: PlateAppearance, pitches: Pitch[], runnerMovements: RunnerMovement[], fieldingCredits: FieldingCredit[]): any {
+        const atBatIndex = Number(plateAppearance.atBatIndex)
+
+        const playPitches = [...pitches].sort((a, b) =>
+            Number(a.pitchNumber ?? 0) - Number(b.pitchNumber ?? 0)
+        )
+
+        const playRunnerMovements = [...runnerMovements].sort((a, b) =>
+            Number(a.runnerIndex) - Number(b.runnerIndex)
+        )
+
+        const creditsByRunnerIndex = new Map<number, FieldingCredit[]>()
+
+        for (const fieldingCredit of fieldingCredits) {
+            const runnerIndex = Number(fieldingCredit.runnerIndex)
+            const credits = creditsByRunnerIndex.get(runnerIndex) ?? []
+
+            credits.push(fieldingCredit)
+            creditsByRunnerIndex.set(runnerIndex, credits)
+        }
+
+        for (const credits of creditsByRunnerIndex.values()) {
+            credits.sort((a, b) =>
+                Number(a.creditIndex) - Number(b.creditIndex)
+            )
+        }
+
+        return {
+            atBatIndex,
+            about: {
+                atBatIndex,
+                inning: plateAppearance.inning,
+                halfInning: plateAppearance.halfInning,
+                isTopInning: plateAppearance.isTopInning
+            },
+            matchup: {
+                batter: {
+                    id: plateAppearance.batterId
+                },
+                pitcher: {
+                    id: plateAppearance.pitcherId
+                },
+                batSide: {
+                    code: plateAppearance.batSideCode
+                },
+                pitchHand: {
+                    code: plateAppearance.pitchHandCode
+                }
+            },
+            count: {
+                balls: plateAppearance.balls,
+                strikes: plateAppearance.strikes,
+                outs: plateAppearance.outs
+            },
+            result: {
+                type: plateAppearance.resultType,
+                event: plateAppearance.event,
+                eventType: plateAppearance.eventType,
+                description: plateAppearance.description,
+                rbi: plateAppearance.rbi,
+                awayScore: plateAppearance.awayScore,
+                homeScore: plateAppearance.homeScore
+            },
+            playEvents: playPitches.map(pitch =>
+                this.buildRawPitchEvent(pitch)
+            ),
+            runners: playRunnerMovements.map(runnerMovement =>
+                this.buildRawRunnerMovement(
+                    runnerMovement,
+                    creditsByRunnerIndex.get(Number(runnerMovement.runnerIndex)) ?? []
+                )
+            )
+        }
+    }
+
+    private buildRawPitchEvent(pitch: Pitch): any {
+        return {
+            index: pitch.eventIndex,
+            playId: pitch.playId,
+            pitchNumber: pitch.pitchNumber,
+            isPitch: true,
+            type: "pitch",
+            count: {
+                balls: pitch.balls,
+                strikes: pitch.strikes,
+                outs: pitch.outs
+            },
+            details: {
+                code: pitch.code ?? pitch.callCode,
+                description: pitch.description,
+                isBall: pitch.isBall,
+                isStrike: pitch.isStrike,
+                isInPlay: pitch.isInPlay,
+                call: {
+                    code: pitch.callCode,
+                    description: pitch.callDescription
+                },
+                type: {
+                    code: pitch.pitchTypeCode,
+                    description: pitch.pitchTypeDescription
+                }
+            },
+            pitchData: {
+                startSpeed: pitch.startSpeed,
+                endSpeed: pitch.endSpeed,
+                zone: pitch.zone,
+                strikeZoneTop: pitch.strikeZoneTop,
+                strikeZoneBottom: pitch.strikeZoneBottom,
+                plateTime: pitch.plateTime,
+                extension: pitch.extension,
+                breaks: {
+                    breakAngle: pitch.breakAngle,
+                    breakLength: pitch.breakLength,
+                    breakY: pitch.breakY,
+                    breakHorizontal: pitch.breakHorizontal,
+                    breakVertical: pitch.breakVertical,
+                    breakVerticalInduced: pitch.breakVerticalInduced,
+                    spinRate: pitch.spinRate,
+                    spinDirection: pitch.spinDirection
+                },
+                coordinates: {
+                    aX: pitch.coordinateAX,
+                    aY: pitch.coordinateAY,
+                    aZ: pitch.coordinateAZ,
+                    pfxX: pitch.coordinatePfxX,
+                    pfxZ: pitch.coordinatePfxZ,
+                    pX: pitch.coordinatePX,
+                    pZ: pitch.coordinatePZ,
+                    vX0: pitch.coordinateVX0,
+                    vY0: pitch.coordinateVY0,
+                    vZ0: pitch.coordinateVZ0,
+                    x: pitch.coordinateX,
+                    x0: pitch.coordinateX0,
+                    y: pitch.coordinateY,
+                    y0: pitch.coordinateY0,
+                    z0: pitch.coordinateZ0
+                }
+            },
+            hitData: {
+                launchSpeed: pitch.launchSpeed,
+                launchAngle: pitch.launchAngle,
+                totalDistance: pitch.totalDistance,
+                trajectory: pitch.trajectory,
+                hardness: pitch.hardness,
+                location: pitch.hitLocation,
+                coordinates: {
+                    coordX: pitch.hitCoordinateX,
+                    coordY: pitch.hitCoordinateY
+                }
+            }
+        }
+    }
+
+    private buildRawRunnerMovement(runnerMovement: RunnerMovement, fieldingCredits: FieldingCredit[]): any {
+        const responsiblePitcherId = this.getOptionalNumber(runnerMovement.responsiblePitcherId)
+
+        return {
+            movement: {
+                originBase: runnerMovement.originBase,
+                start: runnerMovement.startBase,
+                end: runnerMovement.endBase,
+                outBase: runnerMovement.outBase,
+                isOut: runnerMovement.isOut,
+                outNumber: runnerMovement.outNumber
+            },
+            details: {
+                runner: {
+                    id: runnerMovement.runnerId
+                },
+                event: runnerMovement.event,
+                eventType: runnerMovement.eventType,
+                movementReason: runnerMovement.movementReason,
+                isScoringEvent: runnerMovement.isScoringEvent,
+                rbi: runnerMovement.rbi,
+                earned: runnerMovement.earned,
+                teamUnearned: runnerMovement.teamUnearned,
+                responsiblePitcher: responsiblePitcherId === undefined
+                    ? undefined
+                    : {
+                        id: responsiblePitcherId
+                    }
+            },
+            credits: fieldingCredits
+                .filter(fieldingCredit => Number(fieldingCredit.runnerIndex) === Number(runnerMovement.runnerIndex))
+                .map(fieldingCredit => this.buildRawFieldingCredit(fieldingCredit))
+        }
+    }
+
+    private buildRawFieldingCredit(fieldingCredit: FieldingCredit): any {
+        return {
+            player: {
+                id: Number(fieldingCredit.playerId)
+            },
+            credit: fieldingCredit.credit,
+            position: {
+                code: fieldingCredit.positionCode,
+                name: fieldingCredit.positionName,
+                type: fieldingCredit.positionType,
+                abbreviation: fieldingCredit.positionAbbreviation
+            }
+        }
+    }
+
+    private getOptionalNumber(value: unknown): number | undefined {
+        if (value === null || value === undefined || value === "") {
+            return undefined
+        }
+
+        const numberValue = Number(value)
+
+        return Number.isFinite(numberValue) ? numberValue : undefined
+    }
+
+    private groupByGamePk<T extends { gamePk: number | string }>(records: T[]): Map<number, T[]> {
+        const recordsByGamePk = new Map<number, T[]>()
+
+        for (const record of records) {
+            const gamePk = Number(record.gamePk)
+            const gameRecords = recordsByGamePk.get(gamePk) ?? []
+
+            gameRecords.push(record)
+            recordsByGamePk.set(gamePk, gameRecords)
+        }
+
+        return recordsByGamePk
+    }
+
+
+    private groupByAtBatIndex<T extends { atBatIndex: number | string }>(records: T[]): Map<number, T[]> {
+        const recordsByAtBatIndex = new Map<number, T[]>()
+
+        for (const record of records) {
+            const atBatIndex = Number(record.atBatIndex)
+            const playRecords = recordsByAtBatIndex.get(atBatIndex) ?? []
+
+            playRecords.push(record)
+            recordsByAtBatIndex.set(atBatIndex, playRecords)
+        }
+
+        return recordsByAtBatIndex
+    }
+
 }
 
 export {

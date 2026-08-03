@@ -1,8 +1,16 @@
-# Baseball Sim Engine
+# ⚾ baseball-sim-engine
+
+[![npm version](https://img.shields.io/npm/v/baseball-sim-engine.svg)](https://www.npmjs.com/package/baseball-sim-engine)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
 
 A deterministic, pitch-by-pitch baseball simulation engine written in TypeScript.
 
-`baseball-sim-engine` simulates complete baseball games from structured team, player, lineup, pitching, and environment data. It is designed for reproducible game simulation, replay systems, statistical validation, custom leagues, and analytical workflows.
+`baseball-sim-engine` simulates complete baseball games from structured team, player, lineup, pitching, and environment data. It is designed for reproducible game simulation, replay systems, statistical validation, custom leagues, prediction systems, and analytical workflows.
+
+The simulation runtime works in both Node.js and browser environments.
+
+---
 
 ## Features
 
@@ -17,54 +25,97 @@ A deterministic, pitch-by-pitch baseball simulation engine written in TypeScript
 - Pitch-level velocity, movement, location, and quality
 - Batted-ball exit velocity, launch angle, distance, and coordinates
 - Runner advancement, steals, wild pitches, passed balls, and double plays
-- Real-data import utilities for building environments and player ratings
+- Fielding, throwing, force-play, tag-play, and defensive resolution
+- Real MLB data import utilities for building environments and player ratings
+- Historical MLB data supplied through [`baseball-database`](https://www.npmjs.com/package/baseball-database)
 - Node.js and browser support
+- TypeScript declarations included
+- ES module support
 
 ---
 
 ## Installation
 
+Install the simulation engine:
+
 ```bash
 npm install baseball-sim-engine
 ```
 
-The package exposes the simulation engine from the main entry point and data-import utilities from the importer entry point.
+The package includes the simulation runtime and importer entry points.
 
-```ts
-import { simService } from "baseball-sim-engine"
-import { DownloaderService } from "baseball-sim-engine/importer"
+The importer uses `baseball-database` to synchronize and query MLB schedules, game feeds, player appearances, plate appearances, pitches, runner movements, fielding credits, and defensive events.
+
+`baseball-database` is installed automatically as a dependency of `baseball-sim-engine`.
+
+Applications that want to query the database directly can also install it explicitly:
+
+```bash
+npm install baseball-database
 ```
 
 ---
 
-## Core Concepts
+## Package Entry Points
 
-The engine separates four concerns:
+### Simulation Runtime
 
-1. **Game state** — the mutable state of a baseball game.
-2. **Baseball inputs** — teams, players, lineups, starters, and available pitchers.
-3. **Simulation environment** — league-wide and game-specific conditions.
-4. **Randomness** — supplied by the caller so simulations can be reproduced exactly.
+```ts
+import {
+    simService
+} from "baseball-sim-engine"
+```
 
-The engine does not generate teams, schedule games, persist results, or manage rosters. Applications provide those inputs and control the simulation loop.
+The main package contains:
+
+- The default `simService`
+- Simulation services
+- Game, player, team, lineup, and environment types
+- Baseball enums
+- Roll-chart services
+- Stat services
+- Pitch-environment services
+- Player-rating services
+
+### Importer
+
+```ts
+import {
+    exportAll,
+    exportPitchEnvironmentTarget,
+    exportPlayerRatings
+} from "baseball-sim-engine/importer"
+```
+
+The importer contains utilities for:
+
+- Synchronizing MLB data through `baseball-database`
+- Building accumulated player statistics
+- Building player imports
+- Building pitch environments
+- Tuning pitch environments
+- Generating player ratings
+- Exporting complete season data
 
 ---
 
-## Starting a Game
+## Quick Start
 
 A game is initialized, started with a `StartGameCommand`, advanced one pitch at a time, and finalized after completion.
 
 ```ts
 import seedrandom from "seedrandom"
 
-import { simService } from "baseball-sim-engine"
+import {
+    simService
+} from "baseball-sim-engine"
 
 import type {
     Game,
     StartGameCommand
 } from "baseball-sim-engine"
 
-const game = {
+const game: Game = {
     _id: "example-game"
 } as Game
 
@@ -95,16 +146,167 @@ const command: StartGameCommand = {
 
 simService.startGame(command)
 
-const rng = seedrandom("example-seed")
+const rng: seedrandom.PRNG = seedrandom(
+    "example-seed"
+)
 
 while (!game.isComplete) {
-    simService.simPitch(game, rng)
+    simService.simPitch(
+        game,
+        rng
+    )
 }
 
 simService.finishGame(game)
 ```
 
 The same inputs and RNG sequence produce the same game.
+
+---
+
+## Architecture
+
+The project separates simulation, data preparation, and persistence.
+
+```text
+baseball-database
+        │
+        ▼
+MLB schedules and game data
+        │
+        ▼
+PlayerImportService
+        │
+        ├── accumulated player statistics
+        ├── rolling player samples
+        └── player import data
+        │
+        ▼
+PitchEnvironmentService
+        │
+        ├── league-wide pitch environment
+        ├── home-field advantage
+        └── tuning parameters
+        │
+        ▼
+PlayerRatingService
+        │
+        ├── hitting ratings
+        ├── pitching ratings
+        ├── fielding ratings
+        └── running ratings
+        │
+        ▼
+SimService
+        │
+        ▼
+Deterministic pitch-by-pitch games
+```
+
+### Simulation Runtime
+
+The runtime is responsible for:
+
+- Game state
+- Pitch generation
+- Swing and contact decisions
+- Batted-ball resolution
+- Fielding
+- Runner advancement
+- Pitching changes
+- Scoring
+- Game completion
+
+### Importer
+
+The importer is responsible for:
+
+- Reading MLB data from `baseball-database`
+- Accumulating player statistics
+- Building player imports
+- Building pitch environments
+- Tuning environment parameters
+- Building player ratings
+- Exporting season data
+
+### Database Layer
+
+`baseball-database` is the normalized MLB data layer used by the importer.
+
+It stores raw MLB game feeds as canonical data and exposes normalized analytics for:
+
+- Games
+- Schedules
+- Player appearances
+- Plate appearances
+- Pitches
+- Runner movements
+- Fielding credits
+- Defensive events
+
+The simulation engine does not maintain its own duplicate MLB game database.
+
+---
+
+## Core Concepts
+
+The engine separates four concerns:
+
+1. **Game state** — the mutable state of a baseball game.
+2. **Baseball inputs** — teams, players, lineups, starters, and available pitchers.
+3. **Simulation environment** — league-wide and game-specific conditions.
+4. **Randomness** — supplied by the caller so simulations can be reproduced exactly.
+
+The engine does not generate schedules, persist game results, manage contracts, or provide a user interface.
+
+Applications provide the game inputs and control the simulation loop.
+
+---
+
+## Starting a Game
+
+Every game follows the same lifecycle:
+
+```ts
+simService.initGame(game)
+
+simService.startGame(command)
+
+while (!game.isComplete) {
+    simService.simPitch(
+        game,
+        rng
+    )
+}
+
+simService.finishGame(game)
+```
+
+### `initGame`
+
+Initializes the mutable game state.
+
+### `startGame`
+
+Loads:
+
+- Away and home teams
+- Players
+- Lineups
+- Starting pitchers
+- Available pitchers
+- Pitch environment
+- Stadium environment
+- Designated hitter setting
+- Game date
+
+### `simPitch`
+
+Advances the game by exactly one pitch.
+
+### `finishGame`
+
+Finalizes the completed game and its statistics.
 
 ---
 
@@ -115,7 +317,16 @@ Teams and players are plain data objects supplied by the host application.
 A player includes identity, handedness, positions, hitting ratings, pitching ratings, stamina, and pitch-count limits.
 
 ```ts
-const player = {
+import {
+    Handedness,
+    Position
+} from "baseball-sim-engine"
+
+import type {
+    Player
+} from "baseball-sim-engine"
+
+const player: Player = {
     _id: "player-1",
     firstName: "Example",
     lastName: "Player",
@@ -128,10 +339,12 @@ const player = {
 
     primaryPosition: Position.SHORTSTOP,
     secondaryPositions: [],
-    positions: [Position.SHORTSTOP],
+    positions: [
+        Position.SHORTSTOP
+    ],
 
     hittingRatings: {
-        // Contact, plate discipline, gap power, home-run power,
+        // Contact, discipline, gap power, home-run power,
         // speed, steals, defense, arm, and contact profile.
     },
 
@@ -142,10 +355,47 @@ const player = {
 
     stamina: 0,
     maxPitchCount: 0
-}
+} as Player
 ```
 
-Ratings are interpreted relative to the active `PitchEnvironmentTarget`. A rating does not define a fixed outcome rate by itself; it shifts player behavior around the environment baseline.
+Ratings are interpreted relative to the active `PitchEnvironmentTarget`.
+
+A rating does not define a fixed outcome rate by itself. It shifts player behavior around the environment baseline.
+
+---
+
+## Ratings
+
+The standard rating scale is centered around `100`.
+
+A rating of `100` represents league-average ability within the active environment.
+
+Ratings can describe:
+
+### Hitting
+
+- Contact
+- Plate discipline
+- Gap power
+- Home-run power
+- Handedness splits
+- Speed
+- Steals
+- Defense
+- Arm
+- Contact profile
+
+### Pitching
+
+- Power
+- Control
+- Movement
+- Handedness splits
+- Pitch repertoire
+- Pitch quality
+- Contact profile
+
+Ratings work together with the pitch environment. The same player ratings can behave differently in different eras or leagues because the baseline environment changes.
 
 ---
 
@@ -154,17 +404,52 @@ Ratings are interpreted relative to the active `PitchEnvironmentTarget`. A ratin
 A lineup contains nine unique players in batting order with an assigned defensive position for each spot.
 
 ```ts
-const lineup = {
+import {
+    Position
+} from "baseball-sim-engine"
+
+import type {
+    Lineup
+} from "baseball-sim-engine"
+
+const lineup: Lineup = {
     order: [
-        { _id: "player-1", position: Position.CENTER_FIELD },
-        { _id: "player-2", position: Position.SHORTSTOP },
-        { _id: "player-3", position: Position.FIRST_BASE },
-        { _id: "player-4", position: Position.RIGHT_FIELD },
-        { _id: "player-5", position: Position.LEFT_FIELD },
-        { _id: "player-6", position: Position.THIRD_BASE },
-        { _id: "player-7", position: Position.SECOND_BASE },
-        { _id: "player-8", position: Position.CATCHER },
-        { _id: "player-9", position: Position.DESIGNATED_HITTER }
+        {
+            _id: "player-1",
+            position: Position.CENTER_FIELD
+        },
+        {
+            _id: "player-2",
+            position: Position.SHORTSTOP
+        },
+        {
+            _id: "player-3",
+            position: Position.FIRST_BASE
+        },
+        {
+            _id: "player-4",
+            position: Position.RIGHT_FIELD
+        },
+        {
+            _id: "player-5",
+            position: Position.LEFT_FIELD
+        },
+        {
+            _id: "player-6",
+            position: Position.THIRD_BASE
+        },
+        {
+            _id: "player-7",
+            position: Position.SECOND_BASE
+        },
+        {
+            _id: "player-8",
+            position: Position.CATCHER
+        },
+        {
+            _id: "player-9",
+            position: Position.DESIGNATED_HITTER
+        }
     ],
     valid: true
 }
@@ -200,7 +485,11 @@ Rules enforced by lineup validation include:
 The starting pitcher is supplied separately from the batting lineup.
 
 ```ts
-const startingPitcher = {
+import type {
+    RotationPitcher
+} from "baseball-sim-engine"
+
+const startingPitcher: RotationPitcher = {
     _id: "pitcher-1"
 }
 ```
@@ -208,7 +497,15 @@ const startingPitcher = {
 Available pitchers are supplied as bullpen assignments.
 
 ```ts
-const availablePitchers = [
+import {
+    PitchingRoleType
+} from "baseball-sim-engine"
+
+import type {
+    PitchingRole
+} from "baseball-sim-engine"
+
+const availablePitchers: PitchingRole[] = [
     {
         playerId: "pitcher-2",
         role: PitchingRoleType.CLOSER,
@@ -247,7 +544,12 @@ Supported bullpen roles include:
 
 Priority orders pitchers within the same role.
 
-Pitcher availability is controlled by the player data supplied to the engine, including `stamina` and `maxPitchCount`.
+Pitcher availability is controlled by the player data supplied to the engine, including:
+
+- `stamina`
+- `maxPitchCount`
+
+The host application can use workload data, injuries, roster status, or any other external system to determine those values.
 
 ---
 
@@ -255,22 +557,28 @@ Pitcher availability is controlled by the player data supplied to the engine, in
 
 The league-wide simulation baseline is defined by a `PitchEnvironmentTarget`.
 
-A pitch environment describes the statistical shape of the baseball universe in which the game is played. Player ratings modify behavior relative to this baseline.
+A pitch environment describes the statistical shape of the baseball universe in which the game is played.
 
 The environment can represent:
 
-- A real season
+- A real MLB season
 - A historical era
-- A low-offense or high-offense league
+- A low-offense league
+- A high-offense league
 - A fictional baseball world
-- A custom testing environment
+- A custom test environment
 
 It can influence:
 
 - Strikeout and walk rates
-- Zone, chase, swing, and contact behavior
+- Zone rates
+- Chase rates
+- Swing rates
+- Contact rates
 - Batted-ball distributions
-- Home-run, extra-base-hit, and hit rates
+- Home-run rates
+- Extra-base-hit rates
+- Hit rates
 - Runner aggression
 - Stolen-base behavior
 - Defensive outcomes
@@ -284,7 +592,29 @@ const command: StartGameCommand = {
 }
 ```
 
-The engine clones and uses the supplied environment for the game. Applications can reuse a season baseline without mutating the original object.
+The engine clones and uses the supplied environment for the game.
+
+Applications can reuse a season baseline without mutating the original object.
+
+---
+
+## Default Pitch Environment
+
+The package includes a default pitch environment used by the exported `simService`.
+
+Applications can also provide a custom `PitchEnvironmentTarget` for every game.
+
+```ts
+import type {
+    PitchEnvironmentTarget
+} from "baseball-sim-engine"
+
+const pitchEnvironmentTarget: PitchEnvironmentTarget = {
+    // Custom environment
+} as PitchEnvironmentTarget
+```
+
+Custom environments can be built manually or generated from MLB data through the importer.
 
 ---
 
@@ -293,17 +623,21 @@ The engine clones and uses the supplied environment for the game. Applications c
 `PitchEnvironmentTarget` includes a configurable `homeFieldAdvantage`.
 
 ```ts
-const pitchEnvironmentTarget = {
+const pitchEnvironmentTarget: PitchEnvironmentTarget = {
     // ...
     homeFieldAdvantage: 0.0425
-}
+} as PitchEnvironmentTarget
 ```
 
 The engine applies the advantage through the game simulation rather than forcing a final result.
 
-A value of `0` creates a neutral environment. Positive values favor the home team; negative values favor the away team.
+- `0` creates a neutral environment.
+- Positive values favor the home team.
+- Negative values favor the away team.
 
 Because the value is part of the environment, it can be tuned, tested, and varied by season or simulation context.
+
+The importer can calculate a season’s home-field advantage from completed games stored in `baseball-database`.
 
 ---
 
@@ -312,7 +646,11 @@ Because the value is part of the environment, it can be tuned, tested, and varie
 A `StadiumEnvironment` is an optional game-specific layer applied on top of the league-wide `PitchEnvironmentTarget`.
 
 ```ts
-const stadiumEnvironment = {
+import type {
+    StadiumEnvironment
+} from "baseball-sim-engine"
+
+const stadiumEnvironment: StadiumEnvironment = {
     team: "COL",
     venue: "Coors Field",
     yearRange: "2024-2026",
@@ -352,7 +690,10 @@ The engine advances exactly one pitch per call.
 
 ```ts
 while (!game.isComplete) {
-    simService.simPitch(game, rng)
+    simService.simPitch(
+        game,
+        rng
+    )
 }
 ```
 
@@ -402,7 +743,14 @@ When contact occurs, the pitch can also retain:
 - Spray direction
 - Contact quality
 
-This detail supports live presentation, replay, debugging, statistical validation, and analytical output.
+This detail supports:
+
+- Live presentation
+- Replay
+- Debugging
+- Statistical validation
+- Analytical output
+- Pitch-by-pitch visualization
 
 ---
 
@@ -413,7 +761,8 @@ After pitch generation, the batter decides whether to swing.
 Swing behavior can be influenced by:
 
 - Pitch location
-- Zone and chase tendencies
+- Zone tendencies
+- Chase tendencies
 - Count
 - Batter discipline
 - Batter contact
@@ -475,7 +824,7 @@ The engine can determine:
 - Double-play opportunities
 - Runner advancement pressure
 
-Defense and arm ratings affect the resolution of fielding and throwing events.
+Defense and arm ratings affect fielding and throwing outcomes.
 
 ---
 
@@ -544,8 +893,14 @@ the engine produces identical:
 - Final game state
 
 ```ts
-const rng = seedrandom("stable-seed")
-simService.simPitch(game, rng)
+const rng: seedrandom.PRNG = seedrandom(
+    "stable-seed"
+)
+
+simService.simPitch(
+    game,
+    rng
+)
 ```
 
 This makes the engine suitable for:
@@ -561,15 +916,30 @@ This makes the engine suitable for:
 
 ## Importing Real Baseball Data
 
-The importer entry point contains utilities for downloading and accumulating real baseball data.
+The importer builds simulation inputs from real MLB data.
+
+Historical schedules and game feeds are synchronized through [`baseball-database`](https://www.npmjs.com/package/baseball-database).
 
 ```ts
 import {
-    DownloaderService
+    exportAll
 } from "baseball-sim-engine/importer"
+
+const result = await exportAll(
+    2025,
+    "./data"
+)
+
+console.log(
+    result.pitchEnvironmentTarget
+)
+
+console.log(
+    result.playerRatings.length
+)
 ```
 
-The import pipeline can accumulate:
+The importer can accumulate:
 
 - Hitting results
 - Pitching results
@@ -577,7 +947,10 @@ The import pipeline can accumulate:
 - Runner events
 - Pitch velocity and movement
 - Pitch type usage
-- Zone, chase, swing, and contact behavior
+- Zone behavior
+- Chase behavior
+- Swing behavior
+- Contact behavior
 - Exit velocity
 - Launch angle
 - Distance
@@ -587,43 +960,172 @@ The import pipeline can accumulate:
 
 Accumulated data can be used to build:
 
+- Player imports
 - Player ratings
 - Player objects
 - League-wide pitch environments
+- Home-field advantage
 - Statistical validation datasets
 
-The importer is separate from the simulation runtime. Applications that already have player ratings and environment data do not need to use it.
+Applications that already have player ratings and environment data do not need to use the importer.
 
 ---
 
-## Player Ratings
+## Using `baseball-database`
 
-The importer can transform accumulated player statistics into engine-compatible player ratings.
+The importer depends on `baseball-database` for MLB data storage and queries.
 
-Hitting ratings include:
+```ts
+import {
+    downloadSeason,
+    queries
+} from "baseball-database"
 
-- Contact
-- Plate discipline
-- Gap power
-- Home-run power
-- Handedness splits
-- Speed
-- Steals
-- Defense
-- Arm
-- Contact profile
+await downloadSeason(
+    2025
+)
 
-Pitching ratings include:
+const schedule = queries.getSchedule(
+    2025
+)
 
-- Power
-- Control
-- Movement
-- Handedness splits
-- Pitch repertoire
-- Pitch quality
-- Contact profile
+const game = queries.getGame(
+    778557
+)
+```
 
-Ratings are calibrated against a pitch environment, so the same raw statistical performance can map differently in different league environments.
+`baseball-database` uses the official MLB Stats API through the separately maintained [`mlb-stats-api`](https://www.npmjs.com/package/mlb-stats-api) package.
+
+`baseball-database` is not an official MLB library, and neither is `mlb-stats-api`.
+
+The simulation engine treats stored MLB game data as input for statistical accumulation and rating generation. It does not modify the raw game feeds stored by `baseball-database`.
+
+---
+
+## Generating a Complete Season
+
+The importer can generate both the pitch environment and player ratings for a season.
+
+```ts
+import {
+    exportAll
+} from "baseball-sim-engine/importer"
+
+const result = await exportAll(
+    2025,
+    "./data"
+)
+```
+
+The generated result includes:
+
+```ts
+interface ExportAllResult {
+    season: number
+    pitchEnvironmentTarget: PitchEnvironmentTarget
+    playerRatings: any[]
+}
+```
+
+The importer writes season data under:
+
+```text
+data/
+└── 2025/
+    ├── _pitch_environment_target.json
+    └── _player_ratings.json
+```
+
+Additional accumulated and intermediate files may also be stored under the season directory.
+
+---
+
+## Generating a Pitch Environment
+
+```ts
+import {
+    exportPitchEnvironmentTarget
+} from "baseball-sim-engine/importer"
+
+const pitchEnvironmentTarget = await exportPitchEnvironmentTarget(
+    2025,
+    "./data"
+)
+```
+
+The importer:
+
+1. Synchronizes required MLB data through `baseball-database`.
+2. Builds season player imports.
+3. Calculates the season baseline.
+4. Calculates home-field advantage.
+5. Tunes the pitch environment.
+6. Writes `_pitch_environment_target.json`.
+
+---
+
+## Generating Player Ratings
+
+A pitch environment must exist before ratings are generated.
+
+```ts
+import {
+    exportPlayerRatings
+} from "baseball-sim-engine/importer"
+
+const playerRatings = await exportPlayerRatings(
+    2025,
+    "./data"
+)
+```
+
+The importer reads:
+
+```text
+data/2025/_pitch_environment_target.json
+```
+
+and writes:
+
+```text
+data/2025/_player_ratings.json
+```
+
+---
+
+## Importer Commands
+
+The repository includes npm scripts for running the importer during development.
+
+Generate the pitch environment:
+
+```bash
+npm run tune:target -- 2025
+```
+
+Generate player ratings:
+
+```bash
+npm run generate:ratings -- 2025
+```
+
+Generate both:
+
+```bash
+npm run generate:all -- 2025
+```
+
+These are repository development scripts. The published npm package does not currently expose a standalone executable through an npm `bin` entry.
+
+Library consumers should use the importer exports directly:
+
+```ts
+import {
+    exportAll,
+    exportPitchEnvironmentTarget,
+    exportPlayerRatings
+} from "baseball-sim-engine/importer"
+```
 
 ---
 
@@ -662,8 +1164,10 @@ Large simulation samples can also be compared against target environments for me
 - Strikeout rate
 - Home-run rate
 - Extra-base-hit rates
-- Stolen-base attempts and success
-- Swing and chase rates
+- Stolen-base attempts
+- Stolen-base success
+- Swing rates
+- Chase rates
 - Contact rates
 - Pitches per plate appearance
 - Batted-ball distributions
@@ -672,11 +1176,63 @@ Because the engine is deterministic, tuning changes can be evaluated against ide
 
 ---
 
+## Development
+
+Clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/American-Space-Software/baseball-sim-engine.git
+cd baseball-sim-engine
+npm install
+```
+
+Run the test suite:
+
+```bash
+npm test
+```
+
+Build the package:
+
+```bash
+npm run build
+```
+
+Build continuously:
+
+```bash
+npm run build:watch
+```
+
+The build produces:
+
+```text
+dist/
+├── index.js
+├── index.d.ts
+├── importer.js
+└── importer.d.ts
+```
+
+The published package includes:
+
+- `dist`
+- `README.md`
+- `LICENSE`
+
+---
+
 ## Node.js and Browser Support
 
-The engine is designed to run in both Node.js and browser environments.
+The simulation runtime is designed to run in both Node.js and browser environments.
 
-The simulation runtime does not require persistence, a database, a web server, or a specific application framework.
+The runtime does not require:
+
+- Persistence
+- A database
+- A web server
+- Authentication
+- A specific application framework
 
 Host applications decide how to:
 
@@ -688,6 +1244,8 @@ Host applications decide how to:
 - Select lineups
 - Select pitchers
 - Persist results
+
+The importer is primarily intended for Node.js because it performs filesystem operations, data synchronization, and worker-thread processing.
 
 ---
 
@@ -704,11 +1262,14 @@ This package includes:
 - League environments
 - Stadium environments
 - Real-data import utilities
+- Player import generation
+- Player rating generation
+- Pitch-environment generation
+- Pitch-environment tuning
 
 This package does **not** include:
 
-- Persistence
-- Database models
+- Application persistence
 - UI rendering
 - Network transport
 - Authentication
@@ -718,7 +1279,9 @@ This package does **not** include:
 - Player contracts
 - Economy systems
 
-It is strictly a baseball simulation engine and its supporting data-import utilities.
+The runtime is strictly a baseball simulation engine.
+
+The importer is a supporting data-preparation system built around `baseball-database`.
 
 ---
 
@@ -735,14 +1298,69 @@ The project is built around:
 - Reproducible debugging
 - Statistical validation
 - Separation from any single application
+- Reusable MLB data infrastructure
+- One canonical historical data source
 
 ---
 
-## Version 1.10.2
+## API
 
-Version `1.10.2` includes the current pitch-by-pitch simulation model and its supporting environment, lineup, pitching, substitution, designated hitter, stadium, importer, and deterministic replay systems.
+The complete TypeScript API reference is available in [API.md](API.md).
 
-Consult the package exports and TypeScript declarations for the exact API available in the installed version.
+It includes:
+
+- Main package exports
+- Importer exports
+- Simulation services
+- Game and player interfaces
+- Team and lineup interfaces
+- Pitch environment interfaces
+- Ratings interfaces
+- Enums
+- Complete usage examples
+
+---
+
+## Version 2.0.0
+
+Version `2.0.0` includes the current deterministic pitch-by-pitch simulation model and its supporting:
+
+- Environment systems
+- Lineup systems
+- Pitching systems
+- Bullpen roles
+- Substitution systems
+- Designated hitter support
+- Stadium environments
+- Importer
+- Player rating generation
+- Pitch-environment tuning
+- `baseball-database` integration
+- Deterministic replay systems
+
+Consult [API.md](API.md) and the package’s TypeScript declarations for the exact API available in the installed version.
+
+---
+
+## Data Integrity
+
+The importer reads MLB game data from `baseball-database`.
+
+Raw MLB game feeds remain canonical inside `baseball-database`. The engine builds derived statistical accumulations, player imports, pitch environments, and ratings from that data.
+
+Generated outputs can always be rebuilt from the underlying stored game data.
+
+---
+
+## Data Source
+
+Historical MLB schedules and game feeds are stored and queried through [`baseball-database`](https://www.npmjs.com/package/baseball-database).
+
+`baseball-database` downloads data from the official MLB Stats API using the separately maintained [`mlb-stats-api`](https://www.npmjs.com/package/mlb-stats-api) package.
+
+Neither `baseball-database` nor `mlb-stats-api` is an official MLB library.
+
+MLB data is used only as input for statistical accumulation, environment generation, rating generation, testing, and simulation.
 
 ---
 

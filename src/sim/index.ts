@@ -1,11 +1,9 @@
 import { BaseResult, Contact, DefenseHitResult, DefenseOutResult, Handedness, HomeAway, OfficialPlayResult, OfficialRunnerResult, PitchCall, PitchingRoleType, PitchType, PitchZone, PlayResult, Position, ShallowDeep, ThrowResult } from "./service/enums.js"
-import { InningEndingEvent, PitchEnvironmentTarget, PitchingRole, RatingTuning } from "./service/interfaces.js"
-import { PitchEnvironmentService } from "../importer/service/pitch-environment-service.js"
+import { InningEndingEvent, PitchEnvironmentTarget, } from "./service/interfaces.js"
 import { RollChartService } from "./service/roll-chart-service.js"
-import { GameInfo, GamePlayers, Matchup, SimRolls, SimService } from "./service/sim-service.js"
+import { GameInfo, GamePlayers,  SimRolls, SimService } from "./service/sim-service.js"
 
 import { StatService } from "./service/stat-service.js"
-
 
 import defaultPitchEnvironmentTargetJson from "./_pitch_environment_target.json" with { type: "json" }
 import { RunnerService } from "./service/runner-service.js"
@@ -13,8 +11,6 @@ import { SubstitutionService } from "./service/substitution-service.js"
 import { PlayerRatingService } from "../importer/service/player-rating-service.js"
 
 let rollChartService = new RollChartService()
-let statService = new StatService()
-
 
 let simRolls = new SimRolls(rollChartService)
 let gamePlayers = new GamePlayers()
@@ -32,7 +28,6 @@ export {
   SimService,
   StatService,
   RollChartService,
-  PitchEnvironmentService,
   PlayerRatingService,
   PlayResult,
   Contact,
@@ -105,17 +100,6 @@ export type {
   ShallowDeepRollInput,
   PowerRollInput,
   ShallowDeepChance,
-  FielderChance,
-  PlayerFromStatsCommand,
-  PlayerHittingStats,
-  PlayerPitchingStats,
-  PlayerFieldingStats,
-  PlayerRunningStats,
-  PlayerSplitsStats,
-  PlayerHittingSplitStats,
-  PlayerPitchingSplitStats,
-  PlayerImportRaw,
-  PitchEnvironmentTuning,
-  RatingTuning,
+  FielderChance
   
 } from "./service/interfaces.js"

@@ -1,6 +1,6 @@
 import { Worker } from "worker_threads"
 import seedrandom from "seedrandom"
-import { PitchEnvironmentTarget, PitchEnvironmentTuning, PlayerImportRaw } from "../sim/service/interfaces.js"
+import { PitchEnvironmentTarget, PitchEnvironmentTuning, PlayerFieldingStats, PlayerFromStatsCommand, PlayerHittingSplitStats, PlayerHittingStats, PlayerImportRaw, PlayerPitchingSplitStats, PlayerPitchingStats, PlayerRunningStats, PlayerSplitsStats, RatingTuning } from "../sim/service/interfaces.js"
 import { RollChartService } from "../sim/service/roll-chart-service.js"
 import { GameInfo, GamePlayers, SimRolls, SimService } from "../sim/service/sim-service.js"
 import { StatService } from "../sim/service/stat-service.js"
@@ -1638,13 +1638,30 @@ export {
     exportPlayerRatings,
     exportAll,
     playerImportService,
-    playerRatingService,
-    PlayerImportService,
-    PlayerRatingService,
-    StatAccumulatorService,
-    ExportPitchEnvironmentTargetResult,
-    ExportAllResult
+    playerRatingService
 }
+
+export type {
+  PlayerFromStatsCommand,
+  PlayerHittingStats,
+  PlayerPitchingStats,
+  PlayerFieldingStats,
+  PlayerRunningStats,
+  PlayerSplitsStats,
+  PlayerHittingSplitStats,
+  PlayerPitchingSplitStats,
+  PlayerImportRaw,
+  PitchEnvironmentTuning,
+  RatingTuning,
+  PlayerImportService,
+  PlayerRatingService,
+  StatAccumulatorService,
+  PitchEnvironmentService,
+  ExportPitchEnvironmentTargetResult,
+  ExportAllResult
+
+}
+
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     const action = process.argv[2]

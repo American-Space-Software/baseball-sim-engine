@@ -7,27 +7,19 @@ import { afterEach, beforeEach, describe, it } from "mocha"
 
 import { PlayerImportService } from "../src/importer/service/player-import-service.js"
 
+import type { DatedStatExport, PlayerImportSelection, PlayerImportState } from "../src/importer/service/player-import-service.js"
 import type { PlayerImportRaw } from "../src/sim/service/interfaces.js"
 import type { StatAccumulatorService } from "../src/importer/service/stat-accumulator-service.js"
+import type { StatExport } from "baseball-database"
 
 describe("PlayerImportService", function () {
 
     let baseDataDir: string
-    let accumulatedGames: {
-        season: number
-        gamePk: number
-        playerIds: string[]
-    }[]
+    let accumulationCalls: AccumulationCall[]
 
     beforeEach(async function () {
-        baseDataDir = await fs.promises.mkdtemp(
-            path.join(
-                os.tmpdir(),
-                "baseball-sim-engine-player-import-"
-            )
-        )
-
-        accumulatedGames = []
+        baseDataDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "baseball-sim-engine-player-import-"))
+        accumulationCalls = []
     })
 
     afterEach(async function () {
@@ -37,169 +29,50 @@ describe("PlayerImportService", function () {
         })
     })
 
-    it("builds player imports from supplied game feeds", function () {
-        const service = createService()
-        const subject = service as any
-
-        subject.finalizePlayers = (): void => {}
-
-        const players = service.buildFromGameFeeds(
-            2026,
-            [
-                {
-                    sourceSeason: 2025,
-                    gamePk: 101,
-                    data: {
-                        gamePk: 101
-                    },
-                    playerIds: [
-                        "player-a",
-                        "player-b"
-                    ]
-                },
-                {
-                    sourceSeason: 2026,
-                    gamePk: 201,
-                    data: {
-                        gamePk: 201
-                    },
-                    playerIds: [
-                        "player-a",
-                        "player-c"
-                    ]
-                }
-            ]
-        )
-
-        assert.deepEqual(
-            accumulatedGames,
-            [
-                {
-                    season: 2026,
-                    gamePk: 101,
-                    playerIds: [
-                        "player-a",
-                        "player-b"
-                    ]
-                },
-                {
-                    season: 2026,
-                    gamePk: 201,
-                    playerIds: [
-                        "player-a",
-                        "player-c"
-                    ]
-                }
-            ]
-        )
-
-        assert.deepEqual(
-            Array.from(players.keys()),
-            [
-                "player-a",
-                "player-b",
-                "player-c"
-            ]
-        )
-    })
-
-    it("ignores supplied game feeds without a game PK, data, or player IDs", function () {
-        const service = createService()
-        const subject = service as any
-
-        subject.finalizePlayers = (): void => {}
-
-        const players = service.buildFromGameFeeds(
-            2026,
-            [
-                {
-                    sourceSeason: 2026,
-                    gamePk: 0,
-                    data: {
-                        gamePk: 0
-                    },
-                    playerIds: [
-                        "player-a"
-                    ]
-                },
-                {
-                    sourceSeason: 2026,
-                    gamePk: 101,
-                    data: undefined as any,
-                    playerIds: [
-                        "player-a"
-                    ]
-                },
-                {
-                    sourceSeason: 2026,
-                    gamePk: 102,
-                    data: {
-                        gamePk: 102
-                    },
-                    playerIds: []
-                }
-            ]
-        )
-
-        assert.equal(accumulatedGames.length, 0)
-        assert.equal(players.size, 0)
-    })
-
     it("uses each player's latest 162 appearances before the game date", async function () {
         const service = createService()
         const subject = service as any
 
-        subject.getAppearanceIndex = async (): Promise<any> => {
-            return {
-                season: 2026,
-                appearancesByPlayerId: new Map([
-                    [
-                        "player-a",
-                        Array.from(
-                            {
-                                length: 200
-                            },
-                            (_, index) => {
-                                const gameNumber = index + 1
+        const statExports = Array.from({ length: 200 }, (_, index) => {
+            const gameNumber = index + 1
 
-                                return {
-                                    sourceSeason: gameNumber <= 100
-                                        ? 2025
-                                        : 2026,
-                                    gamePk: gameNumber,
-                                    gameDate: gameNumber <= 100
-                                        ? `2025-09-${String(((gameNumber - 1) % 28) + 1).padStart(2, "0")}`
-                                        : `2026-04-${String(((gameNumber - 101) % 28) + 1).padStart(2, "0")}`
-                                }
-                            }
-                        )
-                    ],
-                    [
-                        "player-b",
-                        Array.from(
-                            {
-                                length: 50
-                            },
-                            (_, index) => ({
-                                sourceSeason: 2025,
-                                gamePk: 1001 + index,
-                                gameDate: `2025-08-${String((index % 28) + 1).padStart(2, "0")}`
-                            })
-                        )
-                    ]
-                ])
-            }
+            return makeDatedStatExport(
+                `2026-${String(Math.floor(index / 28) + 1).padStart(2, "0")}-${String((index % 28) + 1).padStart(2, "0")}`,
+                [
+                    {
+                        gamePk: gameNumber,
+                        playerId: "player-a"
+                    }
+                ]
+            )
+        })
+
+        statExports.push(
+            makeDatedStatExport(
+                "2026-08-01",
+                Array.from({ length: 50 }, (_, index) => ({
+                    gamePk: 1001 + index,
+                    playerId: "player-b"
+                }))
+            )
+        )
+
+        const state: PlayerImportState = {
+            season: 2026,
+            currentDate: "2026-12-30",
+            statExports,
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
         }
 
-        let selectedGames: Map<string, any> | undefined
+        subject.addAppearancesToState(
+            state,
+            statExports
+        )
 
-        subject.buildFromSelectedGames = async (
-            _season: number,
-            games: Map<string, any>
-        ): Promise<Map<string, PlayerImportRaw>> => {
-            selectedGames = games
-            return new Map()
-        }
+        subject.getOrCreateState = async (): Promise<PlayerImportState> => state
+        subject.getStatExport = (): StatExport => makeStatExport([])
+        subject.removeUnneededDates = (): void => {}
 
         await service.buildCorePlayerImports(
             2026,
@@ -210,295 +83,391 @@ describe("PlayerImportService", function () {
             ])
         )
 
-        assert.ok(selectedGames)
+        assert.equal(accumulationCalls.length, 1)
 
-        const playerAGames = Array.from(selectedGames!.values())
-            .filter(game => game.playerIds.has("player-a"))
-            .map(game => game.gamePk)
+        const playerASelection = accumulationCalls[0].selections.find(selection =>
+            selection.playerId === "player-a"
+        )
 
-        const playerBGames = Array.from(selectedGames!.values())
-            .filter(game => game.playerIds.has("player-b"))
-            .map(game => game.gamePk)
+        const playerBSelection = accumulationCalls[0].selections.find(selection =>
+            selection.playerId === "player-b"
+        )
 
-        assert.equal(playerAGames.length, 162)
-        assert.equal(playerAGames.includes(38), false)
-        assert.equal(playerAGames.includes(39), true)
-        assert.equal(playerAGames.includes(200), true)
+        assert.ok(playerASelection)
+        assert.ok(playerBSelection)
 
-        assert.equal(playerBGames.length, 50)
-        assert.equal(playerBGames.includes(1001), true)
-        assert.equal(playerBGames.includes(1050), true)
+        assert.equal(playerASelection.gamePks.length, 162)
+        assert.equal(playerASelection.gamePks.includes(38), false)
+        assert.equal(playerASelection.gamePks.includes(39), true)
+        assert.equal(playerASelection.gamePks.includes(200), true)
+
+        assert.equal(playerBSelection.gamePks.length, 50)
+        assert.equal(playerBSelection.gamePks.includes(1001), true)
+        assert.equal(playerBSelection.gamePks.includes(1050), true)
     })
 
-    it("excludes appearances on and after the core game date", async function () {
+    it("loads the requested range once and stores each game date separately", async function () {
         const service = createService()
         const subject = service as any
 
-        subject.getAppearanceIndex = async (): Promise<any> => {
-            return {
-                season: 2026,
-                appearancesByPlayerId: new Map([
-                    [
-                        "player-a",
-                        [
-                            {
-                                sourceSeason: 2026,
-                                gamePk: 101,
-                                gameDate: "2026-07-09"
-                            },
-                            {
-                                sourceSeason: 2026,
-                                gamePk: 102,
-                                gameDate: "2026-07-10"
-                            },
-                            {
-                                sourceSeason: 2026,
-                                gamePk: 103,
-                                gameDate: "2026-07-11"
-                            }
-                        ]
-                    ]
-                ])
-            }
-        }
+        
+        const requestedRanges: { startDate: string, endDateExclusive: string }[] = []
 
-        let selectedGames: Map<string, any> | undefined
+        subject.getStatExport = (startDate: string, endDateExclusive: string): StatExport => {
+            requestedRanges.push({
+                startDate,
+                endDateExclusive
+            })
 
-        subject.buildFromSelectedGames = async (
-            _season: number,
-            games: Map<string, any>
-        ): Promise<Map<string, PlayerImportRaw>> => {
-            selectedGames = games
-            return new Map()
-        }
-
-        await service.buildCorePlayerImports(
-            2026,
-            "2026-07-10",
-            new Set([
-                "player-a"
-            ])
-        )
-
-        assert.deepEqual(
-            Array.from(selectedGames!.values()).map(game =>
-                game.gamePk
-            ),
-            [
-                101
-            ]
-        )
-    })
-
-    it("selects appearances inside a date range", async function () {
-        const service = createService()
-        const subject = service as any
-
-        subject.getAppearanceIndex = async (): Promise<any> => {
-            return {
-                season: 2026,
-                appearancesByPlayerId: new Map([
-                    [
-                        "player-a",
-                        [
-                            {
-                                sourceSeason: 2026,
-                                gamePk: 101,
-                                gameDate: "2026-07-01"
-                            },
-                            {
-                                sourceSeason: 2026,
-                                gamePk: 102,
-                                gameDate: "2026-07-08"
-                            },
-                            {
-                                sourceSeason: 2026,
-                                gamePk: 103,
-                                gameDate: "2026-07-15"
-                            },
-                            {
-                                sourceSeason: 2026,
-                                gamePk: 104,
-                                gameDate: "2026-07-16"
-                            }
-                        ]
-                    ]
-                ])
-            }
-        }
-
-        let selectedGames: Map<string, any> | undefined
-
-        subject.buildFromSelectedGames = async (
-            _season: number,
-            games: Map<string, any>
-        ): Promise<Map<string, PlayerImportRaw>> => {
-            selectedGames = games
-            return new Map()
-        }
-
-        await service.buildDateRangePlayerImports(
-            2026,
-            "2026-07-08",
-            "2026-07-16",
-            new Set([
-                "player-a"
-            ])
-        )
-
-        assert.deepEqual(
-            Array.from(selectedGames!.values()).map(game =>
-                game.gamePk
-            ),
-            [
-                102,
-                103
-            ]
-        )
-    })
-
-    it("groups multiple players from the same game into one selected game", async function () {
-        const service = createService()
-        const subject = service as any
-
-        subject.getAppearanceIndex = async (): Promise<any> => {
-            return {
-                season: 2026,
-                appearancesByPlayerId: new Map([
-                    [
-                        "player-a",
-                        [
-                            {
-                                sourceSeason: 2026,
-                                gamePk: 101,
-                                gameDate: "2026-07-01"
-                            }
-                        ]
-                    ],
-                    [
-                        "player-b",
-                        [
-                            {
-                                sourceSeason: 2026,
-                                gamePk: 101,
-                                gameDate: "2026-07-01"
-                            }
-                        ]
-                    ]
-                ])
-            }
-        }
-
-        let selectedGames: Map<string, any> | undefined
-
-        subject.buildFromSelectedGames = async (
-            _season: number,
-            games: Map<string, any>
-        ): Promise<Map<string, PlayerImportRaw>> => {
-            selectedGames = games
-            return new Map()
-        }
-
-        await service.buildCorePlayerImports(
-            2026,
-            "2026-07-02",
-            new Set([
-                "player-a",
-                "player-b"
-            ])
-        )
-
-        assert.equal(selectedGames!.size, 1)
-
-        const selectedGame = Array.from(
-            selectedGames!.values()
-        )[0]
-
-        assert.equal(selectedGame.gamePk, 101)
-
-        assert.deepEqual(
-            Array.from(selectedGame.playerIds),
-            [
-                "player-a",
-                "player-b"
-            ]
-        )
-    })
-
-    it("builds imports from selected games in chronological order", async function () {
-        const service = createService()
-        const subject = service as any
-
-        const loadedGamePks: number[] = []
-
-        subject.getGameFeed = async (gamePk: number): Promise<any> => {
-            loadedGamePks.push(gamePk)
-
-            return {
-                gamePk
-            }
-        }
-
-        subject.finalizePlayers = (): void => {}
-
-        const selectedGames = new Map([
-            [
-                "2026:103",
+            return makeStatExport([
                 {
-                    sourceSeason: 2026,
-                    gamePk: 103,
-                    gameDate: "2026-07-03",
-                    playerIds: new Set([
-                        "player-a"
-                    ])
-                }
-            ],
-            [
-                "2026:101",
-                {
-                    sourceSeason: 2026,
                     gamePk: 101,
-                    gameDate: "2026-07-01",
-                    playerIds: new Set([
-                        "player-a"
-                    ])
-                }
-            ],
-            [
-                "2026:102",
+                    playerId: "player-a",
+                    gameDate: "2026-07-01"
+                },
                 {
-                    sourceSeason: 2026,
                     gamePk: 102,
-                    gameDate: "2026-07-02",
-                    playerIds: new Set([
-                        "player-a"
-                    ])
+                    playerId: "player-a",
+                    gameDate: "2026-07-02"
+                },
+                {
+                    gamePk: 103,
+                    playerId: "player-a",
+                    gameDate: "2026-07-03"
+                }
+            ])
+        }
+
+        const state: PlayerImportState = {
+            season: 2026,
+            currentDate: "2026-07-01",
+            statExports: [],
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
+        }
+
+        subject.removeUnneededDates = (): void => {}
+
+        await subject.advanceState(
+            state,
+            "2026-07-04"
+        )
+
+        assert.deepEqual(
+            requestedRanges,
+            [
+                {
+                    startDate: "2026-07-01",
+                    endDateExclusive: "2026-07-04"
                 }
             ]
-        ])
-
-        await subject.buildFromSelectedGames(
-            2026,
-            selectedGames
         )
 
         assert.deepEqual(
-            loadedGamePks,
-            [
-                101,
-                102,
-                103
-            ]
-        )
-
-        assert.deepEqual(
-            accumulatedGames.map(game =>
-                game.gamePk
+            state.statExports.map(statExport =>
+                statExport.date
             ),
             [
-                101,
-                102,
-                103
+                "2026-07-01",
+                "2026-07-02",
+                "2026-07-03"
+            ]
+        )
+
+        assert.deepEqual(
+            Array.from(state.players.keys()),
+            [
+                "player-a"
+            ]
+        )
+
+        assert.equal(accumulationCalls.length, 1)
+        assert.equal(state.currentDate, "2026-07-04")
+    })
+
+    it("does not load the requested game date into the core history", async function () {
+        const service = createService()
+        const subject = service as any
+
+        const requestedRanges: { startDate: string, endDateExclusive: string }[] = []
+
+        subject.getStatExport = (startDate: string, endDateExclusive: string): StatExport => {
+            requestedRanges.push({
+                startDate,
+                endDateExclusive
+            })
+
+            return makeStatExport([
+                {
+                    gamePk: 101,
+                    playerId: "player-a",
+                    gameDate: "2026-07-08"
+                },
+                {
+                    gamePk: 102,
+                    playerId: "player-a",
+                    gameDate: "2026-07-09"
+                }
+            ])
+        }
+
+        const state: PlayerImportState = {
+            season: 2026,
+            currentDate: "2026-07-08",
+            statExports: [],
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
+        }
+
+        subject.removeUnneededDates = (): void => {}
+
+        await subject.advanceState(
+            state,
+            "2026-07-10"
+        )
+
+        assert.deepEqual(
+            requestedRanges,
+            [
+                {
+                    startDate: "2026-07-08",
+                    endDateExclusive: "2026-07-10"
+                }
+            ]
+        )
+
+        assert.deepEqual(
+            state.statExports.map(statExport =>
+                statExport.date
+            ),
+            [
+                "2026-07-08",
+                "2026-07-09"
+            ]
+        )
+
+        assert.equal(
+            state.statExports.some(statExport =>
+                statExport.date === "2026-07-10"
+            ),
+            false
+        )
+
+        assert.deepEqual(
+            Array.from(state.players.keys()),
+            [
+                "player-a"
+            ]
+        )
+    })
+
+    it("does not reload dates when advancing to the same date", async function () {
+        const service = createService()
+        const subject = service as any
+
+        let exportsLoaded = 0
+
+        subject.getStatExport = (): StatExport => {
+            exportsLoaded++
+
+            return makeStatExport([])
+        }
+
+        const state: PlayerImportState = {
+            season: 2026,
+            currentDate: "2026-07-10",
+            statExports: [
+                makeDatedStatExport(
+                    "2026-07-09",
+                    [
+                        {
+                            gamePk: 101,
+                            playerId: "player-a"
+                        }
+                    ]
+                )
+            ],
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
+        }
+
+        await subject.advanceState(state, "2026-07-10")
+
+        assert.equal(exportsLoaded, 0)
+        assert.equal(state.statExports.length, 1)
+    })
+
+    it("rejects moving an existing state backward", async function () {
+        const service = createService()
+        const subject = service as any
+
+        const state: PlayerImportState = {
+            season: 2026,
+            currentDate: "2026-07-10",
+            statExports: [],
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
+        }
+
+        await assert.rejects(
+            subject.advanceState(state, "2026-07-09"),
+            /Cannot move player import state backward from 2026-07-10 to 2026-07-09/
+        )
+    })
+
+    it("removes dates older than every player's required 162-game window", function () {
+        const service = createService()
+        const subject = service as any
+
+        const statExports: DatedStatExport[] = []
+
+        for (let index = 0; index < 170; index++) {
+            statExports.push(
+                makeDatedStatExport(
+                    addDays("2026-01-01", index),
+                    [
+                        {
+                            gamePk: index + 1,
+                            playerId: "player-a"
+                        },
+                        {
+                            gamePk: 1001 + index,
+                            playerId: "player-b"
+                        }
+                    ]
+                )
+            )
+        }
+
+        const state: PlayerImportState = {
+            season: 2026,
+            currentDate: addDays("2026-01-01", 170),
+            statExports,
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
+        }
+
+        subject.addAppearancesToState(
+            state,
+            statExports
+        )
+
+        subject.removeUnneededDates(
+            state
+        )
+
+        assert.equal(state.statExports.length, 162)
+        assert.equal(
+            state.statExports[0].date,
+            addDays("2026-01-01", 8)
+        )
+        assert.equal(
+            state.statExports.at(-1)?.date,
+            addDays("2026-01-01", 169)
+        )
+
+        assert.equal(
+            state.appearancesByPlayer["player-a"].length,
+            162
+        )
+        assert.equal(
+            state.appearancesByPlayer["player-b"].length,
+            162
+        )
+
+        assert.equal(
+            state.appearancesByPlayer["player-a"][0].gamePk,
+            9
+        )
+        assert.equal(
+            state.appearancesByPlayer["player-b"][0].gamePk,
+            1009
+        )
+    })
+
+    it("retains an older date when one player still needs it", function () {
+        const service = createService()
+        const subject = service as any
+
+        const statExports: DatedStatExport[] = []
+
+        for (let index = 0; index < 170; index++) {
+            const appearances: AppearanceInput[] = [
+                {
+                    gamePk: index + 1,
+                    playerId: "player-a"
+                }
+            ]
+
+            if (index < 50) {
+                appearances.push({
+                    gamePk: 1001 + index,
+                    playerId: "player-b"
+                })
+            }
+
+            statExports.push(makeDatedStatExport(addDays("2026-01-01", index), appearances))
+        }
+
+        const state: PlayerImportState = {
+            season: 2026,
+            currentDate: addDays("2026-01-01", 170),
+            statExports,
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
+        }
+
+        subject.removeUnneededDates(state)
+
+        assert.equal(state.statExports[0].date, "2026-01-01")
+        assert.equal(state.statExports.length, 170)
+    })
+
+    it("selects every appearance inside an explicit date range", async function () {
+        const service = createService()
+        const subject = service as any
+
+
+        subject.loadDatedStatExports = (): DatedStatExport[] => [
+            makeDatedStatExport("2026-07-08", [
+                {
+                    gamePk: 101,
+                    playerId: "player-a"
+                }
+            ]),
+            makeDatedStatExport("2026-07-09", [
+                {
+                    gamePk: 102,
+                    playerId: "player-a"
+                },
+                {
+                    gamePk: 201,
+                    playerId: "player-b"
+                }
+            ]),
+            makeDatedStatExport("2026-07-10", [
+                {
+                    gamePk: 103,
+                    playerId: "player-a"
+                }
+            ])
+        ]
+
+        await service.buildDateRangePlayerImports(2026, "2026-07-08", "2026-07-11", new Set(["player-a"]))
+
+        assert.equal(accumulationCalls.length, 1)
+
+        assert.deepEqual(
+            accumulationCalls[0].selections,
+            [
+                {
+                    playerId: "player-a",
+                    gamePks: [
+                        101,
+                        102,
+                        103
+                    ]
+                }
             ]
         )
     })
@@ -507,45 +476,47 @@ describe("PlayerImportService", function () {
         const service = createService()
         const subject = service as any
 
-        subject.getAppearanceIndex = async (): Promise<any> => {
-            return {
-                season: 2026,
-                appearancesByPlayerId: new Map([
-                    [
-                        "player-a",
-                        Array.from(
-                            {
-                                length: 200
-                            },
-                            (_, index) => ({
-                                sourceSeason: 2026,
-                                gamePk: index + 1,
-                                gameDate: index < 190
-                                    ? "2026-07-01"
-                                    : "2026-08-01"
-                            })
-                        )
-                    ],
-                    [
-                        "player-b",
-                        Array.from(
-                            {
-                                length: 25
-                            },
-                            (_, index) => ({
-                                sourceSeason: 2026,
-                                gamePk: 1001 + index,
-                                gameDate: "2026-07-01"
-                            })
-                        )
-                    ]
-                ])
-            }
+        const statExports = Array.from({ length: 200 }, (_, index) =>
+            makeDatedStatExport(
+                addDays("2026-01-01", index),
+                [
+                    {
+                        gamePk: index + 1,
+                        playerId: "player-a"
+                    }
+                ]
+            )
+        )
+
+        statExports.push(
+            makeDatedStatExport(
+                "2026-08-01",
+                Array.from({ length: 25 }, (_, index) => ({
+                    gamePk: 1001 + index,
+                    playerId: "player-b"
+                }))
+            )
+        )
+
+        const state: PlayerImportState = {
+            season: 2026,
+            currentDate: "2026-12-31",
+            statExports,
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
         }
+
+        subject.addAppearancesToState(
+            state,
+            statExports
+        )
+
+        subject.getOrCreateState = async (): Promise<PlayerImportState> => state
+        subject.advanceState = async (): Promise<void> => {}
 
         const counts = await service.getAppearanceCountsBeforeDate(
             2026,
-            "2026-07-28",
+            "2026-12-31",
             new Set([
                 "player-a",
                 "player-b",
@@ -557,15 +528,85 @@ describe("PlayerImportService", function () {
             counts.get("player-a"),
             162
         )
-
         assert.equal(
             counts.get("player-b"),
             25
         )
-
         assert.equal(
             counts.get("player-c"),
             0
+        )
+    })
+
+    it("passes dated exports and typed selections to the accumulator", async function () {
+        const service = createService()
+        const subject = service as any
+
+        const statExports = [
+            makeDatedStatExport(
+                "2026-07-01",
+                [
+                    {
+                        gamePk: 101,
+                        playerId: "player-a"
+                    },
+                    {
+                        gamePk: 101,
+                        playerId: "player-b"
+                    }
+                ]
+            )
+        ]
+
+        const state: PlayerImportState = {
+            season: 2026,
+            currentDate: "2026-07-01",
+            statExports: [],
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
+        }
+
+        subject.getOrCreateState = async (): Promise<PlayerImportState> => state
+        subject.getStatExport = (): StatExport => statExports[0].statExport
+        subject.removeUnneededDates = (): void => {}
+
+        const players = await service.buildCorePlayerImports(
+            2026,
+            "2026-07-02",
+            new Set([
+                "player-a",
+                "player-b"
+            ])
+        )
+
+        assert.equal(accumulationCalls.length, 1)
+        assert.equal(accumulationCalls[0].season, 2026)
+        assert.equal(accumulationCalls[0].statExports, state.statExports)
+
+        assert.deepEqual(
+            accumulationCalls[0].selections,
+            [
+                {
+                    playerId: "player-a",
+                    gamePks: [
+                        101
+                    ]
+                },
+                {
+                    playerId: "player-b",
+                    gamePks: [
+                        101
+                    ]
+                }
+            ]
+        )
+
+        assert.deepEqual(
+            Array.from(players.keys()),
+            [
+                "player-a",
+                "player-b"
+            ]
         )
     })
 
@@ -573,39 +614,35 @@ describe("PlayerImportService", function () {
         const service = createService()
         const subject = service as any
 
-        let builds = 0
-
-        subject.getAppearanceIndex = async (): Promise<any> => {
-            return {
-                season: 2026,
-                appearancesByPlayerId: new Map([
+        const state: PlayerImportState = {
+            season: 2026,
+            currentDate: "2026-07-02",
+            statExports: [
+                makeDatedStatExport(
+                    "2026-07-01",
                     [
-                        "player-a",
-                        [
-                            {
-                                sourceSeason: 2026,
-                                gamePk: 101,
-                                gameDate: "2026-07-01"
-                            }
-                        ]
+                        {
+                            gamePk: 101,
+                            playerId: "player-a"
+                        }
                     ]
-                ])
-            }
-        }
-
-        subject.buildFromSelectedGames = async (): Promise<Map<string, PlayerImportRaw>> => {
-            builds++
-
-            return new Map([
+                )
+            ],
+            players: new Map([
                 [
                     "player-a",
                     {
                         playerId: "player-a",
-                        firstName: "Test"
+                        firstName: "Test",
+                        lastName: "Player"
                     } as PlayerImportRaw
                 ]
-            ])
+            ]),
+            appearancesByPlayer: {}
         }
+
+        subject.getOrCreateState = async (): Promise<PlayerImportState> => state
+        subject.advanceState = async (): Promise<void> => {}
 
         const first = await service.buildCorePlayerImports(
             2026,
@@ -623,49 +660,53 @@ describe("PlayerImportService", function () {
             ])
         )
 
-        assert.equal(builds, 1)
+        assert.equal(accumulationCalls.length, 0)
         assert.notEqual(first, second)
-        assert.notEqual(first.get("player-a"), second.get("player-a"))
+        assert.notEqual(
+            first.get("player-a"),
+            second.get("player-a")
+        )
         assert.deepEqual(first, second)
     })
 
-    it("force rebuild clears the existing core import cache", async function () {
+    it("force rebuild clears the existing core import cache and state", async function () {
         const service = createService()
         const subject = service as any
 
-        let builds = 0
+        let stateBuilds = 0
 
-        subject.getAppearanceIndex = async (): Promise<any> => {
+        subject.getOrCreateState = async (): Promise<PlayerImportState> => {
+            stateBuilds++
+
             return {
                 season: 2026,
-                appearancesByPlayerId: new Map([
-                    [
-                        "player-a",
+                currentDate: "2026-07-02",
+                statExports: [
+                    makeDatedStatExport(
+                        "2026-07-01",
                         [
                             {
-                                sourceSeason: 2026,
                                 gamePk: 101,
-                                gameDate: "2026-07-01"
+                                playerId: "player-a"
                             }
                         ]
+                    )
+                ],
+                players: new Map([
+                    [
+                        "player-a",
+                        {
+                            playerId: "player-a",
+                            firstName: "Test",
+                            lastName: "Player"
+                        } as PlayerImportRaw
                     ]
-                ])
+                ]),
+                appearancesByPlayer: {}
             }
         }
 
-        subject.buildFromSelectedGames = async (): Promise<Map<string, PlayerImportRaw>> => {
-            builds++
-
-            return new Map([
-                [
-                    "player-a",
-                    {
-                        playerId: "player-a",
-                        firstName: `Build ${builds}`
-                    } as PlayerImportRaw
-                ]
-            ])
-        }
+        subject.advanceState = async (): Promise<void> => {}
 
         await service.buildCorePlayerImports(
             2026,
@@ -675,7 +716,7 @@ describe("PlayerImportService", function () {
             ])
         )
 
-        const rebuilt = await service.buildCorePlayerImports(
+        await service.buildCorePlayerImports(
             2026,
             "2026-07-02",
             new Set([
@@ -684,11 +725,8 @@ describe("PlayerImportService", function () {
             true
         )
 
-        assert.equal(builds, 2)
-        assert.equal(
-            rebuilt.get("player-a")?.firstName,
-            "Build 2"
-        )
+        assert.equal(stateBuilds, 2)
+        assert.equal(accumulationCalls.length, 0)
     })
 
     it("writes and then reads season player imports from the results file", async function () {
@@ -712,51 +750,23 @@ describe("PlayerImportService", function () {
             ])
         }
 
-        const first = await service.buildSeasonPlayerImports(
-            2025,
-            new Set([
-                "player-a"
-            ])
-        )
-
-        const second = await service.buildSeasonPlayerImports(
-            2025,
-            new Set([
-                "player-a"
-            ])
-        )
+        const first = await service.buildSeasonPlayerImports(2025, new Set(["player-a"]))
+        const second = await service.buildSeasonPlayerImports(2025, new Set(["player-a"]))
 
         assert.equal(builds, 1)
         assert.deepEqual(first, second)
-
-        assert.equal(
-            fs.existsSync(
-                path.join(
-                    baseDataDir,
-                    "2025",
-                    "_results.json"
-                )
-            ),
-            true
-        )
+        assert.equal(fs.existsSync(path.join(baseDataDir, "2025", "_results.json")), true)
     })
 
     it("does not use a season results file created for different player IDs", async function () {
         const service = createService()
         const subject = service as any
 
-        const resultsPath = path.join(
-            baseDataDir,
-            "2025",
-            "_results.json"
-        )
+        const resultsPath = path.join(baseDataDir, "2025", "_results.json")
 
-        await fs.promises.mkdir(
-            path.dirname(resultsPath),
-            {
-                recursive: true
-            }
-        )
+        await fs.promises.mkdir(path.dirname(resultsPath), {
+            recursive: true
+        })
 
         await fs.promises.writeFile(
             resultsPath,
@@ -789,18 +799,10 @@ describe("PlayerImportService", function () {
             ])
         }
 
-        const players = await service.buildSeasonPlayerImports(
-            2025,
-            new Set([
-                "player-b"
-            ])
-        )
+        const players = await service.buildSeasonPlayerImports(2025, new Set(["player-b"]))
 
         assert.equal(builds, 1)
-        assert.equal(
-            players.has("player-b"),
-            true
-        )
+        assert.equal(players.has("player-b"), true)
     })
 
     it("builds a single season player import using a filtered player set", async function () {
@@ -809,10 +811,7 @@ describe("PlayerImportService", function () {
 
         let requestedPlayerIds: Set<string> | undefined
 
-        subject.buildSeasonPlayerImports = async (
-            _season: number,
-            playerIds?: Set<string>
-        ): Promise<Map<string, PlayerImportRaw>> => {
+        subject.buildSeasonPlayerImports = async (_season: number, playerIds?: Set<string>): Promise<Map<string, PlayerImportRaw>> => {
             requestedPlayerIds = playerIds
 
             return new Map([
@@ -825,10 +824,7 @@ describe("PlayerImportService", function () {
             ])
         }
 
-        const player = await service.buildSeasonPlayerImportRaw(
-            2026,
-            "player-a"
-        )
+        const player = await service.buildSeasonPlayerImportRaw(2026, "player-a")
 
         assert.deepEqual(
             Array.from(requestedPlayerIds ?? []),
@@ -837,20 +833,14 @@ describe("PlayerImportService", function () {
             ]
         )
 
-        assert.equal(
-            player?.playerId,
-            "player-a"
-        )
+        assert.equal(player?.playerId, "player-a")
     })
 
     it("rejects an invalid core import date", async function () {
         const service = createService()
 
         await assert.rejects(
-            service.buildCorePlayerImports(
-                2026,
-                "not-a-date"
-            ),
+            service.buildCorePlayerImports(2026, "not-a-date"),
             /Invalid date: not-a-date/
         )
     })
@@ -859,11 +849,7 @@ describe("PlayerImportService", function () {
         const service = createService()
 
         await assert.rejects(
-            service.buildDateRangePlayerImports(
-                2026,
-                "2026-07-01",
-                "invalid"
-            ),
+            service.buildDateRangePlayerImports(2026, "2026-07-01", "invalid"),
             /Invalid date: invalid/
         )
     })
@@ -872,16 +858,12 @@ describe("PlayerImportService", function () {
         const service = createService()
 
         await assert.rejects(
-            service.buildDateRangePlayerImports(
-                2026,
-                "2026-07-10",
-                "2026-07-10"
-            ),
+            service.buildDateRangePlayerImports(2026, "2026-07-10", "2026-07-10"),
             /Start date 2026-07-10 must be before end date 2026-07-10/
         )
     })
 
-    it("clears all internal caches", function () {
+    it("clears all internal caches and states", function () {
         const service = createService()
         const subject = service as any
 
@@ -890,63 +872,164 @@ describe("PlayerImportService", function () {
             new Map()
         )
 
-        subject.appearanceIndexes.set(
-            2026,
-            Promise.resolve({
-                season: 2026,
-                appearancesByPlayerId: new Map()
-            })
-        )
-
-        subject.gameFeeds.set(
-            101,
-            {
-                gamePk: 101
-            }
-        )
+        subject.states.push({
+            season: 2026,
+            currentDate: "2026-07-01",
+            statExports: [],
+            players: new Map<string, PlayerImportRaw>(),
+            appearancesByPlayer: {}
+        })
 
         service.clearCache()
 
         assert.equal(subject.importCache.size, 0)
-        assert.equal(subject.appearanceIndexes.size, 0)
-        assert.equal(subject.gameFeeds.size, 0)
+        assert.equal(subject.states.length, 0)
+    })
+
+    it("clears only the requested season", function () {
+        const service = createService()
+        const subject = service as any
+
+        subject.importCache.set(
+            "core:2025:2025-07-01:*",
+            new Map()
+        )
+
+        subject.importCache.set(
+            "core:2026:2026-07-01:*",
+            new Map()
+        )
+
+        subject.states.push(
+            {
+                season: 2025,
+                currentDate: "2025-07-01",
+                statExports: [],
+                players: new Map<string, PlayerImportRaw>(),
+                appearancesByPlayer: {}
+            },
+            {
+                season: 2026,
+                currentDate: "2026-07-01",
+                statExports: [],
+                players: new Map<string, PlayerImportRaw>(),
+                appearancesByPlayer: {}
+            }
+        )
+
+        service.clearCache(
+            2026
+        )
+
+        assert.equal(
+            subject.importCache.has("core:2025:2025-07-01:*"),
+            true
+        )
+
+        assert.equal(
+            subject.importCache.has("core:2026:2026-07-01:*"),
+            false
+        )
+
+        assert.deepEqual(
+            subject.states.map((state: PlayerImportState) =>
+                state.season
+            ),
+            [
+                2025
+            ]
+        )
     })
 
     function createService(): PlayerImportService {
         const statAccumulatorService = {
-            accumulateGameIntoSeasonPlayerImports(
-                season: number,
-                gamePk: number,
-                _gameData: any,
-                players: Map<string, PlayerImportRaw>,
-                filterPlayerIds?: Set<string>
-            ): void {
-                const playerIds = Array.from(
-                    filterPlayerIds ?? []
-                )
-
-                accumulatedGames.push({
+            accumulateStatExportsIntoPlayerImports(season: number, statExports: DatedStatExport[], selections: PlayerImportSelection[], players: Map<string, PlayerImportRaw>): void {
+                accumulationCalls.push({
                     season,
-                    gamePk,
-                    playerIds
+                    statExports,
+                    selections: structuredClone(selections)
                 })
 
-                for (const playerId of playerIds) {
-                    if (!players.has(playerId)) {
-                        players.set(
-                            playerId,
-                            {
-                                playerId
-                            } as PlayerImportRaw
-                        )
-                    }
+                for (const selection of selections) {
+                    players.set(
+                        selection.playerId,
+                        {
+                            playerId: selection.playerId,
+                            firstName: "Test",
+                            lastName: "Player"
+                        } as PlayerImportRaw
+                    )
                 }
             }
         } as StatAccumulatorService
 
-        return new PlayerImportService(
-            baseDataDir,
-            statAccumulatorService
-        )
+        const service = new PlayerImportService(baseDataDir, statAccumulatorService)
+        const subject = service as any
+
+        subject.finalizePlayers = (): void => {}
+
+        return service
+    }
+
+    function makeDatedStatExport(date: string, appearances: AppearanceInput[]): DatedStatExport {
+        return {
+            date,
+            statExport: makeStatExport(appearances)
+        }
+    }
+
+    function makeStatExport(appearances: AppearanceInput[]): StatExport {
+        const gameDatesByPk = new Map<number, string>()
+
+        for (const appearance of appearances) {
+            gameDatesByPk.set(
+                appearance.gamePk,
+                appearance.gameDate ?? "2026-07-01"
+            )
+        }
+
+        return {
+            games: Array.from(gameDatesByPk.entries()).map(([gamePk, gameDate]) => ({
+                gamePk,
+                gameDate
+            })),
+            appearances: appearances.map(appearance => ({
+                gamePk: appearance.gamePk,
+                playerId: appearance.playerId,
+                teamId: 1,
+                appearedAsBatter: true,
+                appearedAsPitcher: false,
+                appearedAsRunner: false,
+                appearedAsFielder: false,
+                startedAsBatter: true,
+                startedAsPitcher: false,
+                startedAsFielder: false
+            })) as any,
+            plateAppearances: [],
+            pitches: [],
+            runnerMovements: [],
+            fieldingCredits: [],
+            defensiveEvents: []
+        }
+    }
+
+    function addDays(value: string, days: number): string {
+        const date = new Date(`${value}T12:00:00.000Z`)
+
+        date.setUTCDate(date.getUTCDate() + days)
+
+        return date.toISOString().slice(0, 10)
     }
 })
+
+interface AppearanceInput {
+    gamePk: number
+    playerId: string
+    gameDate?: string
+}
+
+interface AccumulationCall {
+    season: number
+    statExports: DatedStatExport[]
+    selections: PlayerImportSelection[]
+}

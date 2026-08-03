@@ -1,4 +1,5 @@
 import { PlayerImportRaw } from "../../sim/service/interfaces.js";
+import type { DatedStatExport, PlayerImportSelection } from "./player-import-service.js";
 declare class StatAccumulatorService {
     private readonly IN_ZONE;
     private readonly PA_EVENTS;
@@ -8,6 +9,8 @@ declare class StatAccumulatorService {
     private readonly INFIELD_POSITIONS;
     private readonly SIMPLE_LOCATION_POSITIONS;
     accumulateGameIntoSeasonPlayerImports(season: number, gamePk: number, gameData: any, players: Map<string, PlayerImportRaw>, filterPlayerIds?: Set<string>): void;
+    accumulateStatExportsIntoPlayerImports(season: number, statExports: DatedStatExport[], selections: PlayerImportSelection[], players: Map<string, PlayerImportRaw>): void;
+    private getSelectedPlayerIds;
     private getFlyBallDepth;
     private updateRunningAdvancementForPlay;
     private emptyExitVelocityStat;
@@ -57,5 +60,16 @@ declare class StatAccumulatorService {
     private incrementBehaviorByCount;
     private mapHandedness;
     private chargePitcherRunsForPlay;
+    private buildGameDataFromStatExport;
+    private getGameTeamIds;
+    private buildBoxscoreTeam;
+    private getAppearancePositions;
+    private buildPlayFromStatExport;
+    private buildRawPitchEvent;
+    private buildRawRunnerMovement;
+    private buildRawFieldingCredit;
+    private getOptionalNumber;
+    private groupByGamePk;
+    private groupByAtBatIndex;
 }
 export { StatAccumulatorService };

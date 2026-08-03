@@ -1,60 +1,71 @@
+import type { StatExport } from "baseball-database";
 import type { PlayerImportRaw } from "../../sim/service/interfaces.js";
 import { StatAccumulatorService } from "./stat-accumulator-service.js";
 declare class PlayerImportService {
     private readonly baseDataDir;
     private readonly statAccumulatorService;
     private readonly importCache;
-    private readonly appearanceIndexes;
-    private readonly gameFeeds;
+    private readonly states;
     constructor(baseDataDir: string, statAccumulatorService: StatAccumulatorService);
     buildSeasonPlayerImports(season: number, filterPlayerIds?: Set<string>, forceFullReimport?: boolean): Promise<Map<string, PlayerImportRaw>>;
     buildSeasonPlayerImportRaw(season: number, playerId: string, forceFullReimport?: boolean): Promise<PlayerImportRaw | undefined>;
     buildCorePlayerImports(season: number, gameDate: string, filterPlayerIds?: Set<string>, forceFullReimport?: boolean): Promise<Map<string, PlayerImportRaw>>;
     buildDateRangePlayerImports(season: number, startDate: string, endDateExclusive: string, filterPlayerIds?: Set<string>, forceFullReimport?: boolean): Promise<Map<string, PlayerImportRaw>>;
     getAppearanceCountsBeforeDate(season: number, gameDate: string, filterPlayerIds?: Set<string>): Promise<Map<string, number>>;
-    buildFromGameFeeds(season: number, gameFeeds: PlayerImportGameFeed[]): Map<string, PlayerImportRaw>;
     clearCache(season?: number): void;
-    private buildFromSelectedGames;
-    private getAppearanceIndex;
-    private buildAppearanceIndex;
-    private getSeasonScheduleGames;
-    private getGameFeed;
+    private getOrCreateState;
+    private advanceState;
+    private addAppearancesToState;
+    private getStatExport;
+    private getPlayerIdsFromExports;
+    private splitStatExportByDate;
+    private filterStatExportByDate;
+    private removeUnneededDates;
+    private getRequiredStartDate;
+    private buildCoreSelections;
+    private filterPlayerImports;
+    private buildDateRangeSelections;
+    private buildFromState;
+    private buildFromExports;
+    private getSelectedGameCount;
+    private loadDatedStatExports;
     private resolvePlayerIds;
-    private addSelectedGamePlayer;
-    private accumulateGame;
+    private getPlayerAppearances;
     private finalizePlayers;
     private finalizePlayer;
-    private getParticipatingPlayerIds;
-    private isCompletedScheduleGame;
-    private isGameComplete;
     private normalizePlayerIds;
     private samePlayerIds;
     private getCacheKey;
-    private getGameKey;
     private getResultsFilePath;
     private readResultsFile;
     private writeResultsFile;
     private resultsFileToPlayerMap;
     private clonePlayerImportMap;
     private validateIsoDate;
+    private addDays;
     private isCurrentSeason;
     private getTomorrowUtcDate;
     private fileExists;
+    private formatDuration;
 }
-interface PlayerImportGameFeed {
-    sourceSeason: number;
-    gamePk: number;
-    data: any;
-    playerIds: string[];
+interface DatedStatExport {
+    date: string;
+    statExport: StatExport;
 }
-interface PlayerGameReference {
-    sourceSeason: number;
-    gamePk: number;
-    gameDate: string;
-}
-interface PlayerAppearanceIndex {
+interface PlayerImportState {
     season: number;
-    appearancesByPlayerId: Map<string, PlayerGameReference[]>;
+    currentDate: string;
+    statExports: DatedStatExport[];
+    players: Map<string, PlayerImportRaw>;
+    appearancesByPlayer: Record<string, PlayerAppearanceReference[]>;
+}
+interface PlayerImportSelection {
+    playerId: string;
+    gamePks: number[];
+}
+interface PlayerAppearanceReference {
+    gamePk: number;
+    date: string;
 }
 export { PlayerImportService };
-export type { PlayerImportGameFeed, PlayerGameReference, PlayerAppearanceIndex };
+export type { DatedStatExport, PlayerImportSelection, PlayerImportState };

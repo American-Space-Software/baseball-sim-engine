@@ -203,7 +203,6 @@ class PlayerRatingService {
         }
     }
 
-
     static createPlayerFromImportRaw(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw): PlayerFromStatsCommand {
         const hasHittingSample = playerImportRaw.hitting.pa > 0
         const hasPitchingSample = playerImportRaw.pitching.battersFaced > 0

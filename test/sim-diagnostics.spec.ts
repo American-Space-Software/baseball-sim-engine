@@ -22,7 +22,6 @@ import {
 
 import type {
     PitchEnvironmentTarget,
-    PitchEnvironmentTuning,
     Game,
     GamePlayer,
     RunnerEvent,
@@ -31,6 +30,12 @@ import type {
     PitchZone,
     StadiumEnvironment
 } from "../src/sim/index.js"
+
+
+import type {
+    PitchEnvironmentTuning,
+} from "../src/importer/index.js"
+
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
