@@ -1,22 +1,24 @@
-import { PitchType, Position } from "../../sim/service/enums.js"
-import { Game, GamePlayer, HitResultCount, HittingRatings, PitchEnvironmentTarget, PitchRatings, PitchResultCount, PitchTypeMovementStat, Player, PlayerFromStatsCommand, PlayerImportRaw, RatingTuning } from "../../sim/service/interfaces.js"
-import { clamp, getAverage, safeDiv } from "../util.js"
+import { PitchType } from "../../sim/service/enums.js"
+
+import type {
+    HittingRatings,
+    PitchEnvironmentTarget,
+    PitchRatings,
+    PitchTypeMovementStat,
+    PlayerRatingInput
+} from "../../sim/service/interfaces.js"
+import { PlayerRatingInputRepository } from "../repository/player-rating-input-repository.js"
+
+import {
+    clamp,
+    getAverage,
+    safeDiv
+} from "../util.js"
 
 
-import { v4 as uuidv4 } from 'uuid'
-import { BaselineGameService } from "./baseline-game-service.js"
-import { GameInfo, SimService } from "../../sim/service/sim-service.js"
-import { StatService } from "../../sim/service/stat-service.js"
-import { PlayerImportService } from "../../importer/service/player-import-service.js"
 
 interface GeneratedPlayerRatings {
     playerId: string
-    firstName: string
-    lastName: string
-    primaryPosition: any
-    age: number
-    throws: any
-    hits: any
     hittingRatings: HittingRatings
     pitchRatings: PitchRatings
 }
@@ -25,40 +27,60 @@ interface GeneratedPlayerRatings {
 interface RatingWindow {
     name: string
     weight: number
+    maximumAppearances?: number
     minimumDaysAgo?: number
     maximumDaysAgo?: number
     minimumPlateAppearances: number
 }
-
 interface WeightedRatingsSet {
     ratings: GeneratedPlayerRatings
     weight: number
-    generated: boolean
+}
+
+interface PlayerRatingState {
+    season: number
+    currentDate: string
+    pitchEnvironmentSignature: string
+    careerInputs: Map<string, PlayerRatingInput>
+    last162Inputs: Map<string, PlayerRatingInput>
+    recentInputsByWindow: Map<string, Map<string, PlayerRatingInput>>
+    ratingsByPlayerId: Map<string, GeneratedPlayerRatings>
+}
+
+interface RatingDateRange {
+    startDate: string
+    endDateExclusive: string
 }
 
 const ratingWindows: RatingWindow[] = [
     {
-        name: "core",
-        weight: 0.75,
+        name: "career",
+        weight: 0.50,
+        minimumPlateAppearances: 0
+    },
+    {
+        name: "last-162",
+        weight: 0.30,
+        maximumAppearances: 162,
         minimumPlateAppearances: 0
     },
     {
         name: "16-30",
-        weight: 0.15,
+        weight: 0.12,
         minimumDaysAgo: 16,
         maximumDaysAgo: 30,
         minimumPlateAppearances: 25
     },
     {
         name: "8-15",
-        weight: 0.075,
+        weight: 0.06,
         minimumDaysAgo: 8,
         maximumDaysAgo: 15,
         minimumPlateAppearances: 15
     },
     {
         name: "1-7",
-        weight: 0.025,
+        weight: 0.02,
         minimumDaysAgo: 1,
         maximumDaysAgo: 7,
         minimumPlateAppearances: 10
@@ -68,91 +90,439 @@ const ratingWindows: RatingWindow[] = [
 
 class PlayerRatingService {
 
+    private readonly states: PlayerRatingState[] = []
+
     constructor(
-        private readonly simService: SimService,
-        private readonly statService: StatService,
-        private readonly baselineGameService: BaselineGameService,
-        private readonly playerImportService: PlayerImportService
+        private readonly playerRatingInputRepository: PlayerRatingInputRepository,
     ) {}
 
 
     public async buildPlayerRatingsForDate(season: number, gameDate: string, pitchEnvironment: PitchEnvironmentTarget, filterPlayerIds?: Set<string>): Promise<Map<string, GeneratedPlayerRatings>> {
-        const coreWindow = ratingWindows.find(window =>
-            window.name === "core"
-        )
-
-        if (!coreWindow) {
-            throw new Error("The core rating window is not configured.")
-        }
-
-        const recentWindows = ratingWindows.filter(window =>
-            window.name !== "core"
-        )
-
-        const coreImports = await this.playerImportService.buildCorePlayerImports(
+        const startedAt = Date.now()
+        const state = this.getOrCreateState(
             season,
-            gameDate,
+            gameDate
+        )
+
+        const selectedPlayerIds = this.getSelectedPlayerIds(
+            season,
             filterPlayerIds
         )
 
-        const recentImportsByWindow = new Map<string, Map<string, PlayerImportRaw>>()
+        const pitchEnvironmentSignature = JSON.stringify(
+            pitchEnvironment
+        )
 
-        for (const window of recentWindows) {
+        let affectedPlayerIds: Set<string>
+
+        if (state.currentDate === `${season - 1}-01-01`) {
+            affectedPlayerIds = this.initializeState(
+                state,
+                gameDate,
+                selectedPlayerIds
+            )
+        } else if (state.currentDate < gameDate) {
+            affectedPlayerIds = this.advanceState(
+                state,
+                gameDate,
+                selectedPlayerIds
+            )
+        } else {
+            affectedPlayerIds = this.loadMissingPlayers(
+                state,
+                gameDate,
+                selectedPlayerIds
+            )
+        }
+
+        if (state.pitchEnvironmentSignature !== pitchEnvironmentSignature) {
+            affectedPlayerIds = new Set(
+                selectedPlayerIds
+            )
+        }
+
+        console.log(
+            `Preparing ratings for ${selectedPlayerIds.size} players through ${gameDate}; ` +
+            `${affectedPlayerIds.size} require rebuilding.`
+        )
+
+        this.rebuildPlayerRatings(
+            state,
+            pitchEnvironment,
+            affectedPlayerIds
+        )
+
+        state.currentDate = gameDate
+        state.pitchEnvironmentSignature = pitchEnvironmentSignature
+
+        const ratings = new Map<string, GeneratedPlayerRatings>()
+
+        for (const playerId of selectedPlayerIds) {
+            const playerRatings = state.ratingsByPlayerId.get(
+                playerId
+            )
+
+            if (!playerRatings) {
+                continue
+            }
+
+            ratings.set(
+                playerId,
+                structuredClone(
+                    playerRatings
+                )
+            )
+        }
+
+        console.log(
+            `Built ${ratings.size} player ratings in ` +
+            `${this.formatDuration(Date.now() - startedAt)}.`
+        )
+
+        return ratings
+    }
+
+    public clearCache(season?: number): void {
+        if (season === undefined) {
+            this.states.length = 0
+            return
+        }
+
+        const stateIndex = this.states.findIndex(state =>
+            state.season === season
+        )
+
+        if (stateIndex >= 0) {
+            this.states.splice(
+                stateIndex,
+                1
+            )
+        }
+    }
+
+    private getOrCreateState(season: number, gameDate: string): PlayerRatingState {
+        const existing = this.states.find(state =>
+            state.season === season
+        )
+
+        if (
+            existing &&
+            gameDate >= existing.currentDate
+        ) {
+            return existing
+        }
+
+        if (existing) {
+            this.states.splice(
+                this.states.indexOf(existing),
+                1
+            )
+        }
+
+        const created: PlayerRatingState = {
+            season,
+            currentDate: `${season - 1}-01-01`,
+            pitchEnvironmentSignature: "",
+            careerInputs: new Map<string, PlayerRatingInput>(),
+            last162Inputs: new Map<string, PlayerRatingInput>(),
+            recentInputsByWindow: new Map<string, Map<string, PlayerRatingInput>>(),
+            ratingsByPlayerId: new Map<string, GeneratedPlayerRatings>()
+        }
+
+        this.states.push(
+            created
+        )
+
+        return created
+    }
+
+    private getSelectedPlayerIds(season: number, filterPlayerIds?: Set<string>): Set<string> {
+        if (
+            filterPlayerIds &&
+            filterPlayerIds.size > 0
+        ) {
+            return new Set(
+                Array.from(filterPlayerIds)
+                    .map(playerId =>
+                        String(playerId)
+                    )
+            )
+        }
+
+        return this.playerRatingInputRepository.getPlayerIdsForSeason(
+            season
+        )
+    }
+
+    private initializeState(state: PlayerRatingState, gameDate: string, selectedPlayerIds: Set<string>): Set<string> {
+        const startedAt = Date.now()
+
+        state.careerInputs = this.playerRatingInputRepository.getCareer(
+            gameDate,
+            selectedPlayerIds
+        )
+
+        state.last162Inputs = this.playerRatingInputRepository.getLastAppearances(
+            gameDate,
+            this.getLast162Window().maximumAppearances ?? 162,
+            selectedPlayerIds
+        )
+
+        state.recentInputsByWindow.clear()
+
+        for (const window of this.getRecentWindows()) {
             const dateRange = PlayerRatingService.getWindowDateRange(
                 gameDate,
                 window
             )
 
-            recentImportsByWindow.set(
+            state.recentInputsByWindow.set(
                 window.name,
-                await this.playerImportService.buildDateRangePlayerImports(
-                    season,
+                this.playerRatingInputRepository.getForDateRange(
                     dateRange.startDate,
                     dateRange.endDateExclusive,
-                    filterPlayerIds
+                    selectedPlayerIds
                 )
             )
         }
 
-        const playerIds = filterPlayerIds && filterPlayerIds.size > 0
-            ? new Set(Array.from(filterPlayerIds).map(String))
-            : new Set(coreImports.keys())
+        console.log(
+            `Initialized rating inputs for ${state.careerInputs.size} players in ` +
+            `${this.formatDuration(Date.now() - startedAt)}.`
+        )
 
-        for (const imports of recentImportsByWindow.values()) {
-            for (const playerId of imports.keys()) {
-                playerIds.add(playerId)
+        return new Set(
+            selectedPlayerIds
+        )
+    }
+
+    private advanceState(state: PlayerRatingState, gameDate: string, selectedPlayerIds: Set<string>): Set<string> {
+        const startedAt = Date.now()
+        const affectedPlayerIds = this.loadMissingPlayers(
+            state,
+            gameDate,
+            selectedPlayerIds
+        )
+
+        const addedInputs = this.playerRatingInputRepository.getForDateRange(
+            state.currentDate,
+            gameDate,
+            selectedPlayerIds
+        )
+
+        for (const [playerId, addedInput] of addedInputs) {
+            affectedPlayerIds.add(
+                playerId
+            )
+
+            const existingCareerInput = state.careerInputs.get(
+                playerId
+            )
+
+            state.careerInputs.set(
+                playerId,
+                existingCareerInput
+                    ? this.addPlayerRatingInputs(existingCareerInput, addedInput)
+                    : structuredClone(addedInput)
+            )
+        }
+
+        for (const window of this.getRecentWindows()) {
+            const previousRange = PlayerRatingService.getWindowDateRange(
+                state.currentDate,
+                window
+            )
+
+            const currentRange = PlayerRatingService.getWindowDateRange(
+                gameDate,
+                window
+            )
+
+            for (const changedRange of this.getChangedDateRanges(previousRange, currentRange)) {
+                const changedInputs = this.playerRatingInputRepository.getForDateRange(
+                    changedRange.startDate,
+                    changedRange.endDateExclusive,
+                    selectedPlayerIds
+                )
+
+                this.addPlayerIds(
+                    affectedPlayerIds,
+                    changedInputs
+                )
             }
         }
 
-        const ratingsByPlayerId = new Map<string, GeneratedPlayerRatings>()
+        if (affectedPlayerIds.size > 0) {
+            const refreshedLast162Inputs = this.playerRatingInputRepository.getLastAppearances(
+                gameDate,
+                this.getLast162Window().maximumAppearances ?? 162,
+                affectedPlayerIds
+            )
 
-        for (const playerId of playerIds) {
-            const coreImport = coreImports.get(playerId)
+            this.replaceInputs(
+                state.last162Inputs,
+                affectedPlayerIds,
+                refreshedLast162Inputs
+            )
 
-            if (!coreImport) {
+            for (const window of this.getRecentWindows()) {
+                const dateRange = PlayerRatingService.getWindowDateRange(
+                    gameDate,
+                    window
+                )
+
+                const refreshedInputs = this.playerRatingInputRepository.getForDateRange(
+                    dateRange.startDate,
+                    dateRange.endDateExclusive,
+                    affectedPlayerIds
+                )
+
+                const windowInputs =
+                    state.recentInputsByWindow.get(window.name) ??
+                    new Map<string, PlayerRatingInput>()
+
+                this.replaceInputs(
+                    windowInputs,
+                    affectedPlayerIds,
+                    refreshedInputs
+                )
+
+                state.recentInputsByWindow.set(
+                    window.name,
+                    windowInputs
+                )
+            }
+        }
+
+        console.log(
+            `Advanced rating inputs from ${state.currentDate} to ${gameDate}; ` +
+            `${affectedPlayerIds.size} players changed in ` +
+            `${this.formatDuration(Date.now() - startedAt)}.`
+        )
+
+        return affectedPlayerIds
+    }
+
+    private loadMissingPlayers(state: PlayerRatingState, gameDate: string, selectedPlayerIds: Set<string>): Set<string> {
+        const missingPlayerIds = new Set(
+            Array.from(selectedPlayerIds).filter(playerId =>
+                !state.careerInputs.has(playerId)
+            )
+        )
+
+        if (missingPlayerIds.size === 0) {
+            return missingPlayerIds
+        }
+
+        const careerInputs = this.playerRatingInputRepository.getCareer(
+            gameDate,
+            missingPlayerIds
+        )
+
+        const last162Inputs = this.playerRatingInputRepository.getLastAppearances(
+            gameDate,
+            this.getLast162Window().maximumAppearances ?? 162,
+            missingPlayerIds
+        )
+
+        this.replaceInputs(
+            state.careerInputs,
+            missingPlayerIds,
+            careerInputs
+        )
+
+        this.replaceInputs(
+            state.last162Inputs,
+            missingPlayerIds,
+            last162Inputs
+        )
+
+        for (const window of this.getRecentWindows()) {
+            const dateRange = PlayerRatingService.getWindowDateRange(
+                gameDate,
+                window
+            )
+
+            const inputs = this.playerRatingInputRepository.getForDateRange(
+                dateRange.startDate,
+                dateRange.endDateExclusive,
+                missingPlayerIds
+            )
+
+            const windowInputs =
+                state.recentInputsByWindow.get(window.name) ??
+                new Map<string, PlayerRatingInput>()
+
+            this.replaceInputs(
+                windowInputs,
+                missingPlayerIds,
+                inputs
+            )
+
+            state.recentInputsByWindow.set(
+                window.name,
+                windowInputs
+            )
+        }
+
+        return missingPlayerIds
+    }
+
+    private rebuildPlayerRatings(state: PlayerRatingState, pitchEnvironment: PitchEnvironmentTarget, affectedPlayerIds: Set<string>): void {
+        if (affectedPlayerIds.size === 0) {
+            return
+        }
+
+        const careerWindow = this.getCareerWindow()
+        const last162Window = this.getLast162Window()
+        const recentWindows = this.getRecentWindows()
+
+        for (const playerId of affectedPlayerIds) {
+            const careerInput = state.careerInputs.get(
+                playerId
+            )
+
+            if (!careerInput) {
+                state.ratingsByPlayerId.delete(
+                    playerId
+                )
+
                 continue
             }
 
             const ratingSets: WeightedRatingsSet[] = [
                 {
-                    weight: coreWindow.weight,
-                    generated: true,
+                    weight: careerWindow.weight,
                     ratings: PlayerRatingService.buildPlayerRatings(
                         pitchEnvironment,
-                        coreImport
+                        careerInput
                     )
                 }
             ]
 
+            const last162Input = state.last162Inputs.get(
+                playerId
+            )
+
+            if (last162Input) {
+                ratingSets.push({
+                    weight: last162Window.weight,
+                    ratings: PlayerRatingService.buildPlayerRatings(
+                        pitchEnvironment,
+                        last162Input
+                    )
+                })
+            }
+
             for (const window of recentWindows) {
-                const playerImport = recentImportsByWindow
+                const playerInput = state.recentInputsByWindow
                     .get(window.name)
                     ?.get(playerId)
 
                 if (
-                    !playerImport ||
+                    !playerInput ||
                     !PlayerRatingService.hasMinimumWindowSample(
-                        playerImport,
+                        playerInput,
                         window
                     )
                 ) {
@@ -161,109 +531,264 @@ class PlayerRatingService {
 
                 ratingSets.push({
                     weight: window.weight,
-                    generated: true,
                     ratings: PlayerRatingService.buildPlayerRatings(
                         pitchEnvironment,
-                        playerImport
+                        playerInput
                     )
                 })
             }
 
-            ratingsByPlayerId.set(
+            state.ratingsByPlayerId.set(
                 playerId,
                 PlayerRatingService.buildWeightedPlayerRatings(
                     ratingSets
                 )
             )
         }
-
-        return ratingsByPlayerId
     }
 
-    private static buildPlayerRatings(pitchEnvironment: PitchEnvironmentTarget, playerImport: PlayerImportRaw): GeneratedPlayerRatings {
-        const command = PlayerRatingService.createPlayerFromImportRaw(
-            pitchEnvironment,
-            playerImport
+    private addPlayerRatingInputs(existing: PlayerRatingInput, added: PlayerRatingInput): PlayerRatingInput {
+        const merged = this.addRatingValues(
+            existing,
+            added,
+            []
+        ) as PlayerRatingInput
+
+        merged.playerId = existing.playerId
+
+        this.finalizePlayerRatingInput(
+            merged
         )
 
-        const generated = PlayerRatingService.createPlayerFromStatsCommand(
-            command
-        )
+        return merged
+    }
 
-        return {
-            playerId: String(playerImport.playerId),
-            firstName: playerImport.firstName,
-            lastName: playerImport.lastName,
-            primaryPosition: playerImport.primaryPosition,
-            age: playerImport.age,
-            throws: playerImport.throws,
-            hits: playerImport.bats,
-            hittingRatings: generated.hittingRatings,
-            pitchRatings: generated.pitchRatings
+    private addRatingValues(existing: any, added: any, path: string[]): any {
+        if (typeof existing === "number" || typeof added === "number") {
+            const existingValue = Number(
+                existing ??
+                0
+            )
+
+            const addedValue = Number(
+                added ??
+                0
+            )
+
+            if (
+                path.at(-1)?.startsWith("avg") ||
+                path.at(-1) === "exitVelocity"
+            ) {
+                return existingValue
+            }
+
+            return existingValue + addedValue
+        }
+
+        if (Array.isArray(existing) || Array.isArray(added)) {
+            return structuredClone(
+                existing ??
+                added ??
+                []
+            )
+        }
+
+        if (
+            existing &&
+            typeof existing === "object" ||
+            added &&
+            typeof added === "object"
+        ) {
+            const result: Record<string, any> = {}
+            const keys = new Set([
+                ...Object.keys(existing ?? {}),
+                ...Object.keys(added ?? {})
+            ])
+
+            for (const key of keys) {
+                result[key] = this.addRatingValues(
+                    existing?.[key],
+                    added?.[key],
+                    [
+                        ...path,
+                        key
+                    ]
+                )
+            }
+
+            return result
+        }
+
+        return structuredClone(
+            existing ??
+            added
+        )
+    }
+
+    private finalizePlayerRatingInput(playerInput: PlayerRatingInput): void {
+        const exitVelocity = playerInput.hitting.exitVelocity
+
+        if (exitVelocity) {
+            exitVelocity.avgExitVelo = exitVelocity.count > 0
+                ? Number((exitVelocity.totalExitVelo / exitVelocity.count).toFixed(3))
+                : 0
+        }
+
+        for (const pitchType of Object.values(playerInput.pitching.pitchTypes ?? {})) {
+            if (!pitchType) {
+                continue
+            }
+
+            pitchType.avgMph = pitchType.count > 0
+                ? Number((pitchType.totalMph / pitchType.count).toFixed(3))
+                : 0
+
+            pitchType.avgHorizontalBreak = pitchType.count > 0
+                ? Number((pitchType.totalHorizontalBreak / pitchType.count).toFixed(3))
+                : 0
+
+            pitchType.avgVerticalBreak = pitchType.count > 0
+                ? Number((pitchType.totalVerticalBreak / pitchType.count).toFixed(3))
+                : 0
         }
     }
 
-    static createPlayerFromImportRaw(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw): PlayerFromStatsCommand {
-        const hasHittingSample = playerImportRaw.hitting.pa > 0
-        const hasPitchingSample = playerImportRaw.pitching.battersFaced > 0
+    private replaceInputs(target: Map<string, PlayerRatingInput>, playerIds: Set<string>, replacement: Map<string, PlayerRatingInput>): void {
+        for (const playerId of playerIds) {
+            target.delete(
+                playerId
+            )
+        }
 
-        const primaryRole: "hitter" | "pitcher" | "twoWay" =
-            hasHittingSample && hasPitchingSample
-                ? "twoWay"
-                : hasPitchingSample
-                    ? "pitcher"
-                    : "hitter"
-
-        return {
-            season: pitchEnvironment.season,
-            playerId: playerImportRaw.playerId,
-            firstName: playerImportRaw.firstName,
-            lastName: playerImportRaw.lastName,
-            age: playerImportRaw.age,
-            primaryPosition: playerImportRaw.primaryPosition,
-            secondaryPositions: playerImportRaw.secondaryPositions ?? [],
-            throws: playerImportRaw.throws,
-            hits: playerImportRaw.bats,
-            primaryRole,
-            hitter: {
-                ...playerImportRaw.hitting
-            },
-            pitcher: {
-                ...playerImportRaw.pitching
-            },
-            fielding: {
-                ...playerImportRaw.fielding,
-                gamesAtPosition: { ...(playerImportRaw.fielding?.gamesAtPosition ?? {}) },
-                inningsAtPosition: { ...(playerImportRaw.fielding?.inningsAtPosition ?? {}) }
-            },
-            running: {
-                ...playerImportRaw.running
-            },
-            splits: {
-                hitting: {
-                    vsL: { ...playerImportRaw.splits.hitting.vsL },
-                    vsR: { ...playerImportRaw.splits.hitting.vsR }
-                },
-                pitching: {
-                    vsL: { ...playerImportRaw.splits.pitching.vsL },
-                    vsR: { ...playerImportRaw.splits.pitching.vsR }
-                }
-            },
-            pitchEnvironmentTarget: pitchEnvironment
+        for (const [playerId, playerInput] of replacement) {
+            target.set(
+                playerId,
+                structuredClone(
+                    playerInput
+                )
+            )
         }
     }
 
-    static buildHittingRatings(command: PlayerFromStatsCommand): HittingRatings {
-        const env = command.pitchEnvironmentTarget
+    private getCareerWindow(): RatingWindow {
+        const window = ratingWindows.find(candidate =>
+            candidate.name === "career"
+        )
+
+        if (!window) {
+            throw new Error(
+                "Career rating window must be configured."
+            )
+        }
+
+        return window
+    }
+
+    private getLast162Window(): RatingWindow {
+        const window = ratingWindows.find(candidate =>
+            candidate.name === "last-162"
+        )
+
+        if (!window) {
+            throw new Error(
+                "Last-162 rating window must be configured."
+            )
+        }
+
+        return window
+    }
+
+    private getRecentWindows(): RatingWindow[] {
+        return ratingWindows.filter(window =>
+            window.minimumDaysAgo !== undefined &&
+            window.maximumDaysAgo !== undefined
+        )
+    }
+
+    private getChangedDateRanges(previousRange: RatingDateRange, currentRange: RatingDateRange): RatingDateRange[] {
+        if (
+            previousRange.startDate === currentRange.startDate &&
+            previousRange.endDateExclusive === currentRange.endDateExclusive
+        ) {
+            return []
+        }
+
+        if (
+            currentRange.startDate >= previousRange.endDateExclusive ||
+            previousRange.startDate >= currentRange.endDateExclusive
+        ) {
+            return [
+                previousRange,
+                currentRange
+            ]
+        }
+
+        const ranges: RatingDateRange[] = []
+
+        if (previousRange.startDate < currentRange.startDate) {
+            ranges.push({
+                startDate: previousRange.startDate,
+                endDateExclusive: currentRange.startDate
+            })
+        } else if (currentRange.startDate < previousRange.startDate) {
+            ranges.push({
+                startDate: currentRange.startDate,
+                endDateExclusive: previousRange.startDate
+            })
+        }
+
+        if (previousRange.endDateExclusive < currentRange.endDateExclusive) {
+            ranges.push({
+                startDate: previousRange.endDateExclusive,
+                endDateExclusive: currentRange.endDateExclusive
+            })
+        } else if (currentRange.endDateExclusive < previousRange.endDateExclusive) {
+            ranges.push({
+                startDate: currentRange.endDateExclusive,
+                endDateExclusive: previousRange.endDateExclusive
+            })
+        }
+
+        return ranges.filter(range =>
+            range.startDate < range.endDateExclusive
+        )
+    }
+
+    private addPlayerIds(target: Set<string>, inputs: Map<string, PlayerRatingInput>): void {
+        for (const playerId of inputs.keys()) {
+            target.add(
+                String(playerId)
+            )
+        }
+    }
+
+    private static buildPlayerRatings(pitchEnvironment: PitchEnvironmentTarget, playerInput: PlayerRatingInput): GeneratedPlayerRatings {
+        return {
+            playerId: playerInput.playerId,
+            hittingRatings: PlayerRatingService.buildHittingRatings(
+                pitchEnvironment,
+                playerInput
+            ),
+            pitchRatings: PlayerRatingService.buildPitchRatings(
+                pitchEnvironment,
+                playerInput
+            )
+        }
+    }
+
+    public static buildHittingRatings(env: PitchEnvironmentTarget, playerInput: PlayerRatingInput): HittingRatings {
         const avgRating = env.avgRating
+        const hitter = playerInput.hitting
 
-        if (command.hitter.pa <= 0) {
-            return this.emptyHittingRatings(env, command)
+        if (hitter.pa <= 0) {
+            return this.emptyHittingRatings(
+                env,
+                playerInput
+            )
         }
 
-        const hitter = command.hitter
-        const vsR = command.splits.hitting.vsR
-        const vsL = command.splits.hitting.vsL
+        const vsR = playerInput.splits.hitting.vsR
+        const vsL = playerInput.splits.hitting.vsL
         const leagueHitter = env.importReference.hitter
 
         const leagueAvg = env.outcome.avg
@@ -329,15 +854,25 @@ class PlayerRatingService {
             this.getHigherIsBetterDelta(ev, leagueEV, avgRating * 0.15)
         ]))
 
-        const { speed, steals } = this.getRunningRatings(env, command)
-        const { defense, arm } = this.getFieldingRatings(env, command)
+        const { speed, steals } = this.getRunningRatings(
+            env,
+            playerInput
+        )
+
+        const { defense, arm } = this.getFieldingRatings(
+            env,
+            playerInput
+        )
 
         return {
             speed,
             steals,
             defense,
             arm,
-            contactProfile: this.getHitterContactProfile(command, env),
+            contactProfile: this.getHitterContactProfile(
+                env,
+                playerInput
+            ),
             vsR: {
                 plateDiscipline: this.applyHittingSplit(env, plateDiscipline, vsR, hitter, "plateDiscipline"),
                 contact: this.applyHittingSplit(env, contact, vsR, hitter, "contact"),
@@ -353,10 +888,10 @@ class PlayerRatingService {
         }
     }
 
-    private static getRunningRatings(env: PitchEnvironmentTarget, command: PlayerFromStatsCommand): { speed: number, steals: number } {
+    private static getRunningRatings(env: PitchEnvironmentTarget, playerInput: PlayerRatingInput): { speed: number, steals: number } {
         const avgRating = env.avgRating
-        const hitter = command.hitter
-        const running = command.running
+        const hitter = playerInput.hitting
+        const running = playerInput.running
         const leagueHitter = env.importReference.hitter
         const leagueRunning = env.importReference.running
 
@@ -488,18 +1023,19 @@ class PlayerRatingService {
         return this.rating(env, baseRating + (delta * reliability))
     }
 
-    static buildPitchRatings(command: PlayerFromStatsCommand): PitchRatings {
-        const env = command.pitchEnvironmentTarget
+    public static buildPitchRatings(env: PitchEnvironmentTarget, playerInput: PlayerRatingInput): PitchRatings {
         const avgRating = env.avgRating
+        const pitcher = playerInput.pitching
 
-        if (command.pitcher.battersFaced <= 0) {
-            return this.emptyPitchRatings(env)
+        if (pitcher.battersFaced <= 0) {
+            return this.emptyPitchRatings(
+                env
+            )
         }
 
-        const pitcher = command.pitcher
         const leaguePitcher = env.importReference.pitcher
-        const vsR = command.splits.pitching.vsR
-        const vsL = command.splits.pitching.vsL
+        const vsR = playerInput.splits.pitching.vsR
+        const vsL = playerInput.splits.pitching.vsL
 
         const powerScale = avgRating * 2
 
@@ -548,10 +1084,21 @@ class PlayerRatingService {
             leagueChaseContactAllowed
         )
 
-        const playerFastball = this.getFastballVelocity(command)
-        const leagueFastball = this.getLeagueFastballVelocity(env)
-        const playerMovement = this.getPitchMovement(command)
-        const leagueMovement = this.getLeaguePitchMovement(env)
+        const playerFastball = this.getFastballVelocity(
+            playerInput
+        )
+
+        const leagueFastball = this.getLeagueFastballVelocity(
+            env
+        )
+
+        const playerMovement = this.getPitchMovement(
+            playerInput
+        )
+
+        const leagueMovement = this.getLeaguePitchMovement(
+            env
+        )
 
         const power = this.rating(env, avgRating + this.sumDeltas([
             this.getHigherIsBetterDelta(soRate, env.outcome.soPercent, powerScale),
@@ -592,7 +1139,10 @@ class PlayerRatingService {
 
         return {
             power,
-            contactProfile: this.getPitcherContactProfile(command, env),
+            contactProfile: this.getPitcherContactProfile(
+                env,
+                playerInput
+            ),
             vsR: {
                 control: this.applyPitchingSplit(env, control, vsR, pitcher, "control"),
                 movement: this.applyPitchingSplit(env, movement, vsR, pitcher, "movement")
@@ -601,7 +1151,9 @@ class PlayerRatingService {
                 control: this.applyPitchingSplit(env, control, vsL, pitcher, "control"),
                 movement: this.applyPitchingSplit(env, movement, vsL, pitcher, "movement")
             },
-            pitches: this.getPitchTypes(command)
+            pitches: this.getPitchTypes(
+                playerInput
+            )
         }
     }
 
@@ -609,92 +1161,6 @@ class PlayerRatingService {
         return values
             .filter(value => Number.isFinite(value))
             .reduce((sum, value) => sum + value, 0)
-    }
-
-    static createPlayerFromStatsCommand(command: PlayerFromStatsCommand): { hittingRatings: HittingRatings, pitchRatings: PitchRatings } {
-        const ratings = {
-            hittingRatings: this.buildHittingRatings(command),
-            pitchRatings: this.buildPitchRatings(command)
-        }
-
-        const ratingTuning = (command as any).ratingTuning as RatingTuning | undefined
-
-        if (!ratingTuning) {
-            return ratings
-        }
-
-        return this.applyRatingTuning(command.pitchEnvironmentTarget, ratings, ratingTuning)
-    }
-
-    private static applyRatingTuning(env: PitchEnvironmentTarget, ratings: { hittingRatings: HittingRatings, pitchRatings: PitchRatings }, ratingTuning: RatingTuning): { hittingRatings: HittingRatings, pitchRatings: PitchRatings } {
-        const next = JSON.parse(JSON.stringify(ratings))
-        const avgRating = Number(env.avgRating ?? 100)
-
-        next.hittingRatings.vsR.contact = this.scaleRating(env, next.hittingRatings.vsR.contact, avgRating, ratingTuning.hitting.contactScale)
-        next.hittingRatings.vsL.contact = this.scaleRating(env, next.hittingRatings.vsL.contact, avgRating, ratingTuning.hitting.contactScale)
-
-        next.hittingRatings.vsR.plateDiscipline = this.scaleRating(env, next.hittingRatings.vsR.plateDiscipline, avgRating, ratingTuning.hitting.plateDisciplineScale)
-        next.hittingRatings.vsL.plateDiscipline = this.scaleRating(env, next.hittingRatings.vsL.plateDiscipline, avgRating, ratingTuning.hitting.plateDisciplineScale)
-
-        next.hittingRatings.vsR.gapPower = this.scaleRating(env, next.hittingRatings.vsR.gapPower, avgRating, ratingTuning.hitting.gapPowerScale)
-        next.hittingRatings.vsL.gapPower = this.scaleRating(env, next.hittingRatings.vsL.gapPower, avgRating, ratingTuning.hitting.gapPowerScale)
-
-        next.hittingRatings.vsR.homerunPower = this.scaleRating(env, next.hittingRatings.vsR.homerunPower, avgRating, ratingTuning.hitting.homerunPowerScale)
-        next.hittingRatings.vsL.homerunPower = this.scaleRating(env, next.hittingRatings.vsL.homerunPower, avgRating, ratingTuning.hitting.homerunPowerScale)
-
-        next.hittingRatings.speed = this.scaleRating(env, next.hittingRatings.speed, avgRating, ratingTuning.running.speedScale)
-        next.hittingRatings.steals = this.scaleRating(env, next.hittingRatings.steals, avgRating, ratingTuning.running.stealsScale)
-        next.hittingRatings.defense = this.scaleRating(env, next.hittingRatings.defense, avgRating, ratingTuning.fielding.defenseScale)
-        next.hittingRatings.arm = this.scaleRating(env, next.hittingRatings.arm, avgRating, ratingTuning.fielding.armScale)
-
-        this.applyHittingSplitScale(env, next.hittingRatings, avgRating, ratingTuning.hitting.splitScale)
-
-        next.pitchRatings.power = this.scaleRating(env, next.pitchRatings.power, avgRating, ratingTuning.pitching.powerScale)
-        next.pitchRatings.vsR.control = this.scaleRating(env, next.pitchRatings.vsR.control, avgRating, ratingTuning.pitching.controlScale)
-        next.pitchRatings.vsL.control = this.scaleRating(env, next.pitchRatings.vsL.control, avgRating, ratingTuning.pitching.controlScale)
-        next.pitchRatings.vsR.movement = this.scaleRating(env, next.pitchRatings.vsR.movement, avgRating, ratingTuning.pitching.movementScale)
-        next.pitchRatings.vsL.movement = this.scaleRating(env, next.pitchRatings.vsL.movement, avgRating, ratingTuning.pitching.movementScale)
-
-        this.applyPitchingSplitScale(env, next.pitchRatings, avgRating, ratingTuning.pitching.splitScale)
-
-        return next
-    }
-
-    private static applyHittingSplitScale(env: PitchEnvironmentTarget, ratings: HittingRatings, avgRating: number, splitScale: number): void {
-        const keys = ["plateDiscipline", "contact", "gapPower", "homerunPower"] as const
-        const multiplier = 1 + Number(splitScale ?? 0)
-
-        for (const key of keys) {
-            const midpoint = (Number(ratings.vsR[key]) + Number(ratings.vsL[key])) / 2
-
-            ratings.vsR[key] = this.rating(env, midpoint + ((Number(ratings.vsR[key]) - midpoint) * multiplier))
-            ratings.vsL[key] = this.rating(env, midpoint + ((Number(ratings.vsL[key]) - midpoint) * multiplier))
-        }
-    }
-
-    private static applyPitchingSplitScale(env: PitchEnvironmentTarget, ratings: PitchRatings, avgRating: number, splitScale: number): void {
-        const keys = ["control", "movement"] as const
-        const multiplier = 1 + Number(splitScale ?? 0)
-
-        for (const key of keys) {
-            const midpoint = (Number(ratings.vsR[key]) + Number(ratings.vsL[key])) / 2
-
-            ratings.vsR[key] = this.rating(env, midpoint + ((Number(ratings.vsR[key]) - midpoint) * multiplier))
-            ratings.vsL[key] = this.rating(env, midpoint + ((Number(ratings.vsL[key]) - midpoint) * multiplier))
-        }
-    }
-
-    private static scaleRating(env: PitchEnvironmentTarget, rating: number, avgRating: number, scale: number): number {
-        const n = Number(rating)
-        const s = Number(scale ?? 0)
-
-        if (!Number.isFinite(n)) return this.rating(env, avgRating)
-        if (!Number.isFinite(s)) return this.rating(env, n)
-
-        return this.rating(
-            env,
-            avgRating + ((n - avgRating) * (1 + s))
-        )
     }
 
     private static getPitcherPowerOutcomeCount(pitcher: any): number {
@@ -760,23 +1226,23 @@ class PlayerRatingService {
         return this.rating(env, baseRating + (delta * reliability))
     }
 
-    private static getHitterContactProfile(command: PlayerFromStatsCommand, env: PitchEnvironmentTarget) {
+    private static getHitterContactProfile(env: PitchEnvironmentTarget, playerInput: PlayerRatingInput): { groundball: number, flyBall: number, lineDrive: number } {
         return this.buildContactProfile(
             {
-                groundball: Number(command.hitter.groundBalls ?? 0),
-                flyBall: Number(command.hitter.flyBalls ?? 0),
-                lineDrive: Number(command.hitter.lineDrives ?? 0)
+                groundball: Number(playerInput.hitting.groundBalls ?? 0),
+                flyBall: Number(playerInput.hitting.flyBalls ?? 0),
+                lineDrive: Number(playerInput.hitting.lineDrives ?? 0)
             },
             env
         )
     }
 
-    private static getPitcherContactProfile(command: PlayerFromStatsCommand, env: PitchEnvironmentTarget) {
+    private static getPitcherContactProfile(env: PitchEnvironmentTarget, playerInput: PlayerRatingInput): { groundball: number, flyBall: number, lineDrive: number } {
         return this.buildContactProfile(
             {
-                groundball: Number(command.pitcher.groundBallsAllowed ?? 0),
-                flyBall: Number(command.pitcher.flyBallsAllowed ?? 0),
-                lineDrive: Number(command.pitcher.lineDrivesAllowed ?? 0)
+                groundball: Number(playerInput.pitching.groundBallsAllowed ?? 0),
+                flyBall: Number(playerInput.pitching.flyBallsAllowed ?? 0),
+                lineDrive: Number(playerInput.pitching.lineDrivesAllowed ?? 0)
             },
             env
         )
@@ -802,30 +1268,55 @@ class PlayerRatingService {
         })
     }
 
-    private static getPitchTypes(command: PlayerFromStatsCommand): PitchType[] {
-        const pitchTypes = command.pitcher.pitchTypes ?? {}
-        const validPitchTypes = new Set(Object.values(PitchType) as PitchType[])
+    private static getPitchTypes(playerInput: PlayerRatingInput): PitchType[] {
+        const pitchTypes = playerInput.pitching.pitchTypes ?? {}
+        const validPitchTypes = new Set(
+            Object.values(PitchType) as PitchType[]
+        )
 
         const pitches = Object.entries(pitchTypes)
-            .filter(([pitchType, stat]) => {
-                return validPitchTypes.has(pitchType as PitchType) &&
-                    !!stat &&
-                    Number((stat as any).count ?? 0) > 0
-            })
-            .sort((a, b) => Number((b[1] as any).count ?? 0) - Number((a[1] as any).count ?? 0))
+            .filter(([pitchType, stat]) =>
+                validPitchTypes.has(pitchType as PitchType) &&
+                !!stat &&
+                Number(stat.count ?? 0) > 0
+            )
+            .sort((a, b) =>
+                Number(b[1]?.count ?? 0) -
+                Number(a[1]?.count ?? 0)
+            )
             .slice(0, 5)
-            .map(([pitchType]) => pitchType as PitchType)
+            .map(([pitchType]) =>
+                pitchType as PitchType
+            )
 
-        return pitches.length > 0 ? pitches : [PitchType.FF]
+        return pitches.length > 0
+            ? pitches
+            : [
+                PitchType.FF
+            ]
     }
 
-    private static getFastballVelocity(command: PlayerFromStatsCommand): number {
-        const pitchTypes = command.pitcher.pitchTypes ?? {}
-        const fastballs = [pitchTypes[PitchType.FF], pitchTypes[PitchType.SI], pitchTypes[PitchType.FC]].filter((p): p is PitchTypeMovementStat => !!p && p.count > 0)
+    private static getFastballVelocity(playerInput: PlayerRatingInput): number {
+        const pitchTypes = playerInput.pitching.pitchTypes ?? {}
 
-        if (fastballs.length === 0) return 0
+        const fastballs = [
+            pitchTypes[PitchType.FF],
+            pitchTypes[PitchType.SI],
+            pitchTypes[PitchType.FC]
+        ].filter((pitch): pitch is PitchTypeMovementStat =>
+            !!pitch &&
+            pitch.count > 0
+        )
 
-        return Math.max(...fastballs.map(p => p.avgMph))
+        if (fastballs.length === 0) {
+            return 0
+        }
+
+        return Math.max(
+            ...fastballs.map(pitch =>
+                pitch.avgMph
+            )
+        )
     }
 
     private static getLeagueFastballVelocity(env: PitchEnvironmentTarget): number {
@@ -837,13 +1328,36 @@ class PlayerRatingService {
         return Math.max(...fastballs.map(p => p.avgVelocity))
     }
 
-    private static getPitchMovement(command: PlayerFromStatsCommand): number {
-        const entries = Object.values(command.pitcher.pitchTypes ?? {}).filter((p): p is PitchTypeMovementStat => !!p && p.count > 0)
-        const total = entries.reduce((sum, p) => sum + p.count, 0)
+    private static getPitchMovement(playerInput: PlayerRatingInput): number {
+        const entries = Object.values(
+            playerInput.pitching.pitchTypes ??
+            {}
+        ).filter((pitch): pitch is PitchTypeMovementStat =>
+            !!pitch &&
+            pitch.count > 0
+        )
 
-        if (total <= 0) return 0
+        const total = entries.reduce(
+            (sum, pitch) =>
+                sum + pitch.count,
+            0
+        )
 
-        return entries.reduce((sum, p) => sum + ((Math.abs(p.avgHorizontalBreak) + Math.abs(p.avgVerticalBreak)) * p.count), 0) / total
+        if (total <= 0) {
+            return 0
+        }
+
+        return entries.reduce(
+            (sum, pitch) =>
+                sum + (
+                    (
+                        Math.abs(pitch.avgHorizontalBreak) +
+                        Math.abs(pitch.avgVerticalBreak)
+                    ) *
+                    pitch.count
+                ),
+            0
+        ) / total
     }
 
     private static getLeaguePitchMovement(env: PitchEnvironmentTarget): number {
@@ -857,13 +1371,14 @@ class PlayerRatingService {
         return entries.reduce((sum, p) => sum + ((Math.abs(p.avgHorizontalBreak) + Math.abs(p.avgVerticalBreak)) * p.count), 0) / total
     }
 
-    private static emptyHittingRatings(env: PitchEnvironmentTarget, command?: PlayerFromStatsCommand): HittingRatings {
+    private static emptyHittingRatings(env: PitchEnvironmentTarget, playerInput: PlayerRatingInput): HittingRatings {
         const low = env.avgRating / 2
         const avgRating = env.avgRating
 
-        const fieldingRatings = command
-            ? this.getFieldingRatings(env, command)
-            : { defense: avgRating, arm: avgRating }
+        const fieldingRatings = this.getFieldingRatings(
+            env,
+            playerInput
+        )
 
         return {
             speed: avgRating,
@@ -914,13 +1429,14 @@ class PlayerRatingService {
         }
     }
 
-    private static getFieldingRatings(env: PitchEnvironmentTarget, command: PlayerFromStatsCommand): { defense: number, arm: number } {
+    private static getFieldingRatings(env: PitchEnvironmentTarget, playerInput: PlayerRatingInput): { defense: number, arm: number } {
         const avgRating = env.avgRating
+        const fielding = playerInput.fielding
         const leagueFielding = env.importReference.fielding
 
-        const errors = Number(command.fielding.errors ?? 0)
-        const assists = Number(command.fielding.assists ?? 0)
-        const putouts = Number(command.fielding.putouts ?? 0)
+        const errors = Number(fielding.errors ?? 0)
+        const assists = Number(fielding.assists ?? 0)
+        const putouts = Number(fielding.putouts ?? 0)
         const chances = errors + assists + putouts
 
         if (chances <= 0) {
@@ -944,22 +1460,24 @@ class PlayerRatingService {
         const putoutShare = safeDiv(putouts, chances)
         const leaguePutoutShare = safeDiv(leaguePutouts, leagueChances)
 
-        const playerOutfieldAssistShare = safeDiv(Number(command.fielding.outfieldAssists ?? 0), chances)
+        const playerOutfieldAssistShare = safeDiv(Number(fielding.outfieldAssists ?? 0), chances)
         const leagueOutfieldAssistShare = safeDiv(Number(leagueFielding.outfieldAssists ?? 0), leagueChances)
 
-        const playerCatcherCaughtStealing = Number(command.fielding.catcherCaughtStealing ?? 0)
-        const playerCatcherStolenBasesAllowed = Number(command.fielding.catcherStolenBasesAllowed ?? 0)
+        const playerCatcherCaughtStealing = Number(fielding.catcherCaughtStealing ?? 0)
+        const playerCatcherStolenBasesAllowed = Number(fielding.catcherStolenBasesAllowed ?? 0)
         const leagueCatcherCaughtStealing = Number(leagueFielding.catcherCaughtStealing ?? 0)
         const leagueCatcherStolenBasesAllowed = Number(leagueFielding.catcherStolenBasesAllowed ?? 0)
 
         const catcherThrowRate = safeDiv(
             playerCatcherCaughtStealing,
-            playerCatcherCaughtStealing + playerCatcherStolenBasesAllowed
+            playerCatcherCaughtStealing +
+            playerCatcherStolenBasesAllowed
         )
 
         const leagueCatcherThrowRate = safeDiv(
             leagueCatcherCaughtStealing,
-            leagueCatcherCaughtStealing + leagueCatcherStolenBasesAllowed
+            leagueCatcherCaughtStealing +
+            leagueCatcherStolenBasesAllowed
         )
 
         const defense = this.rating(env, avgRating + this.sumDeltas([
@@ -1069,931 +1587,6 @@ class PlayerRatingService {
         return damped * scale
     }
 
-    static seedRatingTuning(): RatingTuning {
-        return {
-            _id: uuidv4(),
-
-            hitting: {
-                contactScale: 0,
-                plateDisciplineScale: 0,
-                gapPowerScale: 0,
-                homerunPowerScale: 0,
-                splitScale: 0
-            },
-
-            pitching: {
-                powerScale: 0,
-                controlScale: 0,
-                movementScale: 0,
-                splitScale: 0
-            },
-
-            running: {
-                speedScale: 0,
-                stealsScale: 0
-            },
-
-            fielding: {
-                defenseScale: 0,
-                armScale: 0
-            }
-        }
-    }
-
-    public printRatingIterationDiagnostics(stage: string, iteration: number, maxIterations: number, gamesPerIteration: number, candidate: RatingTuning, result: { actual: any, target: any, diff: any, score: number }): void {
-        const parts = String(stage).split("-")
-        const baseStage = parts[0]
-        const bracketLabel = parts.length > 1 ? parts.slice(1).join("-") : ""
-
-        if (
-            baseStage !== "seed" &&
-            baseStage !== "probe" &&
-            baseStage !== "confirm" &&
-            baseStage !== "trial" &&
-            baseStage !== "accepted" &&
-            baseStage !== "accepted-softened" &&
-            baseStage !== "stopped" &&
-            baseStage !== "close-enough" &&
-            baseStage !== "baseline" &&
-            baseStage !== "final"
-        ) {
-            return
-        }
-
-        const r = (n: number, d: number = 3): number => {
-            const value = Number(n ?? 0)
-            if (!Number.isFinite(value)) return 0
-            return Number(value.toFixed(d))
-        }
-
-        const stageToken =
-            baseStage === "seed" ? "seed" :
-            baseStage === "trial" ? "try" :
-            baseStage === "confirm" ? "conf" :
-            baseStage === "accepted" ? "acc" :
-            baseStage === "final" ? "final" :
-            baseStage
-
-        const labelToken = bracketLabel ? `:${bracketLabel}` : ""
-
-        console.log(
-            `R${iteration} ${stageToken}${labelToken} | ` +
-            `G=${gamesPerIteration} ` +
-            `S=${r(result.score, 1)} ` +
-            `players=${result.actual?.players?.length ?? 0} ` +
-            `T[` +
-            `hCt=${r(candidate.hitting.contactScale, 2)} ` +
-            `hDisc=${r(candidate.hitting.plateDisciplineScale, 2)} ` +
-            `hGap=${r(candidate.hitting.gapPowerScale, 2)} ` +
-            `hHR=${r(candidate.hitting.homerunPowerScale, 2)} ` +
-            `hSplit=${r(candidate.hitting.splitScale, 2)} ` +
-            `pPow=${r(candidate.pitching.powerScale, 2)} ` +
-            `pCtrl=${r(candidate.pitching.controlScale, 2)} ` +
-            `pMov=${r(candidate.pitching.movementScale, 2)} ` +
-            `pSplit=${r(candidate.pitching.splitScale, 2)} ` +
-            `spd=${r(candidate.running.speedScale, 2)} ` +
-            `stl=${r(candidate.running.stealsScale, 2)} ` +
-            `def=${r(candidate.fielding.defenseScale, 2)} ` +
-            `arm=${r(candidate.fielding.armScale, 2)}]`
-        )
-    }
-
-    public isRatingCloseEnough(diff: any): boolean {
-        return false
-    }    
-
-    public evaluatePlayerRatings(pitchEnvironment: PitchEnvironmentTarget, players: PlayerImportRaw[], rng: Function, gamesPerPlayer: number = 30): { actual: any, target: any, diff: any, score: number, results: any[] } {
-        const results = players.map(playerImportRaw =>
-            this.evaluatePlayerRating(
-                pitchEnvironment,
-                playerImportRaw,
-                rng,
-                gamesPerPlayer
-            )
-        )
-
-        const validResults = results.filter(result =>
-            Number.isFinite(
-                Number(result.score)
-            )
-        )
-
-        const hitterResults = this.getRatingResultBlocks(
-            validResults,
-            "hitter"
-        )
-
-        const pitcherResults = this.getRatingResultBlocks(
-            validResults,
-            "pitcher"
-        )
-
-        const hitterActual = this.averageRatingMetricBlock(
-            hitterResults.map(result =>
-                result.actual
-            )
-        )
-
-        const hitterTarget = this.averageRatingMetricBlock(
-            hitterResults.map(result =>
-                result.target
-            )
-        )
-
-        const hitterDiff = this.getRatingEvaluationDiff(
-            hitterActual,
-            hitterTarget
-        )
-
-        const pitcherActual = this.averageRatingMetricBlock(
-            pitcherResults.map(result =>
-                result.actual
-            )
-        )
-
-        const pitcherTarget = this.averageRatingMetricBlock(
-            pitcherResults.map(result =>
-                result.target
-            )
-        )
-
-        const pitcherDiff = this.getRatingEvaluationDiff(
-            pitcherActual,
-            pitcherTarget
-        )
-
-        const score = validResults.length > 0
-            ? validResults.reduce(
-                (sum, result) =>
-                    sum + Number(result.score),
-                0
-            ) / validResults.length
-            : Number.MAX_SAFE_INTEGER
-
-        return {
-            actual: {
-                playerCount: results.length,
-                hitterCount: hitterResults.length,
-                pitcherCount: pitcherResults.length,
-                twoWayCount: results.filter(
-                    result =>
-                        result.role === "twoWay"
-                ).length,
-                hitterScore: this.averageScore(
-                    hitterResults
-                ),
-                pitcherScore: this.averageScore(
-                    pitcherResults
-                ),
-                hitter: hitterActual,
-                pitcher: pitcherActual
-            },
-
-            target: {
-                hitter: hitterTarget,
-                pitcher: pitcherTarget
-            },
-
-            diff: {
-                hitter: hitterDiff,
-                pitcher: pitcherDiff
-            },
-
-            score,
-            results
-        }
-    }
-
-    private evaluatePlayerRating(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, rng: Function, gamesPerPlayer: number): any {
-        const command =
-            PlayerRatingService.createPlayerFromImportRaw(
-                pitchEnvironment,
-                playerImportRaw
-            )
-
-        const ratings =
-            PlayerRatingService.createPlayerFromStatsCommand(
-                command
-            )
-
-        const role =
-            this.getPlayerEvaluationRole(
-                playerImportRaw
-            )
-
-        if (role === "pitcher") {
-            return this.evaluatePitcherRating(
-                pitchEnvironment,
-                playerImportRaw,
-                ratings,
-                rng,
-                gamesPerPlayer
-            )
-        }
-
-        if (role === "hitter") {
-            return this.evaluateHitterRating(
-                pitchEnvironment,
-                playerImportRaw,
-                ratings,
-                rng,
-                gamesPerPlayer
-            )
-        }
-
-        const hitter =
-            this.evaluateHitterRating(
-                pitchEnvironment,
-                playerImportRaw,
-                ratings,
-                rng,
-                gamesPerPlayer
-            )
-
-        const pitcher =
-            this.evaluatePitcherRating(
-                pitchEnvironment,
-                playerImportRaw,
-                ratings,
-                rng,
-                gamesPerPlayer
-            )
-
-        return {
-            role,
-            actual: {
-                hitter: hitter.actual,
-                pitcher: pitcher.actual
-            },
-            target: {
-                hitter: hitter.target,
-                pitcher: pitcher.target
-            },
-            diff: {
-                hitter: hitter.diff,
-                pitcher: pitcher.diff
-            },
-            score:
-                (
-                    Number(hitter.score) +
-                    Number(pitcher.score)
-                ) / 2
-        }
-    }
-
-    private evaluateHitterRating(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, ratings: { hittingRatings: HittingRatings, pitchRatings: PitchRatings }, rng: Function, gamesPerPlayer: number): any {
-        const player = this.buildPlayerFromImportRawAndRatings(playerImportRaw, ratings, false)
-        const simulation = this.simHitterForRatingEvaluation(pitchEnvironment, playerImportRaw, player, rng, gamesPerPlayer)
-        const actual = simulation.actual
-        const targetHandedness = this.getEvaluationHitterTargetHandedness(pitchEnvironment, player)
-        const target = this.getHitterRatingTarget(playerImportRaw, targetHandedness)
-        const diff = this.getRatingEvaluationDiff(actual, target)
-        const score = this.scoreHitterRatingEvaluationDiff(diff)
-
-        return {
-            playerId: playerImportRaw.playerId,
-            name: `${playerImportRaw.firstName} ${playerImportRaw.lastName}`,
-            role: "hitter",
-            actual,
-            target,
-            diff,
-            score,
-            ratings,
-            diagnostic: simulation.diagnostic
-        }
-    }
-
-    private getEvaluationHitterTargetHandedness(pitchEnvironment: PitchEnvironmentTarget, player: Player): "vsR" | "vsL" | undefined {
-        const game = this.baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `target-handedness-${player._id}`)
-        const gamePlayer = this.findGamePlayer(game, player._id)
-
-        if (!gamePlayer) {
-            return undefined
-        }
-
-        const offense = game.away.players.find((p: GamePlayer) => p._id === player._id) ? game.away : game.home
-        const defense = offense === game.away ? game.home : game.away
-        const pitcher = defense.players.find((p: GamePlayer) => p._id === defense.currentPitcherId)
-
-        if (!pitcher) {
-            return undefined
-        }
-
-        return pitcher.throws === "L" ? "vsL" : "vsR"
-    }
-
-    private evaluatePitcherRating(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, ratings: { hittingRatings: HittingRatings, pitchRatings: PitchRatings }, rng: Function, gamesPerPlayer: number): any {
-        const player = this.buildPlayerFromImportRawAndRatings(playerImportRaw, ratings, true)
-        const simulation = this.simPitcherForRatingEvaluation(pitchEnvironment, playerImportRaw, player, rng, gamesPerPlayer)
-        const actual = simulation.actual
-        const target = this.getPitcherRatingTarget(playerImportRaw)
-        const diff = this.getRatingEvaluationDiff(actual, target)
-        const score = this.scorePitcherRatingEvaluationDiff(diff)
-
-        return {
-            playerId: playerImportRaw.playerId,
-            name: `${playerImportRaw.firstName} ${playerImportRaw.lastName}`,
-            role: "pitcher",
-            actual,
-            target,
-            diff,
-            score,
-            ratings,
-            diagnostic: simulation.diagnostic
-        }
-    }
-
-    private simHitterForRatingEvaluation(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, player: Player, rng: Function, gamesPerPlayer: number): any {
-        let total: HitResultCount = {} as HitResultCount
-        const diagnostic = this.createHitterEvaluationDiagnostic(playerImportRaw, player)
-
-        for (let i = 0; i < gamesPerPlayer; i++) {
-            const game = this.baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `rating-hitter-${playerImportRaw.playerId}-${i}`)
-
-            this.addPreGameHitterEvaluationDiagnostic(pitchEnvironment, diagnostic, game, player)
-
-            while (!game.isComplete) {
-                this.simService.simPitch(game, rng)
-            }
-
-            this.simService.finishGame(game)
-
-            const gamePlayer = this.findGamePlayer(game, player._id)
-
-            if (gamePlayer?.hitResult) {
-                total = this.baselineGameService.mergeHitResults(total, gamePlayer.hitResult)
-                diagnostic.gameHitResults.push({
-                    gameIndex: i,
-                    hitResult: gamePlayer.hitResult
-                })
-            }
-
-            this.addPostGameHitterEvaluationDiagnostic(diagnostic, game, player._id)
-        }
-
-        diagnostic.totalHitResult = total
-        diagnostic.actual = this.getHitterRatingActual(total)
-
-        return {
-            actual: diagnostic.actual,
-            diagnostic
-        }
-    }
-
-    private simPitcherForRatingEvaluation(pitchEnvironment: PitchEnvironmentTarget, playerImportRaw: PlayerImportRaw, player: Player, rng: Function, gamesPerPlayer: number): any {
-        let total: PitchResultCount = {} as PitchResultCount
-        const diagnostic = this.createPitcherEvaluationDiagnostic(playerImportRaw, player)
-
-        for (let i = 0; i < gamesPerPlayer; i++) {
-            const game = this.baselineGameService.buildStartedBaselineGameWithPlayer(pitchEnvironment, player, `rating-pitcher-${playerImportRaw.playerId}-${i}`)
-
-            while (!game.isComplete) {
-                this.simService.simPitch(game, rng)
-            }
-
-            this.simService.finishGame(game)
-
-            const gamePlayer = this.findGamePlayer(game, player._id)
-
-            if (gamePlayer?.pitchResult) {
-                total = this.baselineGameService.mergePitchResults(total, gamePlayer.pitchResult)
-                diagnostic.gamePitchResults.push({
-                    gameIndex: i,
-                    pitchResult: gamePlayer.pitchResult
-                })
-            }
-        }
-
-        diagnostic.totalPitchResult = total
-        diagnostic.actual = this.getPitcherRatingActual(total)
-
-        return {
-            actual: diagnostic.actual,
-            diagnostic
-        }
-    }
-
-    private createHitterEvaluationDiagnostic(playerImportRaw: PlayerImportRaw, player: Player): any {
-        return {
-            playerId: playerImportRaw.playerId,
-            name: `${playerImportRaw.firstName} ${playerImportRaw.lastName}`,
-            role: "hitter",
-            insertedPlayer: {
-                id: player._id,
-                primaryPosition: player.primaryPosition,
-                hits: player.hits,
-                throws: player.throws,
-                hittingRatings: player.hittingRatings
-            },
-            activeMatchup: undefined,
-            gameHitResults: [],
-            totalHitResult: {},
-            actual: undefined,
-            pitchCounts: {
-                pitches: 0,
-                swings: 0,
-                noSwings: 0,
-                contactedPitches: 0,
-                fairContacts: 0,
-                foulContacts: 0,
-                whiffs: 0,
-                calledStrikes: 0,
-                balls: 0,
-                hbp: 0,
-                inZone: 0,
-                outZone: 0
-            },
-            plateAppearanceCounts: {
-                pa: 0,
-                inPlay: 0,
-                strikeouts: 0,
-                walks: 0,
-                hbp: 0,
-                other: 0
-            },
-            finalPlayResults: {
-                out: 0,
-                singles: 0,
-                doubles: 0,
-                triples: 0,
-                homeRuns: 0,
-                errors: 0,
-                strikeouts: 0,
-                walks: 0,
-                hbp: 0,
-                other: 0
-            },
-            contactTypes: {
-                groundBalls: 0,
-                lineDrives: 0,
-                flyBalls: 0,
-                missing: 0
-            }
-        }
-    }
-
-    private createPitcherEvaluationDiagnostic(playerImportRaw: PlayerImportRaw, player: Player): any {
-        return {
-            playerId: playerImportRaw.playerId,
-            name: `${playerImportRaw.firstName} ${playerImportRaw.lastName}`,
-            role: "pitcher",
-            insertedPlayer: {
-                id: player._id,
-                primaryPosition: player.primaryPosition,
-                hits: player.hits,
-                throws: player.throws,
-                pitchRatings: player.pitchRatings
-            },
-            gamePitchResults: [],
-            totalPitchResult: {},
-            actual: undefined
-        }
-    }
-
-    private addPreGameHitterEvaluationDiagnostic(pitchEnvironment: PitchEnvironmentTarget, diagnostic: any, game: Game, player: Player): void {
-        if (diagnostic.activeMatchup) return
-
-        const gamePlayer = this.findGamePlayer(game, player._id)
-
-        if (!gamePlayer) {
-            diagnostic.activeMatchup = {
-                error: `Player not found in evaluation game: ${player._id}`
-            }
-            return
-        }
-
-        const offense = game.away.players.find((p: GamePlayer) => p._id === player._id) ? game.away : game.home
-        const defense = offense === game.away ? game.home : game.away
-        const pitcher = defense.players.find((p: GamePlayer) => p._id === defense.currentPitcherId)
-
-        if (!pitcher) {
-            diagnostic.activeMatchup = {
-                error: "Current pitcher not found in evaluation game."
-            }
-            return
-        }
-
-        const hitterChange = pitcher.throws === "L" ? gamePlayer.hitterChange.vsL : gamePlayer.hitterChange.vsR
-        const hitterBatSide = gamePlayer.hits === "S"
-            ? pitcher.throws === "L" ? "R" : "L"
-            : gamePlayer.hits
-        const pitcherChange = hitterBatSide === "L" ? pitcher.pitcherChange.vsL : pitcher.pitcherChange.vsR
-
-        diagnostic.activeMatchup = {
-            hitter: {
-                id: gamePlayer._id,
-                name: gamePlayer.fullName,
-                position: gamePlayer.currentPosition,
-                hits: gamePlayer.hits,
-                ratings: gamePlayer.hittingRatings,
-                hitterChange
-            },
-            pitcher: {
-                id: pitcher._id,
-                name: pitcher.fullName,
-                throws: pitcher.throws,
-                ratings: pitcher.pitchRatings,
-                pitcherChange
-            }
-        }
-    }
-
-    private addPostGameHitterEvaluationDiagnostic(diagnostic: any, game: Game, playerId: string): void {
-        const targetPlays = (GameInfo.getPlays(game) as any[]).filter(play => play.hitterId === playerId)
-
-        for (const play of targetPlays) {
-            diagnostic.plateAppearanceCounts.pa++
-
-            const pitches = play.pitchLog?.pitches ?? []
-            const terminalPitch = pitches[pitches.length - 1]
-
-            if (terminalPitch?.result === "IN_PLAY") diagnostic.plateAppearanceCounts.inPlay++
-            else if (play.result === "STRIKEOUT") diagnostic.plateAppearanceCounts.strikeouts++
-            else if (play.result === "BB") diagnostic.plateAppearanceCounts.walks++
-            else if (play.result === "HIT_BY_PITCH") diagnostic.plateAppearanceCounts.hbp++
-            else diagnostic.plateAppearanceCounts.other++
-
-            this.addPlayResultToHitterEvaluationDiagnostic(diagnostic, play)
-            this.addContactTypeToHitterEvaluationDiagnostic(diagnostic, play)
-
-            for (const pitch of pitches) {
-                diagnostic.pitchCounts.pitches++
-
-                if (pitch.inZone) diagnostic.pitchCounts.inZone++
-                else diagnostic.pitchCounts.outZone++
-
-                if (pitch.swing) diagnostic.pitchCounts.swings++
-                else diagnostic.pitchCounts.noSwings++
-
-                if (pitch.result === "BALL") diagnostic.pitchCounts.balls++
-                if (pitch.result === "HBP") diagnostic.pitchCounts.hbp++
-
-                if (pitch.result === "STRIKE" && !pitch.swing) {
-                    diagnostic.pitchCounts.calledStrikes++
-                }
-
-                if (pitch.swing && !pitch.con && pitch.result === "STRIKE") {
-                    diagnostic.pitchCounts.whiffs++
-                }
-
-                if (pitch.con) {
-                    diagnostic.pitchCounts.contactedPitches++
-
-                    if (pitch.result === "IN_PLAY") {
-                        diagnostic.pitchCounts.fairContacts++
-                    } else if (pitch.result === "FOUL") {
-                        diagnostic.pitchCounts.foulContacts++
-                    }
-                }
-            }
-        }
-    }
-
-    private addPlayResultToHitterEvaluationDiagnostic(diagnostic: any, play: any): void {
-        switch (play.result) {
-            case "OUT":
-                diagnostic.finalPlayResults.out++
-                break
-            case "SINGLE":
-                diagnostic.finalPlayResults.singles++
-                break
-            case "DOUBLE":
-                diagnostic.finalPlayResults.doubles++
-                break
-            case "TRIPLE":
-                diagnostic.finalPlayResults.triples++
-                break
-            case "HR":
-                diagnostic.finalPlayResults.homeRuns++
-                break
-            case "ERROR":
-                diagnostic.finalPlayResults.errors++
-                break
-            case "STRIKEOUT":
-                diagnostic.finalPlayResults.strikeouts++
-                break
-            case "BB":
-                diagnostic.finalPlayResults.walks++
-                break
-            case "HIT_BY_PITCH":
-                diagnostic.finalPlayResults.hbp++
-                break
-            default:
-                diagnostic.finalPlayResults.other++
-                break
-        }
-    }
-
-    private addContactTypeToHitterEvaluationDiagnostic(diagnostic: any, play: any): void {
-        switch (play.contact) {
-            case "GROUNDBALL":
-                diagnostic.contactTypes.groundBalls++
-                break
-            case "LINE_DRIVE":
-                diagnostic.contactTypes.lineDrives++
-                break
-            case "FLY_BALL":
-                diagnostic.contactTypes.flyBalls++
-                break
-            default:
-                diagnostic.contactTypes.missing++
-                break
-        }
-    }
-
-    private buildPlayerFromImportRawAndRatings(playerImportRaw: PlayerImportRaw, ratings: { hittingRatings: HittingRatings, pitchRatings: PitchRatings }, forcePitcher: boolean = false): Player {
-        const isPitcher = forcePitcher
-        const isStarter = Number(playerImportRaw.pitching?.starts ?? 0) > 0
-        const primaryPosition = isPitcher
-            ? Position.PITCHER
-            : playerImportRaw.primaryPosition === Position.PITCHER
-                ? Position.FIRST_BASE
-                : playerImportRaw.primaryPosition
-
-        return {
-            _id: playerImportRaw.playerId,
-            firstName: playerImportRaw.firstName,
-            lastName: playerImportRaw.lastName,
-            get fullName() { return `${this.firstName} ${this.lastName}` },
-            get displayName() { return this.fullName },
-            primaryPosition,
-            secondaryPositions: playerImportRaw.secondaryPositions ?? [],
-            zodiacSign: "Aries",
-            throws: playerImportRaw.throws,
-            hits: playerImportRaw.bats,
-            isRetired: false,
-            stamina: isPitcher ? 1 : 0,
-            maxPitchCount: isPitcher ? (isStarter ? 100 : 30) : 0,
-            overallRating: 100,
-            hittingRatings: ratings.hittingRatings,
-            pitchRatings: ratings.pitchRatings,
-            age: playerImportRaw.age
-        } as Player
-    }
-
-    private getPlayerEvaluationRole(playerImportRaw: PlayerImportRaw): "hitter" | "pitcher" | "twoWay" {
-        const hasHitting = Number(playerImportRaw.hitting?.pa ?? 0) > 0
-        const hasPitching = Number(playerImportRaw.pitching?.battersFaced ?? 0) > 0
-
-        if (hasHitting && hasPitching) return "twoWay"
-        if (hasPitching) return "pitcher"
-
-        return "hitter"
-    }
-
-    private getHitterRatingActual(total: HitResultCount): any {
-        const pa = Number((total as any).pa ?? 0)
-        const ab = Number((total as any).atBats ?? (total as any).ab ?? 0)
-        const hits = Number((total as any).hits ?? 0)
-        const bb = Number((total as any).bb ?? 0)
-        const so = Number((total as any).so ?? 0)
-        const hbp = Number((total as any).hbp ?? 0)
-        const doubles = Number((total as any).doubles ?? 0)
-        const triples = Number((total as any).triples ?? 0)
-        const hr = Number((total as any).homeRuns ?? (total as any).hr ?? 0)
-        const singles = Math.max(0, hits - doubles - triples - hr)
-        const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
-        const ballsInPlay = Math.max(0, ab - so - hr)
-
-        return {
-            pa,
-            avg: safeDiv(hits, ab),
-            obp: safeDiv(hits + bb + hbp, pa),
-            slg: safeDiv(totalBases, ab),
-            ops: safeDiv(hits + bb + hbp, pa) + safeDiv(totalBases, ab),
-            babip: safeDiv(hits - hr, ballsInPlay),
-            singlePercent: safeDiv(singles, pa),
-            doublePercent: safeDiv(doubles, pa),
-            triplePercent: safeDiv(triples, pa),
-            homeRunPercent: safeDiv(hr, pa),
-            xbhPercent: safeDiv(doubles + triples + hr, pa),
-            soPercent: safeDiv(so, pa),
-            bbPercent: safeDiv(bb, pa)
-        }
-    }
-
-    private getPitcherRatingActual(total: PitchResultCount): any {
-        const bf = Number((total as any).battersFaced ?? 0)
-        const outs = Number((total as any).outs ?? 0)
-        const er = Number((total as any).er ?? (total as any).earnedRuns ?? 0)
-        const hits = Number((total as any).hits ?? 0)
-        const bb = Number((total as any).bb ?? 0)
-        const hbp = Number((total as any).hbp ?? 0)
-        const so = Number((total as any).so ?? 0)
-        const doubles = Number((total as any).doubles ?? 0)
-        const triples = Number((total as any).triples ?? 0)
-        const hr = Number((total as any).homeRuns ?? (total as any).hr ?? 0)
-        const singles = Math.max(0, hits - doubles - triples - hr)
-        const ab = Math.max(0, bf - bb - hbp)
-        const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
-        const ballsInPlay = Math.max(0, ab - so - hr)
-
-        return {
-            battersFaced: bf,
-            era: safeDiv(er * 27, outs),
-            avg: safeDiv(hits, ab),
-            obp: safeDiv(hits + bb + hbp, bf),
-            slg: safeDiv(totalBases, ab),
-            ops: safeDiv(hits + bb + hbp, bf) + safeDiv(totalBases, ab),
-            babip: safeDiv(hits - hr, ballsInPlay),
-            singlePercent: safeDiv(singles, bf),
-            doublePercent: safeDiv(doubles, bf),
-            triplePercent: safeDiv(triples, bf),
-            homeRunPercent: safeDiv(hr, bf),
-            xbhPercent: safeDiv(doubles + triples + hr, bf),
-            soPercent: safeDiv(so, bf),
-            bbPercent: safeDiv(bb, bf)
-        }
-    }
-
-    private getHitterRatingTarget(playerImportRaw: PlayerImportRaw, handedness?: "vsR" | "vsL"): any {
-        const h = handedness === "vsR"
-            ? playerImportRaw.splits?.hitting?.vsR ?? playerImportRaw.hitting
-            : handedness === "vsL"
-                ? playerImportRaw.splits?.hitting?.vsL ?? playerImportRaw.hitting
-                : playerImportRaw.hitting
-
-        const pa = Number(h.pa ?? 0)
-        const ab = Number(h.ab ?? 0)
-        const hits = Number(h.hits ?? 0)
-        const bb = Number(h.bb ?? 0)
-        const so = Number(h.so ?? 0)
-        const hbp = Number(h.hbp ?? 0)
-        const doubles = Number(h.doubles ?? 0)
-        const triples = Number(h.triples ?? 0)
-        const hr = Number(h.homeRuns ?? 0)
-        const singles = Math.max(0, hits - doubles - triples - hr)
-        const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
-        const ballsInPlay = Math.max(0, ab - so - hr)
-
-        return {
-            pa,
-            avg: safeDiv(hits, ab),
-            obp: safeDiv(hits + bb + hbp, pa),
-            slg: safeDiv(totalBases, ab),
-            ops: safeDiv(hits + bb + hbp, pa) + safeDiv(totalBases, ab),
-            babip: safeDiv(hits - hr, ballsInPlay),
-            singlePercent: safeDiv(singles, pa),
-            doublePercent: safeDiv(doubles, pa),
-            triplePercent: safeDiv(triples, pa),
-            homeRunPercent: safeDiv(hr, pa),
-            xbhPercent: safeDiv(doubles + triples + hr, pa),
-            soPercent: safeDiv(so, pa),
-            bbPercent: safeDiv(bb, pa)
-        }
-    }
-
-    private getPitcherRatingTarget(playerImportRaw: PlayerImportRaw): any {
-        const p = playerImportRaw.pitching
-        const bf = Number(p.battersFaced ?? 0)
-        const outs = Number(p.outs ?? 0)
-        const er = Number(p.earnedRunsAllowed ?? 0)
-        const hits = Number(p.hitsAllowed ?? 0)
-        const bb = Number(p.bbAllowed ?? 0)
-        const hbp = Number(p.hbpAllowed ?? 0)
-        const so = Number(p.so ?? 0)
-        const doubles = Number(p.doublesAllowed ?? 0)
-        const triples = Number(p.triplesAllowed ?? 0)
-        const hr = Number(p.homeRunsAllowed ?? 0)
-        const singles = Math.max(0, hits - doubles - triples - hr)
-        const ab = Math.max(0, bf - bb - hbp)
-        const totalBases = singles + (doubles * 2) + (triples * 3) + (hr * 4)
-        const ballsInPlay = Math.max(0, ab - so - hr)
-
-        return {
-            battersFaced: bf,
-            era: safeDiv(er * 27, outs),
-            avg: safeDiv(hits, ab),
-            obp: safeDiv(hits + bb + hbp, bf),
-            slg: safeDiv(totalBases, ab),
-            ops: safeDiv(hits + bb + hbp, bf) + safeDiv(totalBases, ab),
-            babip: safeDiv(hits - hr, ballsInPlay),
-            singlePercent: safeDiv(singles, bf),
-            doublePercent: safeDiv(doubles, bf),
-            triplePercent: safeDiv(triples, bf),
-            homeRunPercent: safeDiv(hr, bf),
-            xbhPercent: safeDiv(doubles + triples + hr, bf),
-            soPercent: safeDiv(so, bf),
-            bbPercent: safeDiv(bb, bf)
-        }
-    }
-
-    private getRatingEvaluationDiff(actual: any, target: any): any {
-        const diff: any = {}
-
-        for (const key of Object.keys(target)) {
-            if (Number.isFinite(Number(actual[key])) && Number.isFinite(Number(target[key]))) {
-                diff[key] = Number(actual[key]) - Number(target[key])
-            }
-        }
-
-        return diff
-    }
-
-    private scorePitcherRatingEvaluationDiff(diff: any): number {
-        const sq = (value: any): number => {
-            const n = Number(value ?? 0)
-            return Number.isFinite(n) ? n * n : 0
-        }
-
-        return (
-            sq(diff.era) * 250000 +
-            sq(diff.avg) * 30000000 +
-            sq(diff.obp) * 30000000 +
-            sq(diff.slg) * 25000000 +
-            sq(diff.babip) * 30000000 +
-            sq(diff.singlePercent) * 15000000 +
-            sq(diff.doublePercent) * 20000000 +
-            sq(diff.triplePercent) * 120000000 +
-            sq(diff.homeRunPercent) * 60000000 +
-            sq(diff.soPercent) * 60000000 +
-            sq(diff.bbPercent) * 60000000
-        )
-    }
-
-    private scoreHitterRatingEvaluationDiff(diff: any): number {
-        const sq = (value: any): number => {
-            const n = Number(value ?? 0)
-            return Number.isFinite(n) ? n * n : 0
-        }
-
-        return (
-            sq(diff.avg) * 100000000 +
-            sq(diff.obp) * 90000000 +
-            sq(diff.slg) * 70000000 +
-            sq(diff.ops) * 40000000 +
-            sq(diff.babip) * 70000000 +
-            sq(diff.singlePercent) * 30000000 +
-            sq(diff.doublePercent) * 50000000 +
-            sq(diff.triplePercent) * 200000000 +
-            sq(diff.homeRunPercent) * 80000000 +
-            sq(diff.soPercent) * 60000000 +
-            sq(diff.bbPercent) * 60000000
-        )
-    }
-
-    private getRatingResultBlocks(results: any[], block: "hitter" | "pitcher"): any[] {
-        const blocks: any[] = []
-
-        for (const result of results) {
-            if (block === "hitter" && result.role === "hitter") {
-                blocks.push(result)
-            }
-
-            if (block === "pitcher" && result.role === "pitcher") {
-                blocks.push(result)
-            }
-
-            if (result.role === "twoWay" && result.actual?.[block] && result.target?.[block]) {
-                blocks.push({
-                    playerId: result.playerId,
-                    name: result.name,
-                    role: block,
-                    actual: result.actual[block],
-                    target: result.target[block],
-                    diff: result.diff?.[block] ?? this.getRatingEvaluationDiff(result.actual[block], result.target[block]),
-                    score: Number(result.score)
-                })
-            }
-        }
-
-        return blocks
-    }
-
-    private averageRatingMetricBlock(blocks: any[]): any {
-        const keys = new Set<string>()
-
-        for (const block of blocks) {
-            for (const key of Object.keys(block ?? {})) {
-                keys.add(key)
-            }
-        }
-
-        const averaged: any = {}
-
-        for (const key of keys) {
-            const values = blocks
-                .map(block => Number(block?.[key]))
-                .filter(value => Number.isFinite(value))
-
-            averaged[key] = values.length > 0
-                ? values.reduce((sum, value) => sum + value, 0) / values.length
-                : 0
-        }
-
-        return averaged
-    }
-
-    private findGamePlayer(game: Game, playerId: string): GamePlayer | undefined {
-        return game.away.players.find(p => p._id === playerId) ??
-            game.home.players.find(p => p._id === playerId)
-    }
-
-    private averageScore(results: any[]): number {
-        const scores = results.map(result => Number(result.score)).filter(score => Number.isFinite(score))
-        return scores.length > 0 ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 0
-    }
-
     private static getWindowDateRange(gameDate: string, window: RatingWindow): {
         startDate: string
         endDateExclusive: string
@@ -2032,28 +1625,48 @@ class PlayerRatingService {
         }
     }
 
-
-    private static hasMinimumWindowSample(playerImport: PlayerImportRaw, window: RatingWindow): boolean {
+    private static hasMinimumWindowSample(playerInput: PlayerRatingInput, window: RatingWindow): boolean {
         const hasPitchingHistory =
-            Number(playerImport.pitching?.games ?? 0) > 0 ||
-            Number(playerImport.pitching?.battersFaced ?? 0) > 0 ||
-            Number(playerImport.pitching?.outs ?? 0) > 0
+            Number(
+                playerInput.pitching.games ??
+                0
+            ) > 0 ||
+            Number(
+                playerInput.pitching.battersFaced ??
+                0
+            ) > 0 ||
+            Number(
+                playerInput.pitching.outs ??
+                0
+            ) > 0
 
         const hasHittingHistory =
-            Number(playerImport.hitting?.games ?? 0) > 0 ||
-            Number(playerImport.hitting?.pa ?? 0) > 0
+            Number(
+                playerInput.hitting.games ??
+                0
+            ) > 0 ||
+            Number(
+                playerInput.hitting.pa ??
+                0
+            ) > 0
 
-        if (hasPitchingHistory && !hasHittingHistory) {
+        if (
+            hasPitchingHistory &&
+            !hasHittingHistory
+        ) {
             return true
         }
 
         const plateAppearances = Number(
-            playerImport.hitting?.pa ??
+            playerInput.hitting.pa ??
             0
         )
 
-        return Number.isFinite(plateAppearances) &&
-            plateAppearances >= window.minimumPlateAppearances
+        return Number.isFinite(
+            plateAppearances
+        ) &&
+            plateAppearances >=
+            window.minimumPlateAppearances
     }
 
     private static buildWeightedPlayerRatings(ratingsSets: WeightedRatingsSet[]): GeneratedPlayerRatings {
@@ -2077,24 +1690,13 @@ class PlayerRatingService {
 
         const normalizedSets = ratingsSets.map(set => ({
             ratings: set.ratings,
-            generated: set.generated,
             weight: set.weight / totalWeight
         }))
 
-        const source =
-            normalizedSets.find(set =>
-                set.generated
-            )?.ratings ??
-            normalizedSets[0].ratings
+        const source = normalizedSets[0].ratings
 
         return {
             playerId: source.playerId,
-            firstName: source.firstName,
-            lastName: source.lastName,
-            primaryPosition: source.primaryPosition,
-            age: source.age,
-            throws: source.throws,
-            hits: source.hits,
             hittingRatings: this.blendRatingValues(
                 normalizedSets.map(set => ({
                     value: set.ratings.hittingRatings,
@@ -2157,6 +1759,31 @@ class PlayerRatingService {
 
         return result
     }
+
+
+    private formatDuration(milliseconds: number): string {
+        if (milliseconds < 1000) {
+            return `${Math.round(milliseconds)}ms`
+        }
+
+        const seconds = milliseconds / 1000
+
+        if (seconds < 60) {
+            return `${seconds.toFixed(2)}s`
+        }
+
+        const minutes = Math.floor(
+            seconds /
+            60
+        )
+
+        const remainingSeconds = Math.round(
+            seconds %
+            60
+        )
+
+        return `${minutes}m ${remainingSeconds}s`
+    }    
 }
 
 export {

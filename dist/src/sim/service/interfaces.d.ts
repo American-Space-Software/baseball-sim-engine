@@ -1063,24 +1063,6 @@ interface StolenBaseByCount {
     attempt3BChance: number;
     attempt3BSuccess: number;
 }
-interface PlayerFromStatsCommand {
-    season: number;
-    playerId: string;
-    firstName: string;
-    lastName: string;
-    age?: number;
-    primaryPosition: Position;
-    secondaryPositions?: Position[];
-    throws: Handedness;
-    hits: Handedness;
-    primaryRole: "hitter" | "pitcher" | "twoWay";
-    hitter: PlayerHittingStats;
-    pitcher: PlayerPitchingStats;
-    fielding: PlayerFieldingStats;
-    running: PlayerRunningStats;
-    splits: PlayerSplitsStats;
-    pitchEnvironmentTarget: PitchEnvironmentTarget;
-}
 interface PlayerHittingStats {
     games: number;
     pa: number;
@@ -1580,4 +1562,21 @@ interface DefenseHitRollInput {
     hit: number;
     out: number;
 }
-export { StadiumEnvironment, PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount, PitchCount, InZoneByCount, PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, PowerRollInput, ShallowDeepChance, TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score, Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount, HitResultCount, MatchupHandedness, GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team, Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, PlayerFromStatsCommand, SwingTakeRollInput, ContactMissRollInput, DefenseOutRollInput, DefenseHitRollInput, FairFoulRollInput, PlayerHittingStats, PlayerPitchingStats, PlayerFieldingStats, PlayerRunningStats, PlayerSplitsStats, PlayerHittingSplitStats, PlayerPitchingSplitStats, PlayerImportRaw, PitchTypeMovementStat, ExitVelocityStat, PlayerFieldingPositionRaw, PlayerRunningStatsRaw, PitchEnvironmentTuning, BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, LaunchAngleStat, PitchPhysics, BattedBallPhysics, BattedBallOutcomeBucketRaw, BattedBallXyBucketRaw, BattedBallXyByTrajectoryBucketRaw, BattedBallXyByTrajectoryEvLaBucketRaw, GameSubstitution, RatingTuning };
+interface PlayerRatingInput {
+    playerId: string;
+    hitting: PlayerHittingStats;
+    pitching: PlayerPitchingStats;
+    fielding: PlayerFieldingStats;
+    running: PlayerRunningStats;
+    splits: {
+        hitting: {
+            vsL: PlayerHittingSplitStats;
+            vsR: PlayerHittingSplitStats;
+        };
+        pitching: {
+            vsL: PlayerPitchingSplitStats;
+            vsR: PlayerPitchingSplitStats;
+        };
+    };
+}
+export { StadiumEnvironment, PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount, PitchCount, InZoneByCount, PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, PowerRollInput, ShallowDeepChance, TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score, Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount, HitResultCount, MatchupHandedness, GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team, Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, SwingTakeRollInput, PlayerRatingInput, ContactMissRollInput, DefenseOutRollInput, DefenseHitRollInput, FairFoulRollInput, PlayerHittingStats, PlayerPitchingStats, PlayerFieldingStats, PlayerRunningStats, PlayerSplitsStats, PlayerHittingSplitStats, PlayerPitchingSplitStats, PlayerImportRaw, PitchTypeMovementStat, ExitVelocityStat, PlayerFieldingPositionRaw, PlayerRunningStatsRaw, PitchEnvironmentTuning, BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, LaunchAngleStat, PitchPhysics, BattedBallPhysics, BattedBallOutcomeBucketRaw, BattedBallXyBucketRaw, BattedBallXyByTrajectoryBucketRaw, BattedBallXyByTrajectoryEvLaBucketRaw, GameSubstitution, RatingTuning };

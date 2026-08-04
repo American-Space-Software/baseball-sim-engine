@@ -22,7 +22,6 @@ const VERSION = JSON.stringify(packageConfig.version)
 
 
 
-
 const baseConfig = {
   mode: "production",
   target: "node",
@@ -47,7 +46,8 @@ const baseConfig = {
 
   externalsType: "module",
   externals: {
-      "baseball-database": "baseball-database"
+    "baseball-database": "baseball-database",
+    "better-sqlite3": "better-sqlite3"
   },
 
   output: {
@@ -63,6 +63,7 @@ const baseConfig = {
     })
   ]
 }
+
 
 export default [
   {

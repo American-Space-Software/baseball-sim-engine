@@ -1367,35 +1367,7 @@ interface StolenBaseByCount {
     
 }
 
-interface PlayerFromStatsCommand {
-    
-    season: number
 
-    playerId: string
-    firstName: string
-    lastName: string
-
-    age?: number
-
-    primaryPosition: Position
-    secondaryPositions?: Position[]
-
-    throws: Handedness
-    hits: Handedness
-
-    primaryRole: "hitter" | "pitcher" | "twoWay"
-
-    hitter: PlayerHittingStats
-    pitcher: PlayerPitchingStats
-
-    fielding: PlayerFieldingStats
-    running: PlayerRunningStats
-
-    splits: PlayerSplitsStats
-
-    pitchEnvironmentTarget:PitchEnvironmentTarget
-
-}
 
 interface PlayerHittingStats {
     games: number
@@ -2038,7 +2010,25 @@ interface DefenseHitRollInput {
     out: number
 }
 
+interface PlayerRatingInput {
+    playerId: string
 
+    hitting: PlayerHittingStats
+    pitching: PlayerPitchingStats
+    fielding: PlayerFieldingStats
+    running: PlayerRunningStats
+
+    splits: {
+        hitting: {
+            vsL: PlayerHittingSplitStats
+            vsR: PlayerHittingSplitStats
+        }
+        pitching: {
+            vsL: PlayerPitchingSplitStats
+            vsR: PlayerPitchingSplitStats
+        }
+    }
+}
 
 
 export {
@@ -2046,8 +2036,9 @@ export {
     TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent,  Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score,
     Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount,HitResultCount, MatchupHandedness,
     GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team,
-    Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings,     PlayerFromStatsCommand,
+    Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings,
     SwingTakeRollInput,
+    PlayerRatingInput,
     ContactMissRollInput,
     DefenseOutRollInput,
     DefenseHitRollInput,

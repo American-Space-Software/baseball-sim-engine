@@ -1,17 +1,12 @@
 import { PlayerImportRaw } from "../../sim/service/interfaces.js";
 import type { DatedStatExport, PlayerImportSelection } from "./player-import-service.js";
+import { StatClassificationService } from "./stat-classification-service.js";
 declare class StatAccumulatorService {
-    private readonly IN_ZONE;
-    private readonly PA_EVENTS;
-    private readonly NON_AB_EVENTS;
-    private readonly HIT_EVENTS;
-    private readonly DEFENSIVE_POSITIONS;
-    private readonly INFIELD_POSITIONS;
-    private readonly SIMPLE_LOCATION_POSITIONS;
+    private readonly statClassificationService;
+    constructor(statClassificationService: StatClassificationService);
     accumulateGameIntoSeasonPlayerImports(season: number, gamePk: number, gameData: any, players: Map<string, PlayerImportRaw>, filterPlayerIds?: Set<string>): void;
     accumulateStatExportsIntoPlayerImports(season: number, statExports: DatedStatExport[], selections: PlayerImportSelection[], players: Map<string, PlayerImportRaw>): void;
     private getSelectedPlayerIds;
-    private getFlyBallDepth;
     private updateRunningAdvancementForPlay;
     private emptyExitVelocityStat;
     private emptyLaunchAngleStat;
@@ -43,8 +38,6 @@ declare class StatAccumulatorService {
     private getOrCreate;
     private markHittingGame;
     private markPitchingGame;
-    private mapPositionAbbreviation;
-    private mapPitchType;
     private addPitchTypeData;
     private addExitVelocity;
     private markFieldingPosition;

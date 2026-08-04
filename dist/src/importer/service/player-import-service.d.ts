@@ -15,6 +15,7 @@ declare class PlayerImportService {
     clearCache(season?: number): void;
     private getOrCreateState;
     private advanceState;
+    private filterStatExportByDateRange;
     private addAppearancesToState;
     private getStatExport;
     private getPlayerIdsFromExports;

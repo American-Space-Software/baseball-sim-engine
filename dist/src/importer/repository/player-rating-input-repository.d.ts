@@ -1,0 +1,31 @@
+import type { Database } from "better-sqlite3";
+import type { PlayerRatingInput } from "../../sim/service/interfaces.js";
+import { StatClassificationService } from "../service/stat-classification-service.js";
+declare class PlayerRatingInputRepository {
+    private readonly database;
+    private readonly statClassificationService;
+    constructor(database: Database, statClassificationService: StatClassificationService);
+    getCareer(endDateExclusive: string, filterPlayerIds?: Set<string>): Map<string, PlayerRatingInput>;
+    getLastAppearances(endDateExclusive: string, appearanceCount: number, filterPlayerIds?: Set<string>): Map<string, PlayerRatingInput>;
+    getForDateRange(startDate: string, endDateExclusive: string, filterPlayerIds?: Set<string>): Map<string, PlayerRatingInput>;
+    getPlayerIdsForSeason(season: number): Set<string>;
+    private get;
+    private createPlayers;
+    private loadHitting;
+    private loadPitching;
+    private loadPitchTypes;
+    private loadFielding;
+    private loadGamesAtPosition;
+    private loadRunning;
+    private loadHittingSplits;
+    private loadPitchingSplits;
+    private getPlayerFilter;
+    private emptyHitting;
+    private emptyPitching;
+    private emptyFielding;
+    private emptyRunning;
+    private emptyHittingSplit;
+    private emptyPitchingSplit;
+    private getNumber;
+}
+export { PlayerRatingInputRepository };

@@ -1,6 +1,6 @@
 {
   "name": "baseball-sim-engine",
-  "version": "2.0.2",
+  "version": "2.0.5",
   "description": "A deterministic baseball simulation engine written in TypeScript. The engine runs in both Node.js and browser environments.",
   "type": "module",
   "main": "./dist/index.js",
@@ -25,7 +25,7 @@
   "scripts": {
     
     "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
-    "test1":"node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/stat-accumulator-service.spec.ts",
+    "test1":"node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/repository/player-rating-input-repository.spec.ts",
 
     "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
     "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
@@ -71,6 +71,7 @@
     "openai": "6.37.0"
   },
   "dependencies": {
-    "baseball-database": "1.0.1"
+    "baseball-database": "1.0.2",
+    "better-sqlite3": "13.0.2"
   }
 }

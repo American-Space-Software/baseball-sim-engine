@@ -5,12 +5,12 @@ import { describe, it } from "mocha"
 import { PitchType, Position } from "../src/sim/service/enums.js"
 import type { PlayerImportRaw } from "../src/sim/service/interfaces.js"
 import { StatAccumulatorService } from "../src/importer/service/stat-accumulator-service.js"
-import { PlayerImportService } from "../src/importer/service/player-import-service.js"
-import path from "path"
+import { StatClassificationService } from "../src/importer/service/stat-classification-service.js"
 
 class StatAccumulatorServiceTestHarness {
 
-    public readonly service = new StatAccumulatorService()
+    public readonly statClassificationService = new StatClassificationService()
+    public readonly service = new StatAccumulatorService(this.statClassificationService)
     public readonly players = new Map<string, PlayerImportRaw>()
 
     public accumulate(gameData: any, filterPlayerIds?: Set<string>): void {
@@ -987,40 +987,5 @@ describe("StatAccumulatorService", function () {
         assert.equal(runner.running.pickoffAttemptsFaced, 1)
     })
 
-    // it("prints the 2025 accumulated imports for Judge, Ohtani, and Skenes", async function () {
-    
-    //     const harness = new StatAccumulatorServiceTestHarness()
 
-
-    //     const playerImportService = new PlayerImportService(
-    //         path.join(process.cwd(), "data"),
-    //         harness.service
-    //     )
-
-    //     const playerIds = new Set([
-    //         "592450",
-    //         "660271",
-    //         "694973"
-    //     ])
-
-    //     const players = await playerImportService.buildSeasonPlayerImports(
-    //         2025,
-    //         playerIds,
-    //         true
-    //     )
-
-    //     assert.equal(players.size, 3)
-
-    //     for (const playerId of playerIds) {
-    //         const player = players.get(playerId)
-
-    //         assert.ok(
-    //             player,
-    //             `Expected an accumulated import for player ${playerId}.`
-    //         )
-
-    //         console.log(`\n${player.firstName} ${player.lastName} (${player.playerId})`)
-    //         console.log(JSON.stringify(player, null, 4))
-    //     }
-    // })
 })

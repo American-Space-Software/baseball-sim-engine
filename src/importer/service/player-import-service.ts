@@ -59,10 +59,14 @@ class PlayerImportService {
             normalizedPlayerIds
         )
 
-        const cached = this.importCache.get(cacheKey)
+        const cached = this.importCache.get(
+            cacheKey
+        )
 
         if (cached) {
-            return this.clonePlayerImportMap(cached)
+            return this.clonePlayerImportMap(
+                cached
+            )
         }
 
         const existingState = this.states.find(state =>
@@ -70,7 +74,9 @@ class PlayerImportService {
         )
 
         if (!existingState) {
-            console.log(`Building player imports through ${gameDate}.`)
+            console.log(
+                `Building player imports through ${gameDate}.`
+            )
         } else if (existingState.currentDate < gameDate) {
             console.log(
                 `Advancing player imports from ${existingState.currentDate} to ${gameDate}.`
@@ -84,7 +90,8 @@ class PlayerImportService {
 
         await this.advanceState(
             state,
-            gameDate
+            gameDate,
+            filterPlayerIds
         )
 
         const players = this.filterPlayerImports(
@@ -92,12 +99,20 @@ class PlayerImportService {
             filterPlayerIds
         )
 
-        this.importCache.set(
-            cacheKey,
-            this.clonePlayerImportMap(players)
-        )
+        if (
+            filterPlayerIds &&
+            filterPlayerIds.size > 0
+        ) {
+            this.importCache.set(
+                cacheKey,
+                this.clonePlayerImportMap(
+                    players
+                )
+            )
+        }
 
         return players
+
     }
 
     
@@ -215,7 +230,7 @@ class PlayerImportService {
         return created
     }
 
-    private async advanceState(state: PlayerImportState, gameDate: string): Promise<void> {
+    private async advanceState(state: PlayerImportState, gameDate: string, filterPlayerIds?: Set<string>): Promise<void> {
         if (gameDate < state.currentDate) {
             throw new Error(
                 `Cannot move player import state backward from ${state.currentDate} to ${gameDate}.`
@@ -228,29 +243,58 @@ class PlayerImportService {
 
         for (const key of Array.from(this.importCache.keys())) {
             if (key.startsWith(`core:${state.season}:${gameDate}:`)) {
-                this.importCache.delete(key)
+                this.importCache.delete(
+                    key
+                )
             }
         }
 
         const startedAt = Date.now()
         const startDate = state.currentDate
-        const statExport = this.getStatExport(startDate, gameDate)
-        const addedStatExports = this.splitStatExportByDate(statExport)
+        const statExport = this.getStatExport(
+            startDate,
+            gameDate
+        )
 
-        state.statExports.push(...addedStatExports)
-        this.addAppearancesToState(state, addedStatExports)
+        const boundedStatExport = this.filterStatExportByDateRange(
+            statExport,
+            startDate,
+            gameDate
+        )
+
+        const addedStatExports = this.splitStatExportByDate(
+            boundedStatExport
+        )
+
+        state.statExports.push(
+            ...addedStatExports
+        )
+
+        this.addAppearancesToState(
+            state,
+            addedStatExports
+        )
 
         state.currentDate = gameDate
 
         const exportsBeforeRemoval = state.statExports.length
 
-        this.removeUnneededDates(state)
+        this.removeUnneededDates(
+            state
+        )
 
-        const removedDates = exportsBeforeRemoval - state.statExports.length
-        const rebuildingAllPlayers = state.players.size === 0
+        const removedDates =
+            exportsBeforeRemoval -
+            state.statExports.length
+
+        const rebuildingAllPlayers =
+            state.players.size === 0
+
         const affectedPlayerIds = rebuildingAllPlayers
-            ? undefined
-            : this.getPlayerIdsFromExports(addedStatExports)
+            ? filterPlayerIds
+            : this.getPlayerIdsFromExports(
+                addedStatExports
+            )
 
         const selections = this.buildCoreSelections(
             state,
@@ -263,13 +307,16 @@ class PlayerImportService {
 
         console.log(
             `Loaded stat exports from ${startDate} through ${this.addDays(gameDate, -1)}: ` +
-            `${statExport.games.length} games, ${statExport.appearances.length} appearances, ` +
-            `${statExport.plateAppearances.length} plate appearances, ${statExport.pitches.length} pitches, ` +
+            `${boundedStatExport.games.length} games, ${boundedStatExport.appearances.length} appearances, ` +
+            `${boundedStatExport.plateAppearances.length} plate appearances, ${boundedStatExport.pitches.length} pitches, ` +
             `${removedDates} old dates removed, ${state.statExports.length} retained, ` +
             `${this.formatDuration(Date.now() - startedAt)}.`
         )
 
-        if (selections.length === 0 || selectedGameCount === 0) {
+        if (
+            selections.length === 0 ||
+            selectedGameCount === 0
+        ) {
             return
         }
 
@@ -279,6 +326,7 @@ class PlayerImportService {
         )
 
         const accumulationStartedAt = Date.now()
+
         const rebuiltPlayers = this.buildFromState(
             state.season,
             state,
@@ -289,7 +337,9 @@ class PlayerImportService {
             state.players.clear()
         } else {
             for (const playerId of affectedPlayerIds ?? []) {
-                state.players.delete(String(playerId))
+                state.players.delete(
+                    String(playerId)
+                )
             }
         }
 
@@ -300,10 +350,7 @@ class PlayerImportService {
 
             state.players.set(
                 normalizedPlayerId,
-                {
-                    ...player,
-                    playerId: normalizedPlayerId
-                }
+                player
             )
         }
 
@@ -312,6 +359,53 @@ class PlayerImportService {
             `in ${this.formatDuration(Date.now() - accumulationStartedAt)}.`
         )
     }
+
+    private filterStatExportByDateRange(statExport: StatExport, startDate: string, endDateExclusive: string): StatExport {
+        const games = statExport.games.filter(game =>
+            game.gameDate >= startDate &&
+            game.gameDate < endDateExclusive
+        )
+
+        const gamePks = new Set(
+            games.map(game =>
+                Number(game.gamePk)
+            )
+        )
+
+        return {
+            games,
+            appearances: statExport.appearances.filter(appearance =>
+                gamePks.has(
+                    Number(appearance.gamePk)
+                )
+            ),
+            plateAppearances: statExport.plateAppearances.filter(plateAppearance =>
+                gamePks.has(
+                    Number(plateAppearance.gamePk)
+                )
+            ),
+            pitches: statExport.pitches.filter(pitch =>
+                gamePks.has(
+                    Number(pitch.gamePk)
+                )
+            ),
+            runnerMovements: statExport.runnerMovements.filter(runnerMovement =>
+                gamePks.has(
+                    Number(runnerMovement.gamePk)
+                )
+            ),
+            fieldingCredits: statExport.fieldingCredits.filter(fieldingCredit =>
+                gamePks.has(
+                    Number(fieldingCredit.gamePk)
+                )
+            ),
+            defensiveEvents: statExport.defensiveEvents.filter(defensiveEvent =>
+                gamePks.has(
+                    Number(defensiveEvent.gamePk)
+                )
+            )
+        }
+    }    
 
     private addAppearancesToState(state: PlayerImportState, statExports: DatedStatExport[]): void {
         for (const datedExport of statExports) {
@@ -474,14 +568,19 @@ class PlayerImportService {
 
     private filterPlayerImports(players: Map<string, PlayerImportRaw>, filterPlayerIds?: Set<string>): Map<string, PlayerImportRaw> {
         if (!filterPlayerIds || filterPlayerIds.size === 0) {
-            return this.clonePlayerImportMap(players)
+            return players
         }
 
         const filtered = new Map<string, PlayerImportRaw>()
 
         for (const playerId of filterPlayerIds) {
-            const normalizedPlayerId = String(playerId)
-            const player = players.get(normalizedPlayerId)
+            const normalizedPlayerId = String(
+                playerId
+            )
+
+            const player = players.get(
+                normalizedPlayerId
+            )
 
             if (!player) {
                 continue
@@ -489,7 +588,9 @@ class PlayerImportService {
 
             filtered.set(
                 normalizedPlayerId,
-                structuredClone(player)
+                structuredClone(
+                    player
+                )
             )
         }
 

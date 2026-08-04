@@ -4,82 +4,12 @@ import { BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, ExitVelo
 import type { DefensiveEvent, FieldingCredit, Pitch, PlateAppearance, PlayerAppearance, RunnerMovement, StatExport } from "baseball-database"
 
 import type { DatedStatExport, PlayerImportSelection } from "./player-import-service.js"
+import { StatClassificationService } from "./stat-classification-service.js"
 
 
 class StatAccumulatorService {
 
-    private readonly IN_ZONE = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9])
-
-    private readonly PA_EVENTS = new Set([
-        "single",
-        "double",
-        "triple",
-        "home_run",
-        "walk",
-        "intent_walk",
-        "hit_by_pitch",
-        "strikeout",
-        "strikeout_double_play",
-        "field_out",
-        "force_out",
-        "grounded_into_double_play",
-        "double_play",
-        "fielders_choice",
-        "field_error",
-        "sac_fly",
-        "sac_bunt",
-        "fielders_choice_out",
-        "other_out"
-    ])
-
-    private readonly NON_AB_EVENTS = new Set([
-        "walk",
-        "intent_walk",
-        "hit_by_pitch",
-        "sac_fly",
-        "sac_bunt",
-        "catcher_interf"
-    ])
-
-    private readonly HIT_EVENTS = new Set([
-        "single",
-        "double",
-        "triple",
-        "home_run"
-    ])
-
-    private readonly DEFENSIVE_POSITIONS = new Set<Position>([
-        Position.PITCHER,
-        Position.CATCHER,
-        Position.FIRST_BASE,
-        Position.SECOND_BASE,
-        Position.THIRD_BASE,
-        Position.SHORTSTOP,
-        Position.LEFT_FIELD,
-        Position.CENTER_FIELD,
-        Position.RIGHT_FIELD
-    ])
-
-    private readonly INFIELD_POSITIONS = new Set<Position>([
-        Position.PITCHER,
-        Position.CATCHER,
-        Position.FIRST_BASE,
-        Position.SECOND_BASE,
-        Position.THIRD_BASE,
-        Position.SHORTSTOP
-    ])
-
-    private readonly SIMPLE_LOCATION_POSITIONS: Record<string, Position> = {
-        "1": Position.PITCHER,
-        "2": Position.CATCHER,
-        "3": Position.FIRST_BASE,
-        "4": Position.SECOND_BASE,
-        "5": Position.THIRD_BASE,
-        "6": Position.SHORTSTOP,
-        "7": Position.LEFT_FIELD,
-        "8": Position.CENTER_FIELD,
-        "9": Position.RIGHT_FIELD
-    }
+    public constructor(private readonly statClassificationService: StatClassificationService) {}
 
     public accumulateGameIntoSeasonPlayerImports(season: number, gamePk: number, gameData: any, players: Map<string, PlayerImportRaw>, filterPlayerIds?: Set<string>): void {
         const allPlays = gameData?.allPlays ?? gameData?.liveData?.plays?.allPlays ?? []
@@ -88,57 +18,10 @@ class StatAccumulatorService {
         const homeFieldAlignment = new Map<Position, string>()
         const awayFieldAlignment = new Map<Position, string>()
 
-        const getEvLaOutcome = (eventType: string): "out" | "single" | "double" | "triple" | "hr" | undefined => {
-            switch (eventType) {
-                case "single":
-                    return "single"
-                case "double":
-                    return "double"
-                case "triple":
-                    return "triple"
-                case "home_run":
-                    return "hr"
-                case "field_out":
-                case "force_out":
-                case "grounded_into_double_play":
-                case "double_play":
-                case "fielders_choice":
-                case "fielders_choice_out":
-                case "other_out":
-                case "sac_fly":
-                case "sac_bunt":
-                    return "out"
-                default:
-                    return undefined
-            }
-        }
-
-        const mapTrajectory = (trajectory: string): "groundBall" | "flyBall" | "lineDrive" | "popup" | undefined => {
-            switch (trajectory) {
-                case "ground_ball":
-                    return "groundBall"
-                case "fly_ball":
-                    return "flyBall"
-                case "line_drive":
-                    return "lineDrive"
-                case "popup":
-                    return "popup"
-                default:
-                    return undefined
-            }
-        }
-
-        const getSprayBin = (coordX: number | undefined, coordY: number | undefined): number | undefined => {
-            if (!Number.isFinite(coordX) || !Number.isFinite(coordY)) return undefined
-
-            const angleDegrees = Math.atan2(coordX as number, coordY as number) * (180 / Math.PI)
-            return Math.floor(angleDegrees / 10) * 10
-        }
-
         const incrementEvLaOutcomeBucket = (buckets: any[], launchSpeed: number | undefined, launchAngle: number | undefined, eventType: string): void => {
             if (!Number.isFinite(launchSpeed) || !Number.isFinite(launchAngle)) return
 
-            const outcome = getEvLaOutcome(eventType)
+            const outcome = this.statClassificationService.getEvLaOutcome(eventType)
             if (!outcome) return
 
             const evBin = Math.floor((launchSpeed as number) / 2) * 2
@@ -168,7 +51,7 @@ class StatAccumulatorService {
         const incrementXyByTrajectoryBucket = (buckets: any[], coordX: number | undefined, coordY: number | undefined, trajectory: string): void => {
             if (!Number.isFinite(coordX) || !Number.isFinite(coordY)) return
 
-            const mappedTrajectory = mapTrajectory(trajectory)
+            const mappedTrajectory = this.statClassificationService.mapTrajectory(trajectory)
             if (!mappedTrajectory) return
 
             const xBin = Math.floor((coordX as number) / 10) * 10
@@ -193,7 +76,7 @@ class StatAccumulatorService {
         const incrementXyByTrajectoryEvLaBucket = (buckets: any[], coordX: number | undefined, coordY: number | undefined, trajectory: string, launchSpeed: number | undefined, launchAngle: number | undefined): void => {
             if (!Number.isFinite(coordX) || !Number.isFinite(coordY) || !Number.isFinite(launchSpeed) || !Number.isFinite(launchAngle)) return
 
-            const mappedTrajectory = mapTrajectory(trajectory)
+            const mappedTrajectory = this.statClassificationService.mapTrajectory(trajectory)
             if (!mappedTrajectory) return
 
             const xBin = Math.floor((coordX as number) / 10) * 10
@@ -226,8 +109,8 @@ class StatAccumulatorService {
         }
 
         const incrementSprayByTrajectoryBucket = (buckets: any[], coordX: number | undefined, coordY: number | undefined, trajectory: string): void => {
-            const mappedTrajectory = mapTrajectory(trajectory)
-            const sprayBin = getSprayBin(coordX, coordY)
+            const mappedTrajectory = this.statClassificationService.mapTrajectory(trajectory)
+            const sprayBin = this.statClassificationService.getSprayBin(coordX, coordY)
 
             if (!mappedTrajectory || sprayBin === undefined) return
 
@@ -249,8 +132,8 @@ class StatAccumulatorService {
         const incrementSprayByTrajectoryEvLaBucket = (buckets: any[], coordX: number | undefined, coordY: number | undefined, trajectory: string, launchSpeed: number | undefined, launchAngle: number | undefined): void => {
             if (!Number.isFinite(launchSpeed) || !Number.isFinite(launchAngle)) return
 
-            const mappedTrajectory = mapTrajectory(trajectory)
-            const sprayBin = getSprayBin(coordX, coordY)
+            const mappedTrajectory = this.statClassificationService.mapTrajectory(trajectory)
+            const sprayBin = this.statClassificationService.getSprayBin(coordX, coordY)
 
             if (!mappedTrajectory || sprayBin === undefined) return
 
@@ -408,9 +291,9 @@ class StatAccumulatorService {
             const pitchingSplitKey = play?.matchup?.batSide?.code === "L" ? "vsL" : "vsR"
 
             const eventType = String(play?.result?.eventType ?? "")
-            const isPA = this.PA_EVENTS.has(eventType)
-            const isAB = isPA && !this.NON_AB_EVENTS.has(eventType)
-            const isHit = this.HIT_EVENTS.has(eventType)
+            const isPA = this.statClassificationService.isPlateAppearance(eventType)
+            const isAB = this.statClassificationService.isAtBat(eventType)
+            const isHit = this.statClassificationService.isHit(eventType)
 
             const startOuts = Number(play?.playEvents?.[0]?.count?.outs ?? play?.count?.outs ?? 0)
             const hasRunnerOnFirstAtStart = (play?.runners ?? []).some((runner: any) => runner?.movement?.originBase === "1B")
@@ -445,12 +328,12 @@ class StatAccumulatorService {
                     batter.splits.hitting[hittingSplitKey].homeRuns++
                 }
 
-                if (eventType === "walk" || eventType === "intent_walk") {
+                if (this.statClassificationService.isWalk(eventType)) {
                     batter.hitting.bb++
                     batter.splits.hitting[hittingSplitKey].bb++
                 }
 
-                if (eventType.includes("strikeout")) {
+                if (this.statClassificationService.isStrikeout(eventType)) {
                     batter.hitting.so++
                     batter.splits.hitting[hittingSplitKey].so++
                 }
@@ -485,12 +368,12 @@ class StatAccumulatorService {
                     pitcher.splits.pitching[pitchingSplitKey].homeRunsAllowed++
                 }
 
-                if (eventType === "walk" || eventType === "intent_walk") {
+                if (this.statClassificationService.isWalk(eventType)) {
                     pitcher.pitching.bbAllowed++
                     pitcher.splits.pitching[pitchingSplitKey].bbAllowed++
                 }
 
-                if (eventType.includes("strikeout")) {
+                if (this.statClassificationService.isStrikeout(eventType)) {
                     pitcher.pitching.so++
                     pitcher.splits.pitching[pitchingSplitKey].so++
                 }
@@ -517,17 +400,17 @@ class StatAccumulatorService {
                 const hitData = event?.hitData ?? {}
                 const callCode = details?.call?.code ?? details?.code ?? ""
 
-                const isBall = details?.isBall === true || callCode === "*B"
+                const isBall = this.statClassificationService.isBall(callCode, details?.isBall)
                 const isStrike = details?.isStrike === true
                 const isInPlay = details?.isInPlay === true
-                const isStrikeOutcome = isStrike || isInPlay
-                const isSwing = callCode === "S" || callCode === "F" || callCode === "T" || callCode === "W" || isInPlay
-                const isContact = callCode === "F" || callCode === "T" || isInPlay
-                const isFoul = callCode === "F" || callCode === "T"
+                const isStrikeOutcome = this.statClassificationService.isStrikeOutcome(isStrike, isInPlay)
+                const isSwing = this.statClassificationService.isSwing(callCode, isInPlay)
+                const isContact = this.statClassificationService.isContact(callCode, isInPlay)
+                const isFoul = this.statClassificationService.isFoul(callCode)
                 const zone = Number(pitchData?.zone)
-                const inZone = this.IN_ZONE.has(zone)
+                const inZone = this.statClassificationService.isInZone(zone)
 
-                const pitchType = this.mapPitchType(String(details?.type?.code ?? ""))
+                const pitchType = this.statClassificationService.mapPitchType(String(details?.type?.code ?? ""))
                 const startSpeed = Number(pitchData?.startSpeed)
                 const horizontalBreak = Number(pitchData?.breaks?.breakHorizontal)
                 const verticalBreak = Number(pitchData?.breaks?.breakVertical)
@@ -554,8 +437,8 @@ class StatAccumulatorService {
                     if (isSwing && inZone) batter.hitting.swingAtStrikes++
                     if (isSwing && !inZone) batter.hitting.swingAtBalls++
 
-                    if (callCode === "C") batter.hitting.calledStrikes++
-                    if (callCode === "S" || callCode === "W") batter.hitting.swingingStrikes++
+                    if (this.statClassificationService.isCalledStrike(callCode)) batter.hitting.calledStrikes++
+                    if (this.statClassificationService.isSwingingStrike(callCode)) batter.hitting.swingingStrikes++
 
                     if (inZone) batter.hitting.inZonePitches++
 
@@ -687,9 +570,9 @@ class StatAccumulatorService {
             const hitData = inPlayEvent?.hitData ?? {}
             const hitTrajectory = String(hitData?.trajectory ?? "")
             const hitLocation = String(hitData?.location ?? "")
-            const hitMappedPosition = this.SIMPLE_LOCATION_POSITIONS[hitLocation]
+            const hitMappedPosition = this.statClassificationService.getPositionForHitLocation(hitLocation)
             const isGroundBallDoublePlayChance = hasDoublePlayOpportunity && hitTrajectory === "ground_ball"
-            const isDoublePlayTurn = (eventType === "grounded_into_double_play" || eventType === "double_play") && outsOnPlay >= 2
+            const isDoublePlayTurn = this.statClassificationService.isDoublePlay(eventType, outsOnPlay)
 
             this.updateRunningAdvancementForPlay(players, play, eventType, hitTrajectory, Number(hitData?.coordinates?.coordY), Number(hitData?.totalDistance), filterPlayerIds)
 
@@ -710,7 +593,7 @@ class StatAccumulatorService {
                 const credit = fieldedBallCredits[0]
                 const fielderId = String(credit?.player?.id ?? "")
                 const posAbbr = String(credit?.position?.abbreviation ?? "").trim()
-                const mappedPosition = this.mapPositionAbbreviation(posAbbr)
+                const mappedPosition = this.statClassificationService.mapPositionAbbreviation(posAbbr)
 
                 if (fielderId && mappedPosition && (!filterPlayerIds || filterPlayerIds.has(fielderId))) {
                     const primaryFielder = this.getOrCreate(players, fielderId)
@@ -729,7 +612,7 @@ class StatAccumulatorService {
                     if (filterPlayerIds && !filterPlayerIds.has(fielderId)) continue
 
                     const posAbbr = String(credit?.position?.abbreviation ?? "").trim()
-                    const mappedPosition = this.mapPositionAbbreviation(posAbbr)
+                    const mappedPosition = this.statClassificationService.mapPositionAbbreviation(posAbbr)
 
                     const fielder = this.getOrCreate(players, fielderId)
                     const creditType = String(credit?.credit ?? "")
@@ -743,7 +626,7 @@ class StatAccumulatorService {
                     if (
                         isGroundBallDoublePlayChance &&
                         mappedPosition &&
-                        this.INFIELD_POSITIONS.has(mappedPosition) &&
+                        this.statClassificationService.isInfieldPosition(mappedPosition) &&
                         (creditType === "f_fielded_ball" || creditType === "f_assist" || creditType === "f_putout")
                     ) {
                         const opportunityKey = `${fielderId}:${mappedPosition}`
@@ -795,7 +678,7 @@ class StatAccumulatorService {
                         isDoublePlayTurn &&
                         runnerIsOut &&
                         mappedPosition &&
-                        this.INFIELD_POSITIONS.has(mappedPosition) &&
+                        this.statClassificationService.isInfieldPosition(mappedPosition) &&
                         (creditType === "f_assist" || creditType === "f_putout")
                     ) {
                         const doublePlayKey = `${fielderId}:${mappedPosition}`
@@ -961,47 +844,15 @@ class StatAccumulatorService {
         )
     }
 
-    private getFlyBallDepth(coordY: number | undefined, totalDistance: number | undefined): "shallow" | "normal" | "deep" {
-        if (Number.isFinite(totalDistance)) {
-            if ((totalDistance as number) < 250) return "shallow"
-            if ((totalDistance as number) > 320) return "deep"
-            return "normal"
-        }
-
-        if (Number.isFinite(coordY)) {
-            if ((coordY as number) < 180) return "shallow"
-            if ((coordY as number) > 260) return "deep"
-            return "normal"
-        }
-
-        return "normal"
-    }  
-
     private updateRunningAdvancementForPlay(players: Map<string, PlayerImportRaw>, play: any, eventType: string, trajectory: string, coordY: number | undefined, totalDistance: number | undefined, filterPlayerIds?: Set<string>): void {
         const isSingle = eventType === "single"
         const isDouble = eventType === "double"
 
-        const isGroundBallOut =
-            trajectory === "ground_ball" &&
-            (
-                eventType === "field_out" ||
-                eventType === "force_out" ||
-                eventType === "grounded_into_double_play" ||
-                eventType === "double_play" ||
-                eventType === "fielders_choice" ||
-                eventType === "fielders_choice_out" ||
-                eventType === "other_out"
-            )
+        const isGroundBallOut = this.statClassificationService.isGroundBallOut(eventType, trajectory)
 
-        const isFlyBallOut =
-            (trajectory === "fly_ball" || eventType === "sac_fly") &&
-            (
-                eventType === "field_out" ||
-                eventType === "sac_fly" ||
-                eventType === "other_out"
-            )
+        const isFlyBallOut = this.statClassificationService.isFlyBallOut(eventType, trajectory)
 
-        const flyDepth = this.getFlyBallDepth(coordY, totalDistance)
+        const flyDepth = this.statClassificationService.getFlyBallDepth(coordY, totalDistance)
 
         for (const runner of play?.runners ?? []) {
             const runnerId = String(runner?.details?.runner?.id ?? "")
@@ -1387,7 +1238,7 @@ class StatAccumulatorService {
         if (trajectory === "popup") player.fielding.popupsFielded++
 
         const locationKey = position
-            ? Object.entries(this.SIMPLE_LOCATION_POSITIONS).find(([_, pos]) => pos === position)?.[0]
+            ? this.statClassificationService.getHitLocationForPosition(position)
             : undefined
 
         if (locationKey) {
@@ -1431,7 +1282,7 @@ class StatAccumulatorService {
     }
 
     private incrementDoublePlayOpportunity(player: PlayerImportRaw, position: Position | undefined): void {
-        if (!position || !this.INFIELD_POSITIONS.has(position)) return
+        if (!position || !this.statClassificationService.isInfieldPosition(position)) return
 
         player.fielding.doublePlayOpportunities++
         const positionStats = this.getOrCreatePositionFielding(player, position)
@@ -1690,64 +1541,6 @@ class StatAccumulatorService {
         }
     }
 
-    private mapPositionAbbreviation(abbr: string): Position | undefined {
-        switch (abbr) {
-            case "P":
-                return Position.PITCHER
-            case "C":
-                return Position.CATCHER
-            case "1B":
-                return Position.FIRST_BASE
-            case "2B":
-                return Position.SECOND_BASE
-            case "3B":
-                return Position.THIRD_BASE
-            case "SS":
-                return Position.SHORTSTOP
-            case "LF":
-                return Position.LEFT_FIELD
-            case "CF":
-                return Position.CENTER_FIELD
-            case "RF":
-                return Position.RIGHT_FIELD
-            default:
-                return undefined
-        }
-    }
-
-    private mapPitchType(code: string): PitchType | undefined {
-        switch (code) {
-            case "FF":
-                return PitchType.FF
-            case "CU":
-                return PitchType.CU
-            case "CH":
-                return PitchType.CH
-            case "FC":
-                return PitchType.FC
-            case "FO":
-                return PitchType.FO
-            case "KN":
-                return PitchType.KN
-            case "KC":
-                return PitchType.KC
-            case "SC":
-                return PitchType.SC
-            case "SI":
-                return PitchType.SI
-            case "SL":
-                return PitchType.SL
-            case "SV":
-                return PitchType.SV
-            case "FS":
-                return PitchType.FS
-            case "ST":
-                return PitchType.ST
-            default:
-                return undefined
-        }
-    }
-
     private addPitchTypeData(player: PlayerImportRaw, pitchType: PitchType | undefined, startSpeed: number | undefined, horizontalBreak: number | undefined, verticalBreak: number | undefined): void {
         if (!pitchType) return
 
@@ -1808,7 +1601,7 @@ class StatAccumulatorService {
 
     private addOutsOnField(gamePk: number, player: PlayerImportRaw, position: Position, outs: number): void {
         if (!outs || outs <= 0) return
-        if (!this.DEFENSIVE_POSITIONS.has(position)) return
+        if (!this.statClassificationService.isDefensivePosition(position)) return
 
         const outsAtPosition = ((player as any).__outsAtPosition ??= {}) as Partial<Record<Position, number>>
         outsAtPosition[position] = (outsAtPosition[position] ?? 0) + outs
@@ -1945,7 +1738,7 @@ class StatAccumulatorService {
 
             for (const pos of allPositions) {
                 const abbr = String(pos?.abbreviation ?? "").trim()
-                const mapped = this.mapPositionAbbreviation(abbr)
+                const mapped = this.statClassificationService.mapPositionAbbreviation(abbr)
                 if (!mapped) continue
 
                 alignment.set(mapped, playerId)
@@ -1982,7 +1775,7 @@ class StatAccumulatorService {
 
     private maybeApplyAlignmentHint(gamePk: number, rawPlayerId: any, rawPosition: any, defendingAlignment: Map<Position, string>, players: Map<string, PlayerImportRaw>, fullName?: string): void {
         const playerId = String(rawPlayerId ?? "")
-        const mappedPosition = this.mapPositionAbbreviation(String(rawPosition ?? "").trim())
+        const mappedPosition = this.statClassificationService.mapPositionAbbreviation(String(rawPosition ?? "").trim())
         if (!playerId || !mappedPosition) return
 
         defendingAlignment.set(mappedPosition, playerId)

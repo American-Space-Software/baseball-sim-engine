@@ -1,5 +1,5 @@
-import { Position, PitchType, Handedness, PitchingRoleType } from "../../sim/service/enums.js"
-import { Game, HitResultCount, HitterStatLine, HittingRatings,  Lineup, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchingRole, PitchRatings, PitchResultCount, PitchTypeMovementStat, Player, PlayerFromStatsCommand, PlayerImportRaw, RotationPitcher, Team } from "../../sim/service/interfaces.js"
+import { Position } from "../../sim/service/enums.js"
+import {  HitResultCount, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchResultCount, PitchTypeMovementStat, PlayerImportRaw,  } from "../../sim/service/interfaces.js"
 import { SimService } from "../../sim/service/sim-service.js"
 import { StatService } from "../../sim/service/stat-service.js"
 import { v4 as uuidv4 } from 'uuid'
