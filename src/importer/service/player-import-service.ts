@@ -294,7 +294,17 @@ class PlayerImportService {
         }
 
         for (const [playerId, player] of rebuiltPlayers) {
-            state.players.set(playerId, player)
+            const normalizedPlayerId = String(
+                playerId
+            )
+
+            state.players.set(
+                normalizedPlayerId,
+                {
+                    ...player,
+                    playerId: normalizedPlayerId
+                }
+            )
         }
 
         console.log(
@@ -503,38 +513,64 @@ class PlayerImportService {
     }
 
     private buildFromExports(season: number, statExports: DatedStatExport[], selections: PlayerImportSelection[], logProgress = false): Map<string, PlayerImportRaw> {
-        const players = new Map<string, PlayerImportRaw>()
+        const accumulatedPlayers = new Map<string, PlayerImportRaw>()
 
         if (selections.length === 0) {
-            return players
+            return accumulatedPlayers
         }
 
-        const selectedGameCount = this.getSelectedGameCount(selections)
+        const selectedGameCount = this.getSelectedGameCount(
+            selections
+        )
 
         if (selectedGameCount === 0) {
-            return players
+            return accumulatedPlayers
         }
 
         const startedAt = Date.now()
 
         if (logProgress) {
-            console.log(`Starting stat accumulation for ${selections.length} players across ${selectedGameCount} games.`)
+            console.log(
+                `Starting stat accumulation for ${selections.length} players across ${selectedGameCount} games.`
+            )
         }
 
         this.statAccumulatorService.accumulateStatExportsIntoPlayerImports(
             season,
             statExports,
             selections,
-            players
+            accumulatedPlayers
         )
 
-        this.finalizePlayers(players)
+        this.finalizePlayers(
+            accumulatedPlayers
+        )
 
-        if (logProgress) {
-            console.log(`Completed stat accumulation for ${players.size} players in ${this.formatDuration(Date.now() - startedAt)}.`)
+        const players = new Map<string, PlayerImportRaw>()
+
+        for (const [playerId, player] of accumulatedPlayers) {
+            const normalizedPlayerId = String(
+                playerId
+            )
+
+            players.set(
+                normalizedPlayerId,
+                {
+                    ...player,
+                    playerId: normalizedPlayerId
+                }
+            )
         }
 
-        return this.clonePlayerImportMap(players)
+        if (logProgress) {
+            console.log(
+                `Completed stat accumulation for ${players.size} players in ${this.formatDuration(Date.now() - startedAt)}.`
+            )
+        }
+
+        return this.clonePlayerImportMap(
+            players
+        )
     }
 
     private getSelectedGameCount(selections: PlayerImportSelection[]): number {
@@ -754,7 +790,17 @@ class PlayerImportService {
         const result = new Map<string, PlayerImportRaw>()
 
         for (const [playerId, player] of players) {
-            result.set(playerId, structuredClone(player))
+            const normalizedPlayerId = String(
+                playerId
+            )
+
+            result.set(
+                normalizedPlayerId,
+                {
+                    ...structuredClone(player),
+                    playerId: normalizedPlayerId
+                }
+            )
         }
 
         return result
