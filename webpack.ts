@@ -85,5 +85,15 @@ export default [
       path: path.resolve(__dirname, "dist"),
       clean: false
     }
-  }
+  },
+  {
+    ...baseConfig,
+    entry: "./src/ratings/index.ts",
+    output: {
+      ...baseConfig.output,
+      filename: "ratings.js",
+      path: path.resolve(__dirname, "dist"),
+      clean: false
+    }
+  }  
 ]

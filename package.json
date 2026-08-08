@@ -23,20 +23,21 @@
   ],
   "sideEffects": false,
   "scripts": {
-    
-    "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
-    "test1":"node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/repository/player-rating-input-repository.spec.ts",
+      "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
+      "test1": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/player-rating-service.spec.ts",
 
-    "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
-    "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
-    "build": "npm run build:js && npm run build:types",
-    "build:watch": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts --watch",
+      "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
+      "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
+      "build": "npm run build:js && npm run build:types",
+      "build:watch": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts --watch",
 
-    "tune:target": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts tune target",
-    "generate:ratings": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts generate ratings",
-    "generate:all": "node --env-file=.env --loader ts-node/esm ./src/importer/index.ts generate all",
+      "download": "node --env-file=.env ./dist/ratings.js download",
+      "download:all": "node --env-file=.env ./dist/ratings.js download all",
+      "generate:ratings": "node --env-file=.env ./dist/ratings.js generate ratings",
 
-    "prepublishOnly": "npm run build"
+      "generate:env": "node --env-file=.env ./dist/importer.js",
+
+      "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
@@ -71,7 +72,7 @@
     "openai": "6.37.0"
   },
   "dependencies": {
-    "baseball-database": "1.0.2",
+    "baseball-database": "1.0.6",
     "better-sqlite3": "13.0.2"
   }
 }

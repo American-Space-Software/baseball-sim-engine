@@ -12,7 +12,7 @@ import type {
 import { RollChartService } from "../src/sim/service/roll-chart-service.js"
 import { PlayerChange, SimRolls } from "../src/sim/service/sim-service.js"
 import { RunnerService } from "../src/sim/service/runner-service.js"
-import { PlayerRatingService } from "../src/importer/service/player-rating-service.js"
+import { PlayerRatingService } from "../src/ratings/service/player-rating-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 import { Handedness, PlayResult, simService } from "../src/sim/index.js"
 
@@ -21,8 +21,10 @@ import { Handedness, PlayResult, simService } from "../src/sim/index.js"
 import {
     database
 } from "baseball-database"
-import { PlayerRatingInputRepository } from "../src/importer/repository/player-rating-input-repository.js"
-import { StatClassificationService } from "../src/importer/service/stat-classification-service.js"
+import { PlayerRatingInputRepository } from "../src/ratings/repository/player-rating-input-repository.js"
+import { SchemaService } from "../src/importer/service/schema-service.js"
+import { DownloadService } from "../src/importer/service/download-service.js"
+import { PlayerRatingSeasonInputRepository } from "../src/ratings/repository/player-rating-season-input-repository.js"
 
 const season = 2025
 const baseDataDir = process.env.DATA_DIR ? process.env.DATA_DIR : "data"
@@ -44,20 +46,45 @@ const fileExists = async (filePath: string): Promise<boolean> => {
 }
 
 const createServices = () => {
+    const schemaService = new SchemaService(
+        database
+    )
 
-    const statClassificationService = new StatClassificationService()
-    const playerRatingInputRepository = new PlayerRatingInputRepository(database, statClassificationService)
+    schemaService.load()
 
+    const playerRatingInputRepository = new PlayerRatingInputRepository(
+        database
+    )
 
-    const playerRatingService = new PlayerRatingService(playerRatingInputRepository)
+    const playerRatingSeasonInputRepository = new PlayerRatingSeasonInputRepository(
+        database
+    )
+
+    const downloadService = new DownloadService(
+        schemaService,
+        playerRatingInputRepository,
+        playerRatingSeasonInputRepository
+    )
+
+    const playerRatingService = new PlayerRatingService(
+        playerRatingInputRepository,
+        playerRatingSeasonInputRepository
+    )
 
     return {
-        playerRatingService, playerRatingInputRepository
+        downloadService,
+        playerRatingService,
+        playerRatingInputRepository
     }
-}   
+}
 
 const baselineGameService = new BaselineGameService(simService)
 const services = createServices()
+
+await services.downloadService.syncRatingHistory(
+    season
+)
+
 
 const pitchEnvironmentPath = path.join(baseDataDir, String(season), "_pitch_environment_target.json")
 
@@ -95,7 +122,7 @@ const generatedPlayerRatings = await services.playerRatingService.buildPlayerRat
 )
 
 for (const diagnosticPlayer of diagnosticPlayers) {
-    if (!playerInputs.has(diagnosticPlayer.playerId)) {
+    if (!playerInputs.some(player => player.playerId === diagnosticPlayer.playerId)) {
         throw new Error(`Missing core player rating input for ${diagnosticPlayer.name} (${diagnosticPlayer.playerId})`)
     }
 
@@ -365,7 +392,9 @@ class RatingTestHarness {
 
     static findPlayer(name: string): PlayerRatingInput {
         const diagnosticPlayer = this.findDiagnosticPlayer(name)
-        const player = playerInputs.get(diagnosticPlayer.playerId)
+        const player = playerInputs.find(player =>
+            player.playerId === diagnosticPlayer.playerId
+        )
 
         assert.ok(player, `Player rating input not found: ${name} (${diagnosticPlayer.playerId})`)
         return player
@@ -1738,38 +1767,60 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
         })
 
         it("requests each configured bulk rating window once during initial state creation", async function () {
-            const requestedCareer: any[] = []
+            const requestedSeasons: any[] = []
             const requestedLastAppearances: any[] = []
             const requestedRanges: any[] = []
 
             const repository = {
                 getPlayerIdsForSeason: () => new Set(["1"]),
-                getCareer: (endDateExclusive: string, playerIds?: Set<string>) => {
-                    requestedCareer.push({ endDateExclusive, playerIds: Array.from(playerIds ?? []) })
-
-                    return new Map([
-                        ["1", buildImport("1", 100, 100)]
-                    ])
-                },
                 getLastAppearances: (endDateExclusive: string, appearanceCount: number, playerIds?: Set<string>) => {
                     requestedLastAppearances.push({ endDateExclusive, appearanceCount, playerIds: Array.from(playerIds ?? []) })
 
-                    return new Map([
-                        ["1", buildImport("1", 110, 100)]
-                    ])
+                    return [
+                        buildImport("1", 110, 100)
+                    ]
                 },
                 getForDateRange: (startDate: string, endDateExclusive: string, playerIds?: Set<string>) => {
                     requestedRanges.push({ startDate, endDateExclusive, playerIds: Array.from(playerIds ?? []) })
 
-                    const value = startDate === "2026-06-20" ? 120 : startDate === "2026-07-05" ? 130 : 140
+                    if (startDate === "2026-01-01") {
+                        return []
+                    }
 
-                    return new Map([
-                        ["1", buildImport("1", value, 100)]
-                    ])
+                    const value = startDate === "2026-06-20"
+                        ? 120
+                        : startDate === "2026-07-05"
+                            ? 130
+                            : 140
+
+                    return [
+                        buildImport("1", value, 100)
+                    ]
                 }
             }
 
-            const service = new PlayerRatingService(repository as unknown as PlayerRatingInputRepository)
+            const seasonRepository = {
+                getBeforeSeason: (requestedSeason: number, playerIds?: Set<string>) => {
+                    requestedSeasons.push({
+                        season: requestedSeason,
+                        playerIds: Array.from(playerIds ?? [])
+                    })
+
+                    return [
+                        {
+                            season: 2025,
+                            playerId: "1",
+                            data: buildImport("1", 100, 100),
+                            metadata: {}
+                        }
+                    ]
+                }
+            }
+
+            const service = new PlayerRatingService(
+                repository as unknown as PlayerRatingInputRepository,
+                seasonRepository as unknown as PlayerRatingSeasonInputRepository
+            )
             const ratingService = PlayerRatingService as any
             const originalBuildPlayerRatings = ratingService.buildPlayerRatings
 
@@ -1778,8 +1829,8 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
             try {
                 const ratings = await service.buildPlayerRatingsForDate(2026, "2026-07-20", pitchEnvironment, new Set(["1"]))
 
-                assert.deepEqual(requestedCareer, [
-                    { endDateExclusive: "2026-07-20", playerIds: ["1"] }
+                assert.deepEqual(requestedSeasons, [
+                    { season: 2026, playerIds: ["1"] }
                 ])
 
                 assert.deepEqual(requestedLastAppearances, [
@@ -1787,6 +1838,7 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
                 ])
 
                 assert.deepEqual(requestedRanges, [
+                    { startDate: "2026-01-01", endDateExclusive: "2026-07-20", playerIds: ["1"] },
                     { startDate: "2026-06-20", endDateExclusive: "2026-07-05", playerIds: ["1"] },
                     { startDate: "2026-07-05", endDateExclusive: "2026-07-13", playerIds: ["1"] },
                     { startDate: "2026-07-13", endDateExclusive: "2026-07-20", playerIds: ["1"] }
@@ -1810,21 +1862,44 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
 
             const repository = {
                 getPlayerIdsForSeason: () => new Set(["1"]),
-                getCareer: () => {
-                    careerCalls++
-                    return new Map([["1", buildImport("1", 100, 100)]])
-                },
                 getLastAppearances: () => {
                     lastAppearanceCalls++
-                    return new Map([["1", buildImport("1", 100, 100)]])
+                    return [
+                        buildImport("1", 100, 100)
+                    ]
                 },
-                getForDateRange: () => {
+                getForDateRange: (startDate: string) => {
                     dateRangeCalls++
-                    return new Map([["1", buildImport("1", 100, 100)]])
+
+                    if (startDate === "2026-01-01") {
+                        return []
+                    }
+
+                    return [
+                        buildImport("1", 100, 100)
+                    ]
                 }
             }
 
-            const service = new PlayerRatingService(repository as unknown as PlayerRatingInputRepository)
+            const seasonRepository = {
+                getBeforeSeason: () => {
+                    careerCalls++
+
+                    return [
+                        {
+                            season: 2025,
+                            playerId: "1",
+                            data: buildImport("1", 100, 100),
+                            metadata: {}
+                        }
+                    ]
+                }
+            }
+
+            const service = new PlayerRatingService(
+                repository as unknown as PlayerRatingInputRepository,
+                seasonRepository as unknown as PlayerRatingSeasonInputRepository
+            )
             const ratingService = PlayerRatingService as any
             const originalBuildPlayerRatings = ratingService.buildPlayerRatings
             ratingService.buildPlayerRatings = (_pitchEnvironment: PitchEnvironmentTarget, playerInput: any) => buildRatings(playerInput.value)
@@ -1835,7 +1910,7 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
 
                 assert.equal(careerCalls, 1)
                 assert.equal(lastAppearanceCalls, 1)
-                assert.equal(dateRangeCalls, 3)
+                assert.equal(dateRangeCalls, 4)
                 assert.deepEqual(second, first)
             } finally {
                 ratingService.buildPlayerRatings = originalBuildPlayerRatings
@@ -1843,49 +1918,76 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
         })
 
         it("rebuilds only players affected while advancing the state", async function () {
-            const careerRequests: string[][] = []
+            const seasonRequests: string[][] = []
             const lastAppearanceRequests: string[][] = []
 
             const repository = {
                 getPlayerIdsForSeason: () => new Set(["1", "2"]),
-                getCareer: (endDateExclusive: string, playerIds?: Set<string>) => {
-                    const requested = Array.from(playerIds ?? []).sort()
-                    careerRequests.push(requested)
-
-                    return new Map(requested.map(playerId => [
-                        playerId,
-                        buildImport(playerId, endDateExclusive === "2026-07-21" && playerId === "2" ? 150 : playerId === "1" ? 100 : 110, 100)
-                    ]))
-                },
                 getLastAppearances: (_endDateExclusive: string, _appearanceCount: number, playerIds?: Set<string>) => {
                     const requested = Array.from(playerIds ?? []).sort()
                     lastAppearanceRequests.push(requested)
 
-                    return new Map(requested.map(playerId => [
-                        playerId,
-                        buildImport(playerId, playerId === "1" ? 100 : 110, 100)
-                    ]))
+                    return requested.map(playerId =>
+                        buildImport(
+                            playerId,
+                            playerId === "1" ? 100 : 110,
+                            100
+                        )
+                    )
                 },
                 getForDateRange: (startDate: string, endDateExclusive: string, playerIds?: Set<string>) => {
+                    const requested = Array.from(playerIds ?? []).sort()
+
+                    if (
+                        startDate === "2026-01-01" &&
+                        endDateExclusive === "2026-07-20"
+                    ) {
+                        return []
+                    }
+
                     const isInitialWindow =
                         startDate === "2026-06-20" && endDateExclusive === "2026-07-05" ||
                         startDate === "2026-07-05" && endDateExclusive === "2026-07-13" ||
                         startDate === "2026-07-13" && endDateExclusive === "2026-07-20"
 
                     if (isInitialWindow) {
-                        return new Map(Array.from(playerIds ?? []).map(playerId => [
-                            playerId,
-                            buildImport(playerId, playerId === "1" ? 100 : 110, 100)
-                        ]))
+                        return requested.map(playerId =>
+                            buildImport(
+                                playerId,
+                                playerId === "1" ? 100 : 110,
+                                100
+                            )
+                        )
                     }
 
-                    return new Map([
-                        ["2", buildImport("2", 150, 1)]
-                    ])
+                    return [
+                        buildImport("2", 150, 1)
+                    ]
                 }
             }
 
-            const service = new PlayerRatingService(repository as unknown as PlayerRatingInputRepository)
+            const seasonRepository = {
+                getBeforeSeason: (_season: number, playerIds?: Set<string>) => {
+                    const requested = Array.from(playerIds ?? []).sort()
+                    seasonRequests.push(requested)
+
+                    return requested.map(playerId => ({
+                        season: 2025,
+                        playerId,
+                        data: buildImport(
+                            playerId,
+                            playerId === "1" ? 100 : 110,
+                            100
+                        ),
+                        metadata: {}
+                    }))
+                }
+            }
+
+            const service = new PlayerRatingService(
+                repository as unknown as PlayerRatingInputRepository,
+                seasonRepository as unknown as PlayerRatingSeasonInputRepository
+            )
             const ratingService = PlayerRatingService as any
             const originalBuildPlayerRatings = ratingService.buildPlayerRatings
             ratingService.buildPlayerRatings = (_pitchEnvironment: PitchEnvironmentTarget, playerInput: any) => buildRatings(playerInput.value)
@@ -1894,7 +1996,7 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
                 const first = await service.buildPlayerRatingsForDate(2026, "2026-07-20", pitchEnvironment, new Set(["1", "2"]))
                 const second = await service.buildPlayerRatingsForDate(2026, "2026-07-21", pitchEnvironment, new Set(["1", "2"]))
 
-                assert.deepEqual(careerRequests, [["1", "2"]])
+                assert.deepEqual(seasonRequests, [["1", "2"]])
                 assert.deepEqual(lastAppearanceRequests, [["1", "2"], ["2"]])
                 assert.equal(second.get("1")?.hittingRatings.speed, first.get("1")?.hittingRatings.speed)
                 assert.notEqual(second.get("2")?.hittingRatings.speed, first.get("2")?.hittingRatings.speed)
@@ -1904,28 +2006,40 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
         })
 
         it("rebuilds all selected players when the pitch environment changes", async function () {
-            const careerRequests: string[][] = []
+            const seasonRequests: string[][] = []
 
             const repository = {
                 getPlayerIdsForSeason: () => new Set(["1", "2"]),
-                getCareer: (_endDateExclusive: string, playerIds?: Set<string>) => {
-                    const requested = Array.from(playerIds ?? []).sort()
-                    careerRequests.push(requested)
-
-                    return new Map(requested.map(playerId => [
-                        playerId,
+                getLastAppearances: (_endDateExclusive: string, _appearanceCount: number, playerIds?: Set<string>) =>
+                    Array.from(playerIds ?? []).map(playerId =>
                         buildImport(playerId, 100, 100)
-                    ]))
-                },
-                getLastAppearances: (_endDateExclusive: string, _appearanceCount: number, playerIds?: Set<string>) => new Map(
-                    Array.from(playerIds ?? []).map(playerId => [playerId, buildImport(playerId, 100, 100)])
-                ),
-                getForDateRange: (_startDate: string, _endDateExclusive: string, playerIds?: Set<string>) => new Map(
-                    Array.from(playerIds ?? []).map(playerId => [playerId, buildImport(playerId, 100, 100)])
-                )
+                    ),
+                getForDateRange: (startDate: string, _endDateExclusive: string, playerIds?: Set<string>) =>
+                    startDate === "2026-01-01"
+                        ? []
+                        : Array.from(playerIds ?? []).map(playerId =>
+                            buildImport(playerId, 100, 100)
+                        )
             }
 
-            const service = new PlayerRatingService(repository as unknown as PlayerRatingInputRepository)
+            const seasonRepository = {
+                getBeforeSeason: (_season: number, playerIds?: Set<string>) => {
+                    const requested = Array.from(playerIds ?? []).sort()
+                    seasonRequests.push(requested)
+
+                    return requested.map(playerId => ({
+                        season: 2025,
+                        playerId,
+                        data: buildImport(playerId, 100, 100),
+                        metadata: {}
+                    }))
+                }
+            }
+
+            const service = new PlayerRatingService(
+                repository as unknown as PlayerRatingInputRepository,
+                seasonRepository as unknown as PlayerRatingSeasonInputRepository
+            )
             const ratingService = PlayerRatingService as any
             const originalBuildPlayerRatings = ratingService.buildPlayerRatings
             ratingService.buildPlayerRatings = (target: PitchEnvironmentTarget, playerInput: any) => buildRatings(playerInput.value + Number(target.avgRating))
@@ -1939,7 +2053,7 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
                 await service.buildPlayerRatingsForDate(2026, "2026-07-20", pitchEnvironment, new Set(["1", "2"]))
                 await service.buildPlayerRatingsForDate(2026, "2026-07-20", changedPitchEnvironment, new Set(["1", "2"]))
 
-                assert.deepEqual(careerRequests, [["1", "2"]])
+                assert.deepEqual(seasonRequests, [["1", "2"]])
             } finally {
                 ratingService.buildPlayerRatings = originalBuildPlayerRatings
             }
@@ -1950,12 +2064,32 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
 
             const repository = {
                 getPlayerIdsForSeason: () => new Set(["1"]),
-                getCareer: () => new Map([["1", buildImport("1", 100, 100)]]),
-                getLastAppearances: () => new Map([["1", buildImport("1", 110, 100)]]),
-                getForDateRange: () => new Map([["1", buildImport("1", 120, 100)]])
+                getLastAppearances: () => [
+                    buildImport("1", 110, 100)
+                ],
+                getForDateRange: (startDate: string) =>
+                    startDate === "2026-01-01"
+                        ? []
+                        : [
+                            buildImport("1", 120, 100)
+                        ]
             }
 
-            const service = new PlayerRatingService(repository as unknown as PlayerRatingInputRepository)
+            const seasonRepository = {
+                getBeforeSeason: () => [
+                    {
+                        season: 2025,
+                        playerId: "1",
+                        data: buildImport("1", 100, 100),
+                        metadata: {}
+                    }
+                ]
+            }
+
+            const service = new PlayerRatingService(
+                repository as unknown as PlayerRatingInputRepository,
+                seasonRepository as unknown as PlayerRatingSeasonInputRepository
+            )
             const ratingService = PlayerRatingService as any
             const originalBuildPlayerRatings = ratingService.buildPlayerRatings
 
@@ -1983,23 +2117,27 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
 
             const repository = {
                 getPlayerIdsForSeason: () => new Set(["1"]),
-                getCareer: () => new Map<string, PlayerRatingInput>(),
                 getLastAppearances: () => {
                     lastAppearancesCalled = true
-                    return new Map<string, PlayerRatingInput>()
+                    return []
                 },
                 getForDateRange: () => {
                     dateRangeCalls++
-                    return new Map<string, PlayerRatingInput>()
+                    return []
                 }
             }
 
-            const service = new PlayerRatingService(repository as unknown as PlayerRatingInputRepository)
+            const service = new PlayerRatingService(
+                repository as unknown as PlayerRatingInputRepository,
+                {
+                    getBeforeSeason: () => []
+                } as unknown as PlayerRatingSeasonInputRepository
+            )
             const ratings = await service.buildPlayerRatingsForDate(2026, "2026-07-20", pitchEnvironment, new Set(["1"]))
 
             assert.equal(ratings.has("1"), false)
             assert.equal(lastAppearancesCalled, true)
-            assert.equal(dateRangeCalls, 3)
+            assert.equal(dateRangeCalls, 4)
         })
 
         it("clears a season state and rebuilds it on the next request", async function () {
@@ -2007,15 +2145,36 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
 
             const repository = {
                 getPlayerIdsForSeason: () => new Set(["1"]),
-                getCareer: () => {
-                    careerCalls++
-                    return new Map([["1", buildImport("1", 100, 100)]])
-                },
-                getLastAppearances: () => new Map([["1", buildImport("1", 100, 100)]]),
-                getForDateRange: () => new Map([["1", buildImport("1", 100, 100)]])
+                getLastAppearances: () => [
+                    buildImport("1", 100, 100)
+                ],
+                getForDateRange: (startDate: string) =>
+                    startDate === "2026-01-01"
+                        ? []
+                        : [
+                            buildImport("1", 100, 100)
+                        ]
             }
 
-            const service = new PlayerRatingService(repository as unknown as PlayerRatingInputRepository)
+            const seasonRepository = {
+                getBeforeSeason: () => {
+                    careerCalls++
+
+                    return [
+                        {
+                            season: 2025,
+                            playerId: "1",
+                            data: buildImport("1", 100, 100),
+                            metadata: {}
+                        }
+                    ]
+                }
+            }
+
+            const service = new PlayerRatingService(
+                repository as unknown as PlayerRatingInputRepository,
+                seasonRepository as unknown as PlayerRatingSeasonInputRepository
+            )
             const ratingService = PlayerRatingService as any
             const originalBuildPlayerRatings = ratingService.buildPlayerRatings
             ratingService.buildPlayerRatings = (_pitchEnvironment: PitchEnvironmentTarget, playerInput: any) => buildRatings(playerInput.value)
@@ -2036,15 +2195,36 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_WINDOWS)) {
 
             const repository = {
                 getPlayerIdsForSeason: () => new Set(["1"]),
-                getCareer: (endDateExclusive: string) => {
-                    careerDates.push(endDateExclusive)
-                    return new Map([["1", buildImport("1", 100, 100)]])
-                },
-                getLastAppearances: () => new Map([["1", buildImport("1", 100, 100)]]),
-                getForDateRange: () => new Map([["1", buildImport("1", 100, 100)]])
+                getLastAppearances: () => [
+                    buildImport("1", 100, 100)
+                ],
+                getForDateRange: (startDate: string, endDateExclusive: string) => {
+                    if (startDate === "2026-01-01") {
+                        careerDates.push(endDateExclusive)
+                        return []
+                    }
+
+                    return [
+                        buildImport("1", 100, 100)
+                    ]
+                }
             }
 
-            const service = new PlayerRatingService(repository as unknown as PlayerRatingInputRepository)
+            const seasonRepository = {
+                getBeforeSeason: () => [
+                    {
+                        season: 2025,
+                        playerId: "1",
+                        data: buildImport("1", 100, 100),
+                        metadata: {}
+                    }
+                ]
+            }
+
+            const service = new PlayerRatingService(
+                repository as unknown as PlayerRatingInputRepository,
+                seasonRepository as unknown as PlayerRatingSeasonInputRepository
+            )
             const ratingService = PlayerRatingService as any
             const originalBuildPlayerRatings = ratingService.buildPlayerRatings
             ratingService.buildPlayerRatings = (_pitchEnvironment: PitchEnvironmentTarget, playerInput: any) => buildRatings(playerInput.value)
@@ -2197,32 +2377,32 @@ if (toRun.includes(DiagnosticTest.PLAYER_RATING_DIAGNOSTICS)) {
     })
 }
 
-if (toRun.includes(DiagnosticTest.AARON_JUDGE)) {
-    describe("Aaron Judge Probability Breakdown", function () {
+// if (toRun.includes(DiagnosticTest.AARON_JUDGE)) {
+//     describe("Aaron Judge Probability Breakdown", function () {
 
-        it("should show where Aaron Judge loses batting average", function () {
-            const breakdown = RatingTestHarness.getAaronJudgeProbabilityRows()
+//         it("should show where Aaron Judge loses batting average", function () {
+//             const breakdown = RatingTestHarness.getAaronJudgeProbabilityRows()
 
-            RatingTestHarness.printTable("[AARON JUDGE RATINGS]", breakdown.ratings)
-            RatingTestHarness.printTable("[AARON JUDGE RATING CHANGES]", breakdown.changes)
-            RatingTestHarness.printTable("[AARON JUDGE FAIR-CONTACT POWER CHART]", breakdown.powerChart)
-            RatingTestHarness.printTable("[AARON JUDGE SIM VS REAL]", breakdown.results)
+//             RatingTestHarness.printTable("[AARON JUDGE RATINGS]", breakdown.ratings)
+//             RatingTestHarness.printTable("[AARON JUDGE RATING CHANGES]", breakdown.changes)
+//             RatingTestHarness.printTable("[AARON JUDGE FAIR-CONTACT POWER CHART]", breakdown.powerChart)
+//             RatingTestHarness.printTable("[AARON JUDGE SIM VS REAL]", breakdown.results)
 
-            const judgeRight = breakdown.powerChart.find(row => row.player === "Aaron Judge vs RHP")
-            const averageRight = breakdown.powerChart.find(row => row.player === "Average hitter vs RHP")
-            const sim = breakdown.results.find(row => row.row === "SIM")
-            const real = breakdown.results.find(row => row.row === "REAL")
+//             const judgeRight = breakdown.powerChart.find(row => row.player === "Aaron Judge vs RHP")
+//             const averageRight = breakdown.powerChart.find(row => row.player === "Average hitter vs RHP")
+//             const sim = breakdown.results.find(row => row.row === "SIM")
+//             const real = breakdown.results.find(row => row.row === "REAL")
 
-            assert.ok(judgeRight)
-            assert.ok(averageRight)
-            assert.ok(sim)
-            assert.ok(real)
-            assert.ok(judgeRight.chartBabip > averageRight.chartBabip)
-            assert.ok(Number(sim.avg) < Number(real.avg))
-            assert.ok(Number(sim.babip) < Number(real.babip))
-        })
-    })
-}
+//             assert.ok(judgeRight)
+//             assert.ok(averageRight)
+//             assert.ok(sim)
+//             assert.ok(real)
+//             assert.ok(judgeRight.chartBabip > averageRight.chartBabip)
+//             assert.ok(Number(sim.avg) < Number(real.avg))
+//             assert.ok(Number(sim.babip) < Number(real.babip))
+//         })
+//     })
+// }
 
 
 

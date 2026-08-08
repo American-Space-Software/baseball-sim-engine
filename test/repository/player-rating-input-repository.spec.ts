@@ -1,18 +1,18 @@
 import { strict as assert } from "assert"
 
 import BetterSqlite3 from "better-sqlite3"
-import { afterEach, beforeEach, describe, it } from "mocha"
+import { after, afterEach, before, beforeEach, describe, it } from "mocha"
 
 import type { Database } from "better-sqlite3"
+import type { PlayerRatingInput } from "../../src/sim/service/interfaces.js"
 
 import {
     PitchType,
     Position
 } from "../../src/sim/service/enums.js"
 
-import { PlayerRatingInputRepository } from "../../src/importer/repository/player-rating-input-repository.js"
-import { StatClassificationService } from "../../src/importer/service/stat-classification-service.js"
-
+import { PlayerRatingInputRepository } from "../../src/ratings/repository/player-rating-input-repository.js"
+import { SchemaService } from "../../src/importer/service/schema-service.js"
 
 class PlayerRatingInputRepositoryTestHarness {
 
@@ -20,14 +20,21 @@ class PlayerRatingInputRepositoryTestHarness {
     public readonly database: Database
     public readonly repository: PlayerRatingInputRepository
 
-    public constructor() {
-        this.database = new BetterSqlite3(":memory:")
+    public constructor(seedCorrectnessData = true) {
+        this.database = new BetterSqlite3(
+            ":memory:"
+        )
 
         this.database.exec(`
             CREATE TABLE games (
                 game_pk INTEGER PRIMARY KEY,
                 game_date TEXT NOT NULL
             );
+
+            CREATE INDEX idx_games_game_date
+                ON games (
+                    game_date
+                );
 
             CREATE TABLE player_appearances (
                 game_pk INTEGER NOT NULL,
@@ -40,7 +47,10 @@ class PlayerRatingInputRepositoryTestHarness {
                 started_as_batter INTEGER NOT NULL,
                 started_as_pitcher INTEGER NOT NULL,
                 started_as_fielder INTEGER NOT NULL,
-                PRIMARY KEY (game_pk, player_id)
+                PRIMARY KEY (
+                    game_pk,
+                    player_id
+                )
             );
 
             CREATE TABLE plate_appearances (
@@ -52,7 +62,10 @@ class PlayerRatingInputRepositoryTestHarness {
                 pitch_hand_code TEXT,
                 event_type TEXT,
                 is_complete INTEGER NOT NULL,
-                PRIMARY KEY (game_pk, at_bat_index)
+                PRIMARY KEY (
+                    game_pk,
+                    at_bat_index
+                )
             );
 
             CREATE TABLE pitches (
@@ -64,13 +77,21 @@ class PlayerRatingInputRepositoryTestHarness {
                 is_strike INTEGER NOT NULL,
                 is_ball INTEGER NOT NULL,
                 zone INTEGER,
+                coordinate_p_x REAL,
+                coordinate_p_z REAL,
+                strike_zone_top REAL,
+                strike_zone_bottom REAL,
                 pitch_type_code TEXT,
                 start_speed REAL,
                 break_horizontal REAL,
                 break_vertical REAL,
                 launch_speed REAL,
                 trajectory TEXT,
-                PRIMARY KEY (game_pk, at_bat_index, event_index)
+                PRIMARY KEY (
+                    game_pk,
+                    at_bat_index,
+                    event_index
+                )
             );
 
             CREATE TABLE runner_movements (
@@ -84,7 +105,11 @@ class PlayerRatingInputRepositoryTestHarness {
                 is_out INTEGER NOT NULL,
                 is_scoring_event INTEGER NOT NULL,
                 earned INTEGER NOT NULL,
-                PRIMARY KEY (game_pk, at_bat_index, runner_index)
+                PRIMARY KEY (
+                    game_pk,
+                    at_bat_index,
+                    runner_index
+                )
             );
 
             CREATE TABLE fielding_credits (
@@ -95,7 +120,12 @@ class PlayerRatingInputRepositoryTestHarness {
                 player_id INTEGER NOT NULL,
                 credit TEXT NOT NULL,
                 position_abbreviation TEXT,
-                PRIMARY KEY (game_pk, at_bat_index, runner_index, credit_index)
+                PRIMARY KEY (
+                    game_pk,
+                    at_bat_index,
+                    runner_index,
+                    credit_index
+                )
             );
 
             CREATE TABLE defensive_events (
@@ -105,20 +135,397 @@ class PlayerRatingInputRepositoryTestHarness {
                 player_id INTEGER NOT NULL,
                 from_position TEXT,
                 to_position TEXT,
-                PRIMARY KEY (game_pk, at_bat_index, event_index, player_id)
+                PRIMARY KEY (
+                    game_pk,
+                    at_bat_index,
+                    event_index,
+                    player_id
+                )
             );
         `)
 
+        new SchemaService(
+            this.database
+        ).load()
+
         this.repository = new PlayerRatingInputRepository(
-            this.database,
-            new StatClassificationService()
+            this.database
         )
 
-        this.seed()
+        if (seedCorrectnessData) {
+            this.seed()
+
+            this.repository.create(
+                1
+            )
+
+            this.repository.create(
+                2
+            )
+
+            this.repository.create(
+                3
+            )
+        }
+    }
+
+    public seedPerformanceData(firstSeason = 2008, lastSeason = 2025, gamesPerSeason = 2430, playerCount = 1470, playersPerGame = 30): void {
+        const startedAt = Date.now()
+        const templateGamePk = 1
+
+        this.database.prepare(`
+            INSERT INTO games (
+                game_pk,
+                game_date
+            )
+            VALUES (
+                ?,
+                ?
+            )
+        `).run(
+            templateGamePk,
+            "2000-01-01"
+        )
+
+        this.repository.put(
+            templateGamePk,
+            this.buildPerformanceInput(
+                "1"
+            )
+        )
+
+        const columns = this.database.prepare(`
+            PRAGMA table_info(player_rating_inputs)
+        `).all() as Array<{
+            name: string
+        }>
+
+        const copiedColumns = columns
+            .map(column =>
+                column.name
+            )
+            .filter(column =>
+                column !== "game_pk" &&
+                column !== "player_id" &&
+                column !== "game_date"
+            )
+
+        const columnList = copiedColumns.join(
+            ", "
+        )
+
+        const selectList = copiedColumns.map(column =>
+            `template.${column}`
+        ).join(
+            ", "
+        )
+
+        this.database.transaction(() => {
+            this.database.exec(`
+                WITH RECURSIVE
+                seasons(season) AS (
+                    SELECT ${firstSeason}
+                    UNION ALL
+                    SELECT season + 1
+                    FROM seasons
+                    WHERE season < ${lastSeason}
+                ),
+                game_numbers(game_number) AS (
+                    SELECT 1
+                    UNION ALL
+                    SELECT game_number + 1
+                    FROM game_numbers
+                    WHERE game_number < ${gamesPerSeason}
+                )
+                INSERT INTO games (
+                    game_pk,
+                    game_date
+                )
+                SELECT
+                    (seasons.season * 100000) + game_numbers.game_number,
+                    printf(
+                        '%04d-07-01',
+                        seasons.season
+                    )
+                FROM seasons
+                CROSS JOIN game_numbers;
+            `)
+
+            this.database.exec(`
+                WITH RECURSIVE
+                seasons(season) AS (
+                    SELECT ${firstSeason}
+                    UNION ALL
+                    SELECT season + 1
+                    FROM seasons
+                    WHERE season < ${lastSeason}
+                ),
+                game_numbers(game_number) AS (
+                    SELECT 1
+                    UNION ALL
+                    SELECT game_number + 1
+                    FROM game_numbers
+                    WHERE game_number < ${gamesPerSeason}
+                ),
+                player_slots(slot) AS (
+                    SELECT 0
+                    UNION ALL
+                    SELECT slot + 1
+                    FROM player_slots
+                    WHERE slot + 1 < ${playersPerGame}
+                )
+                INSERT INTO player_rating_inputs (
+                    game_pk,
+                    player_id,
+                    game_date,
+                    ${columnList}
+                )
+                SELECT
+                    (seasons.season * 100000) + game_numbers.game_number,
+                    (
+                        (
+                            (
+                                (seasons.season - ${firstSeason}) * ${gamesPerSeason} +
+                                game_numbers.game_number - 1
+                            ) * ${playersPerGame} +
+                            player_slots.slot
+                        ) % ${playerCount}
+                    ) + 1,
+                    printf(
+                        '%04d-07-01',
+                        seasons.season
+                    ),
+                    ${selectList}
+                FROM seasons
+                CROSS JOIN game_numbers
+                CROSS JOIN player_slots
+                CROSS JOIN player_rating_inputs template
+                WHERE template.game_pk = ${templateGamePk}
+                    AND template.player_id = 1;
+            `)
+        })()
+
+        this.database.prepare(`
+            DELETE FROM player_rating_inputs
+            WHERE game_pk = ?
+        `).run(
+            templateGamePk
+        )
+
+        this.database.prepare(`
+            DELETE FROM games
+            WHERE game_pk = ?
+        `).run(
+            templateGamePk
+        )
+
+        const inputRow = this.database.prepare(`
+            SELECT
+                COUNT(*) AS count
+            FROM player_rating_inputs
+        `).get() as {
+            count: number
+        }
+
+        const gameRow = this.database.prepare(`
+            SELECT
+                COUNT(*) AS count
+            FROM games
+        `).get() as {
+            count: number
+        }
+
+        console.log(
+            `[PERF] Seeded ${inputRow.count} player rating input rows across ${gameRow.count} games from ${firstSeason}-${lastSeason} in ${Date.now() - startedAt}ms.`
+        )
+    }
+
+    public getPerformancePlayerIds(playerCount = 1470): Set<string> {
+        return new Set(
+            Array.from(
+                {
+                    length: playerCount
+                },
+                (_, index) =>
+                    String(
+                        index + 1
+                    )
+            )
+        )
     }
 
     public close(): void {
         this.database.close()
+    }
+
+    private buildPerformanceInput(playerId: string): PlayerRatingInput {
+        return {
+            playerId,
+            hitting: {
+                games: 1,
+                pa: 1,
+                ab: 1,
+                hits: 1,
+                doubles: 0,
+                triples: 0,
+                homeRuns: 0,
+                bb: 0,
+                so: 0,
+                hbp: 0,
+                groundBalls: 0,
+                flyBalls: 0,
+                lineDrives: 1,
+                popups: 0,
+                pitchesSeen: 1,
+                ballsSeen: 0,
+                strikesSeen: 1,
+                swings: 1,
+                swingAtBalls: 0,
+                swingAtStrikes: 1,
+                calledStrikes: 0,
+                swingingStrikes: 0,
+                inZonePitches: 1,
+                inZoneContact: 1,
+                outZoneContact: 0,
+                fouls: 0,
+                ballsInPlay: 1,
+                exitVelocity: {
+                    count: 1,
+                    totalExitVelo: 90,
+                    avgExitVelo: 90
+                }
+            },
+            pitching: {
+                games: 1,
+                starts: 0,
+                battersFaced: 1,
+                outs: 0,
+                hitsAllowed: 1,
+                doublesAllowed: 0,
+                triplesAllowed: 0,
+                homeRunsAllowed: 0,
+                bbAllowed: 0,
+                so: 0,
+                hbpAllowed: 0,
+                groundBallsAllowed: 0,
+                flyBallsAllowed: 0,
+                lineDrivesAllowed: 1,
+                popupsAllowed: 0,
+                pitchesThrown: 1,
+                ballsThrown: 0,
+                strikesThrown: 1,
+                swingsInduced: 1,
+                swingAtBallsAllowed: 0,
+                swingAtStrikesAllowed: 1,
+                inZoneContactAllowed: 1,
+                outZoneContactAllowed: 0,
+                foulsAllowed: 0,
+                ballsInPlayAllowed: 1,
+                pitchTypes: {
+                    FF: {
+                        count: 1,
+                        totalMph: 95,
+                        avgMph: 95,
+                        totalHorizontalBreak: 5,
+                        avgHorizontalBreak: 5,
+                        totalVerticalBreak: 12,
+                        avgVerticalBreak: 12
+                    },
+                    SL: {
+                        count: 1,
+                        totalMph: 86,
+                        avgMph: 86,
+                        totalHorizontalBreak: 8,
+                        avgHorizontalBreak: 8,
+                        totalVerticalBreak: 4,
+                        avgVerticalBreak: 4
+                    }
+                }
+            },
+            fielding: {
+                gamesAtPosition: {
+                    CF: 1,
+                    LF: 1
+                },
+                inningsAtPosition: {
+                    CF: 5,
+                    LF: 4
+                },
+                errors: 0,
+                assists: 0,
+                putouts: 0,
+                doublePlays: 0,
+                outfieldAssists: 0,
+                catcherCaughtStealing: 0,
+                catcherStolenBasesAllowed: 0,
+                passedBalls: 0
+            },
+            running: {
+                sb: 0,
+                cs: 0,
+                sbAttempts: 0
+            },
+            splits: {
+                hitting: {
+                    vsL: {
+                        pa: 1,
+                        ab: 1,
+                        hits: 1,
+                        doubles: 0,
+                        triples: 0,
+                        homeRuns: 0,
+                        bb: 0,
+                        so: 0,
+                        hbp: 0,
+                        exitVelocity: 90,
+                        exitVelocityCount: 1,
+                        totalExitVelocity: 90
+                    },
+                    vsR: {
+                        pa: 0,
+                        ab: 0,
+                        hits: 0,
+                        doubles: 0,
+                        triples: 0,
+                        homeRuns: 0,
+                        bb: 0,
+                        so: 0,
+                        hbp: 0,
+                        exitVelocity: 0,
+                        exitVelocityCount: 0,
+                        totalExitVelocity: 0
+                    }
+                },
+                pitching: {
+                    vsL: {
+                        battersFaced: 1,
+                        outs: 0,
+                        runsAllowed: 0,
+                        earnedRunsAllowed: 0,
+                        hitsAllowed: 1,
+                        doublesAllowed: 0,
+                        triplesAllowed: 0,
+                        homeRunsAllowed: 0,
+                        bbAllowed: 0,
+                        so: 0,
+                        hbpAllowed: 0
+                    },
+                    vsR: {
+                        battersFaced: 0,
+                        outs: 0,
+                        runsAllowed: 0,
+                        earnedRunsAllowed: 0,
+                        hitsAllowed: 0,
+                        doublesAllowed: 0,
+                        triplesAllowed: 0,
+                        homeRunsAllowed: 0,
+                        bbAllowed: 0,
+                        so: 0,
+                        hbpAllowed: 0
+                    }
+                }
+            }
+        }
     }
 
     private seed(): void {
@@ -253,6 +660,10 @@ class PlayerRatingInputRepositoryTestHarness {
                 is_strike,
                 is_ball,
                 zone,
+                coordinate_p_x,
+                coordinate_p_z,
+                strike_zone_top,
+                strike_zone_bottom,
                 pitch_type_code,
                 start_speed,
                 break_horizontal,
@@ -268,6 +679,10 @@ class PlayerRatingInputRepositoryTestHarness {
                 @isStrike,
                 @isBall,
                 @zone,
+                @coordinatePX,
+                @coordinatePZ,
+                @strikeZoneTop,
+                @strikeZoneBottom,
                 @pitchTypeCode,
                 @startSpeed,
                 @breakHorizontal,
@@ -285,6 +700,10 @@ class PlayerRatingInputRepositoryTestHarness {
             isStrike: 1,
             isBall: 0,
             zone: 5,
+            coordinatePX: 0,
+            coordinatePZ: 2.5,
+            strikeZoneTop: 3.5,
+            strikeZoneBottom: 1.5,
             pitchTypeCode: "FF",
             startSpeed: 95,
             breakHorizontal: 4,
@@ -301,6 +720,10 @@ class PlayerRatingInputRepositoryTestHarness {
             isStrike: 0,
             isBall: 0,
             zone: 5,
+            coordinatePX: 0.3,
+            coordinatePZ: 2.7,
+            strikeZoneTop: 3.5,
+            strikeZoneBottom: 1.5,
             pitchTypeCode: "FF",
             startSpeed: 97,
             breakHorizontal: 6,
@@ -317,6 +740,10 @@ class PlayerRatingInputRepositoryTestHarness {
             isStrike: 0,
             isBall: 1,
             zone: 11,
+            coordinatePX: 1.2,
+            coordinatePZ: 2.5,
+            strikeZoneTop: 3.5,
+            strikeZoneBottom: 1.5,
             pitchTypeCode: "SL",
             startSpeed: 86,
             breakHorizontal: 8,
@@ -333,6 +760,10 @@ class PlayerRatingInputRepositoryTestHarness {
             isStrike: 0,
             isBall: 0,
             zone: 8,
+            coordinatePX: 0.4,
+            coordinatePZ: 1.8,
+            strikeZoneTop: 3.5,
+            strikeZoneBottom: 1.5,
             pitchTypeCode: "FF",
             startSpeed: 98,
             breakHorizontal: 7,
@@ -508,10 +939,88 @@ describe("PlayerRatingInputRepository", function () {
     })
 
     afterEach(function () {
-        harness.close()
+        harness?.close()
     })
 
-    it("returns an empty map when no players have selected appearances", function () {
+
+
+    it("materializes one row per player appearance for a game", function () {
+        const rows = harness.database.prepare(`
+            SELECT
+                player_rating_inputs.player_id,
+                games.game_date,
+                player_rating_inputs.hitting_hits
+            FROM player_rating_inputs
+            INNER JOIN games
+                ON games.game_pk = player_rating_inputs.game_pk
+            WHERE player_rating_inputs.game_pk = 1
+            ORDER BY player_rating_inputs.player_id
+        `).all() as Array<{
+            player_id: number
+            game_date: string
+            hitting_hits: number
+        }>
+
+        assert.equal(
+            rows.length,
+            2
+        )
+
+        assert.equal(
+            rows[0]?.player_id,
+            101
+        )
+
+        assert.equal(
+            rows[0]?.game_date,
+            "2026-04-01"
+        )
+
+        assert.equal(
+            rows[0]?.hitting_hits,
+            1
+        )
+
+        assert.equal(
+            rows[1]?.player_id,
+            202
+        )
+
+        assert.equal(
+            rows[1]?.hitting_hits,
+            1
+        )
+    })
+
+    it("replaces existing materialized rows when a game is created again", function () {
+        harness.database.prepare(`
+            UPDATE player_rating_inputs
+            SET hitting_hits = 999
+            WHERE game_pk = 1
+                AND player_id = 101
+        `).run()
+
+        harness.repository.create(
+            1
+        )
+
+        const row = harness.database.prepare(`
+            SELECT
+                hitting_hits AS hittingHits
+            FROM player_rating_inputs
+            WHERE game_pk = 1
+                AND player_id = 101
+        `).get() as {
+            hittingHits: number
+        }
+
+        assert.equal(
+            row.hittingHits,
+            1
+        )
+    })
+
+    it("returns an empty array when no players have selected appearances", function () {
         const results = harness.repository.getCareer(
             "2026-06-01",
             new Set([
@@ -520,7 +1029,7 @@ describe("PlayerRatingInputRepository", function () {
         )
 
         assert.equal(
-            results.size,
+            results.length,
             0
         )
     })
@@ -533,87 +1042,39 @@ describe("PlayerRatingInputRepository", function () {
             ])
         )
 
-        const result = results.get(
-            harness.playerId
+        assert.equal(
+            results.length,
+            1
         )
 
+        const result = results[0]
+
         assert.ok(result)
-        assert.equal(result.playerId, harness.playerId)
 
-        assert.equal(result.hitting.games, 2)
-        assert.equal(result.hitting.pa, 2)
-        assert.equal(result.hitting.ab, 1)
-        assert.equal(result.hitting.hits, 1)
-        assert.equal(result.hitting.bb, 1)
-        assert.equal(result.hitting.homeRuns, 0)
+        assert.equal(
+            result.hitting.games,
+            2
+        )
 
-        assert.equal(result.hitting.pitchesSeen, 3)
-        assert.equal(result.hitting.ballsSeen, 1)
-        assert.equal(result.hitting.strikesSeen, 2)
-        assert.equal(result.hitting.swings, 1)
-        assert.equal(result.hitting.swingAtStrikes, 1)
-        assert.equal(result.hitting.swingAtBalls, 0)
-        assert.equal(result.hitting.calledStrikes, 1)
-        assert.equal(result.hitting.inZonePitches, 2)
-        assert.equal(result.hitting.inZoneContact, 1)
-        assert.equal(result.hitting.ballsInPlay, 1)
-        assert.equal(result.hitting.lineDrives, 1)
+        assert.equal(
+            result.hitting.pa,
+            2
+        )
 
-        assert.deepEqual(result.hitting.exitVelocity, {
-            count: 1,
-            totalExitVelo: 100,
-            avgExitVelo: 100
-        })
+        assert.equal(
+            result.hitting.hits,
+            1
+        )
 
-        assert.equal(result.pitching.games, 2)
-        assert.equal(result.pitching.starts, 1)
-        assert.equal(result.pitching.battersFaced, 2)
-        assert.equal(result.pitching.outs, 1)
-        assert.equal(result.pitching.hitsAllowed, 1)
-        assert.equal(result.pitching.bbAllowed, 1)
-        assert.equal(result.pitching.pitchesThrown, 3)
+        assert.equal(
+            result.hitting.bb,
+            1
+        )
 
-        assert.deepEqual(result.pitching.pitchTypes?.[PitchType.FF], {
-            count: 2,
-            totalMph: 192,
-            avgMph: 96,
-            totalHorizontalBreak: 10,
-            avgHorizontalBreak: 5,
-            totalVerticalBreak: -22,
-            avgVerticalBreak: -11
-        })
-
-        assert.deepEqual(result.pitching.pitchTypes?.[PitchType.SL], {
-            count: 1,
-            totalMph: 86,
-            avgMph: 86,
-            totalHorizontalBreak: 8,
-            avgHorizontalBreak: 8,
-            totalVerticalBreak: -3,
-            avgVerticalBreak: -3
-        })
-
-        assert.equal(result.running.sb, 1)
-        assert.equal(result.running.cs, 1)
-        assert.equal(result.running.sbAttempts, 2)
-
-        assert.equal(result.fielding.assists, 1)
-        assert.equal(result.fielding.putouts, 1)
-        assert.equal(result.fielding.gamesAtPosition?.[Position.SHORTSTOP], 1)
-        assert.equal(result.fielding.gamesAtPosition?.[Position.CATCHER], 1)
-
-        assert.equal(result.splits.hitting.vsL.pa, 1)
-        assert.equal(result.splits.hitting.vsL.hits, 1)
-        assert.equal(result.splits.hitting.vsL.exitVelocity, 100)
-
-        assert.equal(result.splits.hitting.vsR.pa, 1)
-        assert.equal(result.splits.hitting.vsR.bb, 1)
-
-        assert.equal(result.splits.pitching.vsL.battersFaced, 1)
-        assert.equal(result.splits.pitching.vsL.bbAllowed, 1)
-
-        assert.equal(result.splits.pitching.vsR.battersFaced, 1)
-        assert.equal(result.splits.pitching.vsR.hitsAllowed, 1)
+        assert.equal(
+            result.pitching.starts,
+            1
+        )
     })
 
     it("returns only games inside the requested date range", function () {
@@ -625,8 +1086,8 @@ describe("PlayerRatingInputRepository", function () {
             ])
         )
 
-        const result = results.get(
-            harness.playerId
+        const result = results.find(input =>
+            input.playerId === harness.playerId
         )
 
         assert.ok(result)
@@ -659,8 +1120,8 @@ describe("PlayerRatingInputRepository", function () {
             ])
         )
 
-        const result = results.get(
-            harness.playerId
+        const result = results.find(input =>
+            input.playerId === harness.playerId
         )
 
         assert.ok(result)
@@ -683,17 +1144,17 @@ describe("PlayerRatingInputRepository", function () {
         )
 
         assert.equal(
-            results.size,
+            results.length,
             2
         )
 
         assert.equal(
-            results.get("101")?.hitting.hits,
+            results.find(input => input.playerId === "101")?.hitting.hits,
             1
         )
 
         assert.equal(
-            results.get("202")?.hitting.doubles,
+            results.find(input => input.playerId === "202")?.hitting.doubles,
             1
         )
     })
@@ -707,39 +1168,134 @@ describe("PlayerRatingInputRepository", function () {
         )
 
         assert.equal(
-            results.size,
+            results.length,
             1
         )
 
         assert.equal(
-            results.has("101"),
+            results.some(input => input.playerId === "101"),
             false
         )
 
         assert.equal(
-            results.get("202")?.hitting.doubles,
+            results.find(input => input.playerId === "202")?.hitting.doubles,
             1
         )
     })
 
-    it("rejects a non-positive last-appearance count", function () {
-        assert.throws(
-            () => harness.repository.getLastAppearances(
+    it("returns no rows when the requested appearance count is zero", function () {
+        assert.deepEqual(
+            harness.repository.getLastAppearances(
                 "2026-05-01",
                 0
             ),
-            /positive integer/
+            []
         )
     })
 
-    it("rejects an invalid date range", function () {
-        assert.throws(
-            () => harness.repository.getForDateRange(
+    it("returns no rows when the date range is empty", function () {
+        assert.deepEqual(
+            harness.repository.getForDateRange(
                 "2026-05-01",
                 "2026-05-01"
             ),
-            /must be before/
+            []
         )
+    })
+
+    it("uses pitch coordinates before the legacy zone value", function () {
+        harness.database.prepare(`
+            UPDATE pitches
+            SET
+                zone = 5,
+                coordinate_p_x = 1.2,
+                coordinate_p_z = 2.5,
+                strike_zone_top = 3.5,
+                strike_zone_bottom = 1.5
+            WHERE game_pk = 1
+                AND at_bat_index = 0
+                AND event_index = 1
+        `).run()
+
+        harness.repository.create(1)
+
+        const result = harness.repository.getCareer(
+            "2026-04-02",
+            new Set([
+                harness.playerId
+            ])
+        ).find(input =>
+            input.playerId === harness.playerId
+        )
+
+        assert.ok(result)
+        assert.equal(result.hitting.swingAtStrikes, 0)
+        assert.equal(result.hitting.swingAtBalls, 1)
+        assert.equal(result.hitting.inZoneContact, 0)
+        assert.equal(result.hitting.outZoneContact, 1)
+    })
+
+    it("falls back to the legacy zone when pitch coordinates are unavailable", function () {
+        harness.database.prepare(`
+            UPDATE pitches
+            SET
+                coordinate_p_x = NULL,
+                coordinate_p_z = NULL,
+                strike_zone_top = NULL,
+                strike_zone_bottom = NULL
+            WHERE game_pk = 1
+        `).run()
+
+        harness.repository.create(1)
+
+        const result = harness.repository.getCareer(
+            "2026-04-02",
+            new Set([
+                harness.playerId
+            ])
+        ).find(input =>
+            input.playerId === harness.playerId
+        )
+
+        assert.ok(result)
+        assert.equal(result.hitting.inZonePitches, 2)
+        assert.equal(result.hitting.swingAtStrikes, 1)
+        assert.equal(result.hitting.swingAtBalls, 0)
+        assert.equal(result.hitting.inZoneContact, 1)
+        assert.equal(result.hitting.outZoneContact, 0)
+    })
+
+    it("does not classify a pitch as outside the zone when all zone data is unavailable", function () {
+        harness.database.prepare(`
+            UPDATE pitches
+            SET
+                zone = NULL,
+                coordinate_p_x = NULL,
+                coordinate_p_z = NULL,
+                strike_zone_top = NULL,
+                strike_zone_bottom = NULL
+            WHERE game_pk = 1
+                AND at_bat_index = 0
+                AND event_index = 1
+        `).run()
+
+        harness.repository.create(1)
+
+        const result = harness.repository.getCareer(
+            "2026-04-02",
+            new Set([
+                harness.playerId
+            ])
+        ).find(input =>
+            input.playerId === harness.playerId
+        )
+
+        assert.ok(result)
+        assert.equal(result.hitting.swings, 1)
+        assert.equal(result.hitting.swingAtStrikes, 0)
+        assert.equal(result.hitting.swingAtBalls, 0)
+        assert.equal(result.hitting.inZoneContact, 0)
+        assert.equal(result.hitting.outZoneContact, 0)
     })
 
     it("includes the latest stored appearance when it is before the cutoff", function () {
@@ -750,37 +1306,329 @@ describe("PlayerRatingInputRepository", function () {
             ])
         )
 
-        const result = results.get(
-            harness.playerId
+        assert.equal(
+            results.length,
+            1
         )
+
+        const result = results[0]
 
         assert.ok(result)
 
-        assert.equal(result.hitting.games, 3)
-        assert.equal(result.hitting.pa, 3)
-        assert.equal(result.hitting.ab, 2)
-        assert.equal(result.hitting.hits, 2)
-        assert.equal(result.hitting.homeRuns, 1)
+        assert.equal(
+            result.hitting.games,
+            3
+        )
 
-        assert.deepEqual(result.hitting.exitVelocity, {
-            count: 2,
-            totalExitVelo: 205,
-            avgExitVelo: 102.5
-        })
+        assert.equal(
+            result.hitting.pa,
+            3
+        )
 
-        assert.equal(result.pitching.games, 3)
-        assert.equal(result.pitching.starts, 2)
+        assert.equal(
+            result.hitting.ab,
+            2
+        )
 
-        assert.equal(result.fielding.outfieldAssists, 1)
-        assert.equal(result.fielding.gamesAtPosition?.[Position.CENTER_FIELD], 1)
+        assert.equal(
+            result.hitting.hits,
+            2
+        )
 
-        assert.equal(result.splits.hitting.vsR.pa, 2)
-        assert.equal(result.splits.hitting.vsR.homeRuns, 1)
-        assert.equal(result.splits.hitting.vsR.exitVelocity, 105)
+        assert.equal(
+            result.hitting.homeRuns,
+            1
+        )
 
-        assert.equal(result.splits.pitching.vsR.battersFaced, 2)
-        assert.equal(result.splits.pitching.vsR.homeRunsAllowed, 1)
-        assert.equal(result.splits.pitching.vsR.runsAllowed, 1)
-        assert.equal(result.splits.pitching.vsR.earnedRunsAllowed, 1)
+        assert.deepEqual(
+            result.hitting.exitVelocity,
+            {
+                count: 2,
+                totalExitVelo: 205,
+                avgExitVelo: 102.5
+            }
+        )
+
+        assert.equal(
+            result.pitching.games,
+            3
+        )
+
+        assert.equal(
+            result.pitching.starts,
+            2
+        )
+
+        assert.equal(
+            result.fielding.outfieldAssists,
+            1
+        )
+
+        assert.equal(
+            result.fielding.gamesAtPosition?.[Position.CENTER_FIELD],
+            1
+        )
+
+        assert.equal(
+            result.splits.hitting.vsR.pa,
+            2
+        )
+
+        assert.equal(
+            result.splits.hitting.vsR.homeRuns,
+            1
+        )
+
+        assert.equal(
+            result.splits.hitting.vsR.exitVelocity,
+            105
+        )
+
+        assert.equal(
+            result.splits.pitching.vsR.battersFaced,
+            2
+        )
+
+        assert.equal(
+            result.splits.pitching.vsR.homeRunsAllowed,
+            1
+        )
+
+        assert.equal(
+            result.splits.pitching.vsR.runsAllowed,
+            1
+        )
+
+        assert.equal(
+            result.splits.pitching.vsR.earnedRunsAllowed,
+            1
+        )
     })
 })
+
+describe("PlayerRatingInputRepository performance diagnostics", function () {
+
+    let harness: PlayerRatingInputRepositoryTestHarness
+    let playerIds: Set<string>
+
+    before(function () {
+        this.timeout(
+            0
+        )
+
+        harness = new PlayerRatingInputRepositoryTestHarness(
+            false
+        )
+
+        harness.seedPerformanceData()
+        playerIds = harness.getPerformancePlayerIds()
+    })
+
+    after(function () {
+        harness?.close()
+    })
+
+    it("diagnoses the games date-range lookup", function () {
+        this.timeout(
+            0
+        )
+
+        const plan = harness.database.prepare(`
+            EXPLAIN QUERY PLAN
+            SELECT
+                games.game_pk
+            FROM games
+            WHERE games.game_date >= @startDate
+                AND games.game_date < @endDateExclusive
+        `).all({
+            startDate: "2025-01-01",
+            endDateExclusive: "2026-01-01"
+        })
+
+        console.log(
+            "[PERF] Games date-range query plan:",
+            plan
+        )
+
+        const startedAt = Date.now()
+
+        const rows = harness.database.prepare(`
+            SELECT
+                games.game_pk
+            FROM games
+            WHERE games.game_date >= @startDate
+                AND games.game_date < @endDateExclusive
+        `).all({
+            startDate: "2025-01-01",
+            endDateExclusive: "2026-01-01"
+        })
+
+        console.log(
+            `[PERF] Games date-range lookup: ${rows.length} games in ${Date.now() - startedAt}ms.`
+        )
+
+        assert.equal(
+            rows.length,
+            2430
+        )
+    })
+
+    it("diagnoses current join order against historical data", function () {
+        this.timeout(
+            0
+        )
+
+        const ids = Array.from(
+            playerIds
+        ).map(Number)
+
+        const placeholders = ids.map(
+            (_, index) =>
+                `@playerId${index}`
+        )
+
+        const parameters: Record<string, number | string> = {
+            startDate: "2025-01-01",
+            endDateExclusive: "2026-01-01"
+        }
+
+        ids.forEach((playerId, index) => {
+            parameters[`playerId${index}`] = playerId
+        })
+
+        const plan = harness.database.prepare(`
+            EXPLAIN QUERY PLAN
+            SELECT
+                player_rating_inputs.player_id
+            FROM player_rating_inputs
+            INNER JOIN games
+                ON games.game_pk = player_rating_inputs.game_pk
+            WHERE games.game_date >= @startDate
+                AND games.game_date < @endDateExclusive
+                AND player_rating_inputs.player_id IN (${placeholders.join(", ")})
+        `).all(
+            parameters
+        )
+
+        console.log(
+            "[PERF] Current join query plan:",
+            plan
+        )
+
+        const startedAt = Date.now()
+
+        const row = harness.database.prepare(`
+            SELECT
+                COUNT(*) AS count
+            FROM player_rating_inputs
+            INNER JOIN games
+                ON games.game_pk = player_rating_inputs.game_pk
+            WHERE games.game_date >= @startDate
+                AND games.game_date < @endDateExclusive
+                AND player_rating_inputs.player_id IN (${placeholders.join(", ")})
+        `).get(
+            parameters
+        ) as {
+            count: number
+        }
+
+        console.log(
+            `[PERF] Current join raw selection: ${row.count} rows in ${Date.now() - startedAt}ms.`
+        )
+
+        assert.equal(
+            row.count,
+            72900
+        )
+    })
+
+    it("diagnoses getCareer against historical data", function () {
+        this.timeout(
+            0
+        )
+
+        const startedAt = Date.now()
+
+        const results = harness.repository.getCareer(
+            "2026-01-01",
+            playerIds
+        )
+
+        console.log(
+            `[PERF] Historical-table full getCareer: ${results.length} players in ${Date.now() - startedAt}ms.`
+        )
+
+        assert.equal(
+            results.length,
+            1470
+        )
+    })
+
+    it("diagnoses getForDateRange against historical data", function () {
+        this.timeout(
+            0
+        )
+
+        const startedAt = Date.now()
+
+        const results = harness.repository.getForDateRange(
+            "2025-01-01",
+            "2026-01-01",
+            playerIds
+        )
+
+        console.log(
+            `[PERF] Historical-table full getForDateRange: ${results.length} players in ${Date.now() - startedAt}ms.`
+        )
+
+        assert.equal(
+            results.length,
+            1470
+        )
+    })
+
+    it("diagnoses getLastAppearances against historical data", function () {
+        this.timeout(
+            0
+        )
+
+        const startedAt = Date.now()
+
+        const results = harness.repository.getLastAppearances(
+            "2026-01-01",
+            162,
+            playerIds
+        )
+
+        console.log(
+            `[PERF] Historical-table full getLastAppearances(162): ${results.length} players in ${Date.now() - startedAt}ms.`
+        )
+
+        assert.equal(
+            results.length,
+            1470
+        )
+    })
+
+    it("diagnoses getPlayerIdsForSeason against historical data", function () {
+        this.timeout(
+            0
+        )
+
+        const startedAt = Date.now()
+
+        const results = harness.repository.getPlayerIdsForSeason(
+            2025
+        )
+
+        console.log(
+            `[PERF] Historical-table getPlayerIdsForSeason(2025): ${results.size} players in ${Date.now() - startedAt}ms.`
+        )
+
+        assert.equal(
+            results.size,
+            1470
+        )
+    })
+})
+

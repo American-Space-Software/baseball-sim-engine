@@ -1,5 +1,6 @@
 import type { HittingRatings, PitchEnvironmentTarget, PitchRatings, PlayerRatingInput } from "../../sim/service/interfaces.js";
-import { PlayerRatingInputRepository } from "../repository/player-rating-input-repository.js";
+import { PlayerRatingInputRepository } from "../../ratings/repository/player-rating-input-repository.js";
+import { PlayerRatingSeasonInputRepository } from "../../ratings/repository/player-rating-season-input-repository.js";
 interface GeneratedPlayerRatings {
     playerId: string;
     hittingRatings: HittingRatings;
@@ -15,8 +16,9 @@ interface RatingWindow {
 }
 declare class PlayerRatingService {
     private readonly playerRatingInputRepository;
+    private readonly playerRatingSeasonInputRepository;
     private readonly states;
-    constructor(playerRatingInputRepository: PlayerRatingInputRepository);
+    constructor(playerRatingInputRepository: PlayerRatingInputRepository, playerRatingSeasonInputRepository: PlayerRatingSeasonInputRepository);
     buildPlayerRatingsForDate(season: number, gameDate: string, pitchEnvironment: PitchEnvironmentTarget, filterPlayerIds?: Set<string>): Promise<Map<string, GeneratedPlayerRatings>>;
     clearCache(season?: number): void;
     private getOrCreateState;
@@ -24,10 +26,12 @@ declare class PlayerRatingService {
     private initializeState;
     private advanceState;
     private loadMissingPlayers;
+    private getCareerInputs;
     private rebuildPlayerRatings;
     private addPlayerRatingInputs;
     private addRatingValues;
     private finalizePlayerRatingInput;
+    private toInputMap;
     private replaceInputs;
     private getCareerWindow;
     private getLast162Window;

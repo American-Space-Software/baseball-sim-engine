@@ -7,13 +7,14 @@ import type {
     PitchTypeMovementStat,
     PlayerRatingInput
 } from "../../sim/service/interfaces.js"
-import { PlayerRatingInputRepository } from "../repository/player-rating-input-repository.js"
+import { PlayerRatingInputRepository } from "../../ratings/repository/player-rating-input-repository.js"
+import { PlayerRatingSeasonInputRepository } from "../../ratings/repository/player-rating-season-input-repository.js"
 
 import {
     clamp,
     getAverage,
     safeDiv
-} from "../util.js"
+} from "../../importer/util.js"
 
 
 
@@ -94,6 +95,7 @@ class PlayerRatingService {
 
     constructor(
         private readonly playerRatingInputRepository: PlayerRatingInputRepository,
+        private readonly playerRatingSeasonInputRepository: PlayerRatingSeasonInputRepository
     ) {}
 
 
@@ -257,33 +259,65 @@ class PlayerRatingService {
     private initializeState(state: PlayerRatingState, gameDate: string, selectedPlayerIds: Set<string>): Set<string> {
         const startedAt = Date.now()
 
-        state.careerInputs = this.playerRatingInputRepository.getCareer(
+        console.log(
+            `Initializing rating inputs for ${selectedPlayerIds.size} players through ${gameDate}.`
+        )
+
+        const careerStartedAt = Date.now()
+
+        state.careerInputs = this.getCareerInputs(
+            state.season,
             gameDate,
             selectedPlayerIds
         )
 
-        state.last162Inputs = this.playerRatingInputRepository.getLastAppearances(
-            gameDate,
-            this.getLast162Window().maximumAppearances ?? 162,
-            selectedPlayerIds
+        // console.log(
+        //     `Loaded ${state.careerInputs.size} career inputs in ` +
+        //     `${this.formatDuration(Date.now() - careerStartedAt)}.`
+        // )
+
+        const last162StartedAt = Date.now()
+
+        state.last162Inputs = this.toInputMap(
+            this.playerRatingInputRepository.getLastAppearances(
+                gameDate,
+                this.getLast162Window().maximumAppearances ?? 162,
+                selectedPlayerIds
+            )
         )
+
+        // console.log(
+        //     `Loaded ${state.last162Inputs.size} last-162 inputs in ` +
+        //     `${this.formatDuration(Date.now() - last162StartedAt)}.`
+        // )
 
         state.recentInputsByWindow.clear()
 
         for (const window of this.getRecentWindows()) {
+            const windowStartedAt = Date.now()
+
             const dateRange = PlayerRatingService.getWindowDateRange(
                 gameDate,
                 window
             )
 
-            state.recentInputsByWindow.set(
-                window.name,
+            const inputs = this.toInputMap(
                 this.playerRatingInputRepository.getForDateRange(
                     dateRange.startDate,
                     dateRange.endDateExclusive,
                     selectedPlayerIds
                 )
             )
+
+            state.recentInputsByWindow.set(
+                window.name,
+                inputs
+            )
+
+            // console.log(
+            //     `Loaded ${inputs.size} ${window.name} inputs in ` +
+            //     `${this.formatDuration(Date.now() - windowStartedAt)}.`
+            // )
         }
 
         console.log(
@@ -304,10 +338,12 @@ class PlayerRatingService {
             selectedPlayerIds
         )
 
-        const addedInputs = this.playerRatingInputRepository.getForDateRange(
-            state.currentDate,
-            gameDate,
-            selectedPlayerIds
+        const addedInputs = this.toInputMap(
+            this.playerRatingInputRepository.getForDateRange(
+                state.currentDate,
+                gameDate,
+                selectedPlayerIds
+            )
         )
 
         for (const [playerId, addedInput] of addedInputs) {
@@ -339,10 +375,12 @@ class PlayerRatingService {
             )
 
             for (const changedRange of this.getChangedDateRanges(previousRange, currentRange)) {
-                const changedInputs = this.playerRatingInputRepository.getForDateRange(
-                    changedRange.startDate,
-                    changedRange.endDateExclusive,
-                    selectedPlayerIds
+                const changedInputs = this.toInputMap(
+                    this.playerRatingInputRepository.getForDateRange(
+                        changedRange.startDate,
+                        changedRange.endDateExclusive,
+                        selectedPlayerIds
+                    )
                 )
 
                 this.addPlayerIds(
@@ -353,10 +391,12 @@ class PlayerRatingService {
         }
 
         if (affectedPlayerIds.size > 0) {
-            const refreshedLast162Inputs = this.playerRatingInputRepository.getLastAppearances(
-                gameDate,
-                this.getLast162Window().maximumAppearances ?? 162,
-                affectedPlayerIds
+            const refreshedLast162Inputs = this.toInputMap(
+                this.playerRatingInputRepository.getLastAppearances(
+                    gameDate,
+                    this.getLast162Window().maximumAppearances ?? 162,
+                    affectedPlayerIds
+                )
             )
 
             this.replaceInputs(
@@ -371,10 +411,12 @@ class PlayerRatingService {
                     window
                 )
 
-                const refreshedInputs = this.playerRatingInputRepository.getForDateRange(
-                    dateRange.startDate,
-                    dateRange.endDateExclusive,
-                    affectedPlayerIds
+                const refreshedInputs = this.toInputMap(
+                    this.playerRatingInputRepository.getForDateRange(
+                        dateRange.startDate,
+                        dateRange.endDateExclusive,
+                        affectedPlayerIds
+                    )
                 )
 
                 const windowInputs =
@@ -414,15 +456,18 @@ class PlayerRatingService {
             return missingPlayerIds
         }
 
-        const careerInputs = this.playerRatingInputRepository.getCareer(
+        const careerInputs = this.getCareerInputs(
+            state.season,
             gameDate,
             missingPlayerIds
         )
 
-        const last162Inputs = this.playerRatingInputRepository.getLastAppearances(
-            gameDate,
-            this.getLast162Window().maximumAppearances ?? 162,
-            missingPlayerIds
+        const last162Inputs = this.toInputMap(
+            this.playerRatingInputRepository.getLastAppearances(
+                gameDate,
+                this.getLast162Window().maximumAppearances ?? 162,
+                missingPlayerIds
+            )
         )
 
         this.replaceInputs(
@@ -443,10 +488,12 @@ class PlayerRatingService {
                 window
             )
 
-            const inputs = this.playerRatingInputRepository.getForDateRange(
-                dateRange.startDate,
-                dateRange.endDateExclusive,
-                missingPlayerIds
+            const inputs = this.toInputMap(
+                this.playerRatingInputRepository.getForDateRange(
+                    dateRange.startDate,
+                    dateRange.endDateExclusive,
+                    missingPlayerIds
+                )
             )
 
             const windowInputs =
@@ -466,6 +513,101 @@ class PlayerRatingService {
         }
 
         return missingPlayerIds
+    }
+
+    private getCareerInputs(season: number, gameDate: string, playerIds: Set<string>): Map<string, PlayerRatingInput> {
+        const startedAt = Date.now()
+        const careerInputs = new Map<string, PlayerRatingInput>()
+
+        // console.log(
+        //     `Loading prior-season rating inputs for ${playerIds.size} players before ${season}.`
+        // )
+
+        const seasonStartedAt = Date.now()
+
+        const seasonInputs = this.playerRatingSeasonInputRepository.getBeforeSeason(
+            season,
+            playerIds
+        )
+
+        // console.log(
+        //     `Loaded ${seasonInputs.length} prior-season rows in ` +
+        //     `${this.formatDuration(Date.now() - seasonStartedAt)}.`
+        // )
+
+        const seasonMergeStartedAt = Date.now()
+
+        for (const seasonInput of seasonInputs) {
+            const existing = careerInputs.get(
+                seasonInput.playerId
+            )
+
+            careerInputs.set(
+                seasonInput.playerId,
+                existing
+                    ? this.addPlayerRatingInputs(
+                        existing,
+                        seasonInput.data
+                    )
+                    : structuredClone(
+                        seasonInput.data
+                    )
+            )
+        }
+
+        // console.log(
+        //     `Merged prior-season rows into ${careerInputs.size} players in ` +
+        //     `${this.formatDuration(Date.now() - seasonMergeStartedAt)}.`
+        // )
+
+        // console.log(
+        //     `Loading current-season rating inputs from ${season}-01-01 through ${gameDate}.`
+        // )
+
+        const currentSeasonStartedAt = Date.now()
+
+        const currentSeasonInputs = this.playerRatingInputRepository.getForDateRange(
+            `${season}-01-01`,
+            gameDate,
+            playerIds
+        )
+
+        // console.log(
+        //     `Loaded ${currentSeasonInputs.length} current-season player inputs in ` +
+        //     `${this.formatDuration(Date.now() - currentSeasonStartedAt)}.`
+        // )
+
+        const currentSeasonMergeStartedAt = Date.now()
+
+        for (const currentSeasonInput of currentSeasonInputs) {
+            const existing = careerInputs.get(
+                currentSeasonInput.playerId
+            )
+
+            careerInputs.set(
+                currentSeasonInput.playerId,
+                existing
+                    ? this.addPlayerRatingInputs(
+                        existing,
+                        currentSeasonInput
+                    )
+                    : structuredClone(
+                        currentSeasonInput
+                    )
+            )
+        }
+
+        // console.log(
+        //     `Merged current-season inputs into ${careerInputs.size} players in ` +
+        //     `${this.formatDuration(Date.now() - currentSeasonMergeStartedAt)}.`
+        // )
+
+        // console.log(
+        //     `Built career inputs for ${careerInputs.size} players in ` +
+        //     `${this.formatDuration(Date.now() - startedAt)}.`
+        // )
+
+        return careerInputs
     }
 
     private rebuildPlayerRatings(state: PlayerRatingState, pitchEnvironment: PitchEnvironmentTarget, affectedPlayerIds: Set<string>): void {
@@ -651,6 +793,15 @@ class PlayerRatingService {
                 ? Number((pitchType.totalVerticalBreak / pitchType.count).toFixed(3))
                 : 0
         }
+    }
+
+    private toInputMap(inputs: PlayerRatingInput[]): Map<string, PlayerRatingInput> {
+        return new Map(
+            inputs.map(playerInput => [
+                playerInput.playerId,
+                playerInput
+            ])
+        )
     }
 
     private replaceInputs(target: Map<string, PlayerRatingInput>, playerIds: Set<string>, replacement: Map<string, PlayerRatingInput>): void {

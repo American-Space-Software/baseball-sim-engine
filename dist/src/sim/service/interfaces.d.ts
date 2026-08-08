@@ -1562,6 +1562,10 @@ interface DefenseHitRollInput {
     hit: number;
     out: number;
 }
+interface PlayerHittingRatingInputSplit extends PlayerHittingSplitStats {
+    exitVelocityCount: number;
+    totalExitVelocity: number;
+}
 interface PlayerRatingInput {
     playerId: string;
     hitting: PlayerHittingStats;
@@ -1570,8 +1574,8 @@ interface PlayerRatingInput {
     running: PlayerRunningStats;
     splits: {
         hitting: {
-            vsL: PlayerHittingSplitStats;
-            vsR: PlayerHittingSplitStats;
+            vsL: PlayerHittingRatingInputSplit;
+            vsR: PlayerHittingRatingInputSplit;
         };
         pitching: {
             vsL: PlayerPitchingSplitStats;
@@ -1579,4 +1583,9 @@ interface PlayerRatingInput {
         };
     };
 }
-export { StadiumEnvironment, PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount, PitchCount, InZoneByCount, PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, PowerRollInput, ShallowDeepChance, TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score, Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount, HitResultCount, MatchupHandedness, GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team, Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, SwingTakeRollInput, PlayerRatingInput, ContactMissRollInput, DefenseOutRollInput, DefenseHitRollInput, FairFoulRollInput, PlayerHittingStats, PlayerPitchingStats, PlayerFieldingStats, PlayerRunningStats, PlayerSplitsStats, PlayerHittingSplitStats, PlayerPitchingSplitStats, PlayerImportRaw, PitchTypeMovementStat, ExitVelocityStat, PlayerFieldingPositionRaw, PlayerRunningStatsRaw, PitchEnvironmentTuning, BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, LaunchAngleStat, PitchPhysics, BattedBallPhysics, BattedBallOutcomeBucketRaw, BattedBallXyBucketRaw, BattedBallXyByTrajectoryBucketRaw, BattedBallXyByTrajectoryEvLaBucketRaw, GameSubstitution, RatingTuning };
+interface PlayerRatingSeasonInput {
+    season: number;
+    playerId: string;
+    data: PlayerRatingInput;
+}
+export { StadiumEnvironment, PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount, PitchCount, InZoneByCount, PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, PowerRollInput, ShallowDeepChance, TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent, Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score, Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount, HitResultCount, MatchupHandedness, GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team, Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, PlayerHittingRatingInputSplit, PlayerRatingSeasonInput, SwingTakeRollInput, PlayerRatingInput, ContactMissRollInput, DefenseOutRollInput, DefenseHitRollInput, FairFoulRollInput, PlayerHittingStats, PlayerPitchingStats, PlayerFieldingStats, PlayerRunningStats, PlayerSplitsStats, PlayerHittingSplitStats, PlayerPitchingSplitStats, PlayerImportRaw, PitchTypeMovementStat, ExitVelocityStat, PlayerFieldingPositionRaw, PlayerRunningStatsRaw, PitchEnvironmentTuning, BattedBallCoordinateStat, BattedBallPhysicsStat, DistanceStat, LaunchAngleStat, PitchPhysics, BattedBallPhysics, BattedBallOutcomeBucketRaw, BattedBallXyBucketRaw, BattedBallXyByTrajectoryBucketRaw, BattedBallXyByTrajectoryEvLaBucketRaw, GameSubstitution, RatingTuning };

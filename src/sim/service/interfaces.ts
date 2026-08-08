@@ -2010,6 +2010,13 @@ interface DefenseHitRollInput {
     out: number
 }
 
+
+interface PlayerHittingRatingInputSplit extends PlayerHittingSplitStats {
+    exitVelocityCount: number
+    totalExitVelocity: number
+}
+
+
 interface PlayerRatingInput {
     playerId: string
 
@@ -2020,8 +2027,8 @@ interface PlayerRatingInput {
 
     splits: {
         hitting: {
-            vsL: PlayerHittingSplitStats
-            vsR: PlayerHittingSplitStats
+            vsL: PlayerHittingRatingInputSplit
+            vsR: PlayerHittingRatingInputSplit
         }
         pitching: {
             vsL: PlayerPitchingSplitStats
@@ -2031,12 +2038,18 @@ interface PlayerRatingInput {
 }
 
 
+interface PlayerRatingSeasonInput {
+    season: number
+    playerId: string
+    data: PlayerRatingInput
+}
+
 export {
     StadiumEnvironment, PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount,  PitchCount, InZoneByCount,  PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, PowerRollInput, ShallowDeepChance,
     TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent,  Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score,
     Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount,HitResultCount, MatchupHandedness,
     GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team,
-    Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings,
+    Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, PlayerHittingRatingInputSplit, PlayerRatingSeasonInput,
     SwingTakeRollInput,
     PlayerRatingInput,
     ContactMissRollInput,
