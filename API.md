@@ -1,35 +1,41 @@
 # baseball-sim-engine API
 
-Complete TypeScript API reference for `baseball-sim-engine` version `2.0.0`.
+Complete TypeScript API reference for `baseball-sim-engine`.
 
-The package exposes two entry points:
+The package exposes three entry points:
 
-- `baseball-sim-engine` — simulation runtime, services, enums, and public game types.
-- `baseball-sim-engine/importer` — MLB data preparation, pitch-environment generation, and player-rating generation.
+-   `baseball-sim-engine` --- simulation runtime, services, enums, and
+    public game types.
+-   `baseball-sim-engine/importer` --- MLB data preparation, player
+    imports, and pitch-environment generation.
+-   `baseball-sim-engine/ratings` --- rating-history synchronization,
+    rating-input materialization, and player-rating generation.
 
----
+------------------------------------------------------------------------
 
 ## Installation
 
-```bash
+``` bash
 npm install baseball-sim-engine
 ```
 
-`baseball-database` is installed as a package dependency and is used by the importer to synchronize and query MLB data.
+`baseball-database` is installed as a package dependency and is used by
+the importer to synchronize and query MLB data.
 
-Applications that also want to query the database directly can install it explicitly:
+Applications that also want to query the database directly can install
+it explicitly:
 
-```bash
+``` bash
 npm install baseball-database
 ```
 
----
+------------------------------------------------------------------------
 
 ## Entry Points
 
 ### Simulation Runtime
 
-```ts
+``` ts
 import {
     simService
 } from "baseball-sim-engine"
@@ -37,639 +43,249 @@ import {
 
 ### Importer
 
-```ts
-import {
-    exportAll
-} from "baseball-sim-engine/importer"
-```
-
----
-
-# Simulation Runtime
-
-## Default Service
-
-### `simService`
-
-```ts
-import {
-    simService
-} from "baseball-sim-engine"
-```
-
-A ready-to-use `SimService` instance configured with the package's default pitch environment.
-
-The standard game lifecycle is:
-
-```ts
-simService.initGame(game)
-simService.startGame(command)
-
-while (!game.isComplete) {
-    simService.simPitch(game, rng)
-}
-
-simService.finishGame(game)
-```
-
----
-
-## Exported Classes
-
-```ts
-import {
-    SimService,
-    StatService,
-    RollChartService,
-    PitchEnvironmentService,
-    PlayerRatingService,
-    GameInfo,
-    AtBatInfo,
-    Rolls,
-    PlayerChange
-} from "baseball-sim-engine"
-```
-
-| Export | Purpose |
-|---|---|
-| `SimService` | Initializes, starts, advances, and finishes games. |
-| `StatService` | Works with game and player statistical results. |
-| `RollChartService` | Creates and resolves probability roll charts used by the simulation model. |
-| `PitchEnvironmentService` | Builds and evaluates pitch environments. |
-| `PlayerRatingService` | Converts accumulated player statistics into engine-compatible ratings. |
-| `GameInfo` | Provides game-state and matchup information used by consumers that need direct access to game context. |
-| `AtBatInfo` | Represents at-bat context exported by the runtime. |
-| `Rolls` | Exposes the runtime roll-resolution API. |
-| `PlayerChange` | Represents calculated player rating changes used by the simulation. |
-
-The package also exports `InningEndingEvent`, an error type used to signal the end of a half-inning during pitch resolution.
-
-```ts
-import {
-    InningEndingEvent
-} from "baseball-sim-engine"
-```
-
----
-
-## Exported Enums
-
-```ts
-import {
-    PlayResult,
-    Contact,
-    ShallowDeep,
-    PitchZone,
-    PitchCall,
-    PitchType,
-    BaseResult,
-    Handedness,
-    Position,
-    OfficialPlayResult,
-    OfficialRunnerResult,
-    ThrowResult,
-    HomeAway,
-    PitchingRoleType,
-    DefenseOutResult,
-    DefenseHitResult
-} from "baseball-sim-engine"
-```
-
-| Enum | Represents |
-|---|---|
-| `PlayResult` | Simulation play outcomes. |
-| `Contact` | Batted-ball contact types. |
-| `ShallowDeep` | Batted-ball or defensive depth. |
-| `PitchZone` | Named pitch-location zones. |
-| `PitchCall` | Pitch results and calls. |
-| `PitchType` | Supported pitch types. |
-| `BaseResult` | Base locations used by runner events. |
-| `Handedness` | Batter and pitcher handedness. |
-| `Position` | Defensive positions. |
-| `OfficialPlayResult` | Official scoring results for plays. |
-| `OfficialRunnerResult` | Official scoring results for runner movements. |
-| `ThrowResult` | Defensive throw outcomes. |
-| `HomeAway` | Home or away team designation. |
-| `PitchingRoleType` | Bullpen roles such as closer, setup, middle, long, and mop-up. |
-| `DefenseOutResult` | Defensive resolution results for balls initially modeled as outs. |
-| `DefenseHitResult` | Defensive resolution results for balls initially modeled as hits. |
-
-Use the exported enum members rather than string literals when constructing game inputs.
-
----
-
-## Starting a Game
-
-```ts
-import seedrandom from "seedrandom"
-
-import {
-    simService
-} from "baseball-sim-engine"
-
-import type {
-    Game,
-    StartGameCommand
-} from "baseball-sim-engine"
-
-const game: Game = {
-    _id: "example-game"
-} as Game
-
-simService.initGame(game)
-
-const command: StartGameCommand = {
-    game,
-
-    away,
-    awayTeamOptions: {},
-    awayPlayers,
-    awayLineup,
-    awayStartingPitcher,
-    awayAvailablePitchers,
-
-    home,
-    homeTeamOptions: {},
-    homePlayers,
-    homeLineup,
-    homeStartingPitcher,
-    homeAvailablePitchers,
-
-    pitchEnvironmentTarget,
-    stadiumEnvironment,
-    useDH: true,
-    date: new Date("2026-07-23T12:00:00.000Z")
-}
-
-simService.startGame(command)
-
-const rng: seedrandom.PRNG = seedrandom(
-    "example-seed"
-)
-
-while (!game.isComplete) {
-    simService.simPitch(
-        game,
-        rng
-    )
-}
-
-simService.finishGame(game)
-```
-
-The same inputs and RNG sequence produce the same game.
-
----
-
-## Teams
-
-```ts
-import type {
-    Team
-} from "baseball-sim-engine"
-
-const away: Team = {
-    _id: "away-team",
-    name: "Away Team",
-    abbrev: "AWY",
-    colors: {
-        color1: "#111111",
-        color2: "#eeeeee"
-    }
-}
-
-const home: Team = {
-    _id: "home-team",
-    name: "Home Team",
-    abbrev: "HME",
-    colors: {
-        color1: "#222222",
-        color2: "#dddddd"
-    }
-}
-```
-
----
-
-## Players
-
-```ts
-import {
-    Handedness,
-    Position
-} from "baseball-sim-engine"
-
-import type {
-    Player
-} from "baseball-sim-engine"
-
-const player: Player = {
-    _id: "player-1",
-    firstName: "Example",
-    lastName: "Player",
-    fullName: "Example Player",
-    displayName: "Example Player",
-    primaryPosition: Position.SHORTSTOP,
-    zodiacSign: "",
-    throws: Handedness.R,
-    hits: Handedness.R,
-    isRetired: false,
-    stamina: 0,
-    maxPitchCount: 0,
-    overallRating: 100,
-    pitchRatings: {},
-    hittingRatings: {},
-    age: 27
-}
-```
-
-Player ratings are interpreted relative to the active `PitchEnvironmentTarget`.
-
----
-
-## Lineups
-
-```ts
-import {
-    Position
-} from "baseball-sim-engine"
-
-import type {
-    Lineup
-} from "baseball-sim-engine"
-
-const lineup: Lineup = {
-    order: [
-        { _id: "player-1", position: Position.CENTER_FIELD },
-        { _id: "player-2", position: Position.SHORTSTOP },
-        { _id: "player-3", position: Position.FIRST_BASE },
-        { _id: "player-4", position: Position.RIGHT_FIELD },
-        { _id: "player-5", position: Position.LEFT_FIELD },
-        { _id: "player-6", position: Position.THIRD_BASE },
-        { _id: "player-7", position: Position.SECOND_BASE },
-        { _id: "player-8", position: Position.CATCHER },
-        { _id: "player-9", position: Position.DESIGNATED_HITTER }
-    ],
-    valid: true
-}
-```
-
----
-
-## Starting Pitchers
-
-```ts
-import type {
-    RotationPitcher
-} from "baseball-sim-engine"
-
-const startingPitcher: RotationPitcher = {
-    _id: "pitcher-1"
-}
-```
-
----
-
-## Bullpen Roles
-
-```ts
-import {
-    PitchingRoleType
-} from "baseball-sim-engine"
-
-import type {
-    PitchingRole
-} from "baseball-sim-engine"
-
-const availablePitchers: PitchingRole[] = [
-    {
-        playerId: "pitcher-2",
-        role: PitchingRoleType.CLOSER,
-        priority: 1
-    },
-    {
-        playerId: "pitcher-3",
-        role: PitchingRoleType.SETUP,
-        priority: 1
-    },
-    {
-        playerId: "pitcher-4",
-        role: PitchingRoleType.MIDDLE,
-        priority: 1
-    },
-    {
-        playerId: "pitcher-5",
-        role: PitchingRoleType.LONG,
-        priority: 1
-    },
-    {
-        playerId: "pitcher-6",
-        role: PitchingRoleType.MOP_UP,
-        priority: 1
-    }
-]
-```
-
-Priority orders pitchers within the same role.
-
----
-
-## Pitch Environment
-
-```ts
-import type {
-    PitchEnvironmentTarget
-} from "baseball-sim-engine"
-```
-
-`PitchEnvironmentTarget` defines the league-wide simulation baseline, including:
-
-- Pitch distribution
-- Swing and contact behavior
-- Batted-ball behavior
-- Running behavior
-- Defensive distribution
-- Outcome targets
-- Team-level targets
-- Imported statistical references
-- Home-field advantage
-- Optional tuning parameters
-
-The environment is supplied through `StartGameCommand`.
-
----
-
-## Stadium Environment
-
-```ts
-import type {
-    StadiumEnvironment
-} from "baseball-sim-engine"
-
-const stadiumEnvironment: StadiumEnvironment = {
-    team: "COL",
-    venue: "Coors Field",
-    yearRange: "2024-2026",
-    singles: 1.09,
-    doubles: 1.09,
-    triples: 1.68,
-    hr: 1.13,
-    walks: 0.98,
-    strikeouts: 0.89
-}
-```
-
-Each numeric field is a multiplier. `1.00` is neutral.
-
----
-
-## Roll Charts
-
-```ts
-import {
-    RollChartService
-} from "baseball-sim-engine"
-
-import type {
-    RollChart,
-    ContactTypeRollInput,
-    FielderChanceRollInput,
-    ShallowDeepRollInput,
-    PowerRollInput
-} from "baseball-sim-engine"
-```
-
-The public roll-chart inputs describe weighted outcomes for:
-
-- Power results
-- Contact types
-- Fielder selection
-- Defensive depth
-
----
-
-# Importer
-
 The importer is available from:
 
-```ts
+``` ts
 import {
-    exportAll,
     exportPitchEnvironmentTarget,
-    exportPlayerRatings
+    playerImportService
 } from "baseball-sim-engine/importer"
 ```
 
-The importer uses `baseball-database` as its MLB data source.
+The importer uses `baseball-database` as its MLB data source and is
+responsible for building player imports and pitch environments.
 
----
-
-## `exportAll`
-
-```ts
-function exportAll(
-    season: number,
-    baseDataDir: string,
-    options?: any
-): Promise<ExportAllResult>
-```
-
-Builds the complete generated season output:
-
-- Pitch environment
-- Environment tuning
-- Player ratings
-
-```ts
-import {
-    exportAll
-} from "baseball-sim-engine/importer"
-
-import type {
-    ExportAllResult
-} from "baseball-sim-engine/importer"
-
-const result: ExportAllResult = await exportAll(
-    2025,
-    "./data"
-)
-```
-
-### `ExportAllResult`
-
-```ts
-interface ExportAllResult {
-    season: number
-    pitchEnvironmentTarget: PitchEnvironmentTarget
-    playerRatings: any[]
-}
-```
-
-Generated files include:
-
-```text
-data/
-└── 2025/
-    ├── _pitch_environment_target.json
-    └── _player_ratings.json
-```
-
----
+------------------------------------------------------------------------
 
 ## `exportPitchEnvironmentTarget`
 
-```ts
-function exportPitchEnvironmentTarget(
-    season: number,
-    baseDataDir: string,
-    options?: any,
-    seasonPlayers?: Map<string, PlayerImportRaw>
-): Promise<PitchEnvironmentTarget>
-```
-
-Builds and writes the pitch environment for a season.
-
-```ts
+``` ts
 import {
     exportPitchEnvironmentTarget
 } from "baseball-sim-engine/importer"
 
-import type {
-    PitchEnvironmentTarget
-} from "baseball-sim-engine"
+const result = await exportPitchEnvironmentTarget(
+    2025,
+    "./data"
+)
 
-const pitchEnvironmentTarget: PitchEnvironmentTarget =
-    await exportPitchEnvironmentTarget(
-        2025,
-        "./data"
-    )
+console.log(result.pitchEnvironment)
 ```
+
+Builds and writes the pitch environment for a season.
 
 The output is written to:
 
-```text
+``` text
 data/2025/_pitch_environment_target.json
 ```
 
+The returned result contains the generated pitch environment together
+with the player imports used to build it.
+
 ### `ExportPitchEnvironmentTargetResult`
 
-```ts
+``` ts
 interface ExportPitchEnvironmentTargetResult {
     pitchEnvironment: PitchEnvironmentTarget
     players: Map<string, PlayerImportRaw>
 }
 ```
 
-This result type is exported for consumers that need to represent an environment together with its player-import map.
+------------------------------------------------------------------------
 
----
+## `playerImportService`
+
+``` ts
+import {
+    playerImportService
+} from "baseball-sim-engine/importer"
+```
+
+The default player-import service builds MLB-derived player inputs used
+by pitch-environment generation.
+
+The importer reads normalized historical data from `baseball-database`;
+raw stored MLB game feeds remain canonical there.
+
+------------------------------------------------------------------------
+
+# Ratings
+
+The ratings API is available from:
+
+``` ts
+import {
+    downloadService,
+    exportPlayerRatings,
+    playerRatingService
+} from "baseball-sim-engine/ratings"
+```
+
+The ratings entry point owns rating-history synchronization, derived
+rating-input materialization, and player-rating generation.
+
+------------------------------------------------------------------------
 
 ## `exportPlayerRatings`
 
-```ts
-function exportPlayerRatings(
-    season: number,
-    baseDataDir: string,
-    seasonPlayers?: Map<string, PlayerImportRaw>
-): Promise<any[]>
-```
-
-Generates and writes player ratings using the season's pitch environment.
-
-```ts
+``` ts
 import {
     exportPlayerRatings
-} from "baseball-sim-engine/importer"
+} from "baseball-sim-engine/ratings"
 
-const playerRatings: any[] = await exportPlayerRatings(
+const playerRatings = await exportPlayerRatings(
     2025,
     "./data"
 )
 ```
 
-The pitch environment must already exist at:
+Generates and writes player ratings for a season.
 
-```text
+The season pitch environment must already exist at:
+
+``` text
 data/2025/_pitch_environment_target.json
 ```
 
 Ratings are written to:
 
-```text
+``` text
 data/2025/_player_ratings.json
 ```
 
----
+Before ratings are generated, the required rating history is
+synchronized through the requested season.
 
-## Exported Importer Services
+For a completed historical season, ratings are generated through January
+1 of the following year. For the current season, ratings are generated
+through the current date.
 
-```ts
+------------------------------------------------------------------------
+
+## `playerRatingService`
+
+``` ts
 import {
-    PlayerImportService,
-    PlayerRatingService,
-    StatAccumulatorService,
-    playerImportService,
     playerRatingService
-} from "baseball-sim-engine/importer"
+} from "baseball-sim-engine/ratings"
 ```
 
-| Export | Purpose |
-|---|---|
-| `PlayerImportService` | Builds player-import data from accumulated MLB statistics. |
-| `PlayerRatingService` | Converts player-import data into engine-compatible player ratings. |
-| `StatAccumulatorService` | Accumulates normalized MLB statistics used by the importer. |
-| `playerImportService` | Default `PlayerImportService` instance using the configured data directory. |
-| `playerRatingService` | Default importer `PlayerRatingService` instance using the configured data directory. |
+The default rating service builds engine-compatible player ratings from
+materialized historical and recent player inputs.
 
-The default data directory is read from `DATA_DIR` and otherwise defaults to `data`.
+Rating history is split between per-appearance player rating inputs and
+season-level player rating inputs for efficient loading of older
+history.
 
----
+Per-appearance inputs contain one row per player appearance per game.
+Season inputs are derived aggregations. Both can be rebuilt from the
+canonical games stored in `baseball-database`.
 
-## Importer Commands
+------------------------------------------------------------------------
 
-The repository provides development scripts for the importer.
+## `downloadService`
 
-```bash
-npm run tune:target -- 2025
+``` ts
+import {
+    downloadService
+} from "baseball-sim-engine/ratings"
+```
+
+The shared download service synchronizes MLB game data and the derived
+rating inputs required by the rating system.
+
+### `syncSeason`
+
+``` ts
+await downloadService.syncSeason(2025)
+```
+
+Synchronizes a season and creates the derived rating inputs for
+synchronized games.
+
+### `syncRatingHistory`
+
+``` ts
+await downloadService.syncRatingHistory(2025)
+```
+
+Synchronizes the rating history required through the supplied season.
+
+Completed historical seasons can be skipped when their rating data is
+already complete. The current season remains eligible for
+synchronization.
+
+------------------------------------------------------------------------
+
+## Repository Commands
+
+Build the project first:
+
+``` bash
+npm run build
+```
+
+Download the current season:
+
+``` bash
+npm run download
+```
+
+Download a specific season:
+
+``` bash
+npm run download -- 2025
+```
+
+Download all required rating history:
+
+``` bash
+npm run download:all
+```
+
+Generate a pitch environment:
+
+``` bash
+npm run generate:env -- 2025
+```
+
+Generate player ratings:
+
+``` bash
 npm run generate:ratings -- 2025
-npm run generate:all -- 2025
 ```
 
-These scripts are repository commands. The published package does not expose an npm executable through a `bin` entry.
+These are repository scripts rather than a published `bin` executable.
 
----
+------------------------------------------------------------------------
 
 ## `baseball-database`
 
-The importer uses:
-
-```ts
-import {
-    downloadSeason,
-    queries
-} from "baseball-database"
-```
+The importer and ratings systems use `baseball-database` for canonical
+MLB game data.
 
 The database supplies:
 
-- Schedules
-- Raw game feeds
-- Player appearances
-- Plate appearances
-- Pitches
-- Runner movements
-- Fielding credits
-- Defensive events
+-   Schedules
+-   Raw game feeds
+-   Player appearances
+-   Plate appearances
+-   Pitches
+-   Runner movements
+-   Fielding credits
+-   Defensive events
 
-The importer reads that data to build derived simulation inputs. Raw stored game feeds remain canonical in `baseball-database`.
+The engine builds derived player imports, pitch environments, rating
+inputs, season rating inputs, and player ratings from that data.
 
----
+------------------------------------------------------------------------
 
 # Public Type Declarations
 
 The following types are re-exported from `baseball-sim-engine`.
 
-```ts
+``` ts
 interface StartGameCommand {
     game:Game, 
 
@@ -2162,13 +1778,14 @@ interface RatingTuning {
 }
 ```
 
----
+------------------------------------------------------------------------
 
 # Supporting Public Shapes
 
-These declarations support fields contained inside the exported types above.
+These declarations support fields contained inside the exported types
+above.
 
-```ts
+``` ts
 interface GameSubstitution {
     
     inning: number
@@ -2589,11 +2206,11 @@ interface PitchQuality {
 }
 ```
 
----
+------------------------------------------------------------------------
 
 # Complete Example
 
-```ts
+``` ts
 import seedrandom from "seedrandom"
 
 import {
@@ -2721,18 +2338,15 @@ console.log(
 )
 ```
 
-The helper functions in this example represent application-specific loading and construction of players, lineups, and environment data.
+The helper functions in this example represent application-specific
+loading and construction of players, lineups, and environment data.
 
----
+------------------------------------------------------------------------
 
 ## TypeScript Declarations
 
-The installed package includes declarations for both entry points:
+The installed package includes declarations for the simulation,
+importer, and ratings entry points.
 
-```text
-dist/
-├── index.d.ts
-└── importer.d.ts
-```
-
-These declarations are the authoritative source for the exact API in the installed package version.
+The generated TypeScript declarations are the authoritative source for
+the exact API in the installed package version.
