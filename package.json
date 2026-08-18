@@ -1,6 +1,6 @@
 {
   "name": "baseball-sim-engine",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "A deterministic baseball simulation engine written in TypeScript. The engine runs in both Node.js and browser environments.",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,7 +18,11 @@
     "./ratings": {
       "types": "./dist/ratings.d.ts",
       "import": "./dist/ratings.js"
-    }
+    },
+    "./presentation": {
+      "types": "./dist/presentation.d.ts",
+      "import": "./dist/presentation.js"
+    }    
   },
   "files": [
     "dist",
@@ -28,7 +32,7 @@
   "sideEffects": false,
   "scripts": {
       "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
-      "test1": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/player-rating-service.spec.ts",
+      "test1": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/player-stat-service.spec.ts",
 
       "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
       "build:types": "tsc --project tsconfig.json --emitDeclarationOnly",
@@ -40,6 +44,8 @@
       "generate:ratings": "node --env-file=.env ./dist/ratings.js generate ratings",
 
       "generate:env": "node --env-file=.env ./dist/importer.js",
+
+      "rebuild:all": "node --env-file=.env --input-type=module -e \"const { downloadService } = await import('./dist/ratings.js'); await downloadService.rebuildRatingHistory(new Date().getUTCFullYear())\"",      
 
       "prepublishOnly": "npm run build"
   },

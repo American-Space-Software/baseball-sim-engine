@@ -41,6 +41,7 @@ class SchemaService {
                 hitting_balls_in_play INTEGER NOT NULL,
                 hitting_exit_velocity_count REAL NOT NULL,
                 hitting_total_exit_velocity REAL NOT NULL,
+
                 pitching_games INTEGER NOT NULL,
                 pitching_starts INTEGER NOT NULL,
                 pitching_batters_faced INTEGER NOT NULL,
@@ -66,6 +67,7 @@ class SchemaService {
                 pitching_out_zone_contact_allowed INTEGER NOT NULL,
                 pitching_fouls_allowed INTEGER NOT NULL,
                 pitching_balls_in_play_allowed INTEGER NOT NULL,
+
                 fielding_errors INTEGER NOT NULL,
                 fielding_assists INTEGER NOT NULL,
                 fielding_putouts INTEGER NOT NULL,
@@ -74,9 +76,11 @@ class SchemaService {
                 fielding_catcher_caught_stealing INTEGER NOT NULL,
                 fielding_catcher_stolen_bases_allowed INTEGER NOT NULL,
                 fielding_passed_balls INTEGER NOT NULL,
+
                 running_sb INTEGER NOT NULL,
                 running_cs INTEGER NOT NULL,
                 running_sb_attempts INTEGER NOT NULL,
+
                 hitting_vs_l_pa INTEGER NOT NULL,
                 hitting_vs_l_ab INTEGER NOT NULL,
                 hitting_vs_l_hits INTEGER NOT NULL,
@@ -88,6 +92,7 @@ class SchemaService {
                 hitting_vs_l_hbp INTEGER NOT NULL,
                 hitting_vs_l_exit_velocity_count REAL NOT NULL,
                 hitting_vs_l_total_exit_velocity REAL NOT NULL,
+
                 hitting_vs_r_pa INTEGER NOT NULL,
                 hitting_vs_r_ab INTEGER NOT NULL,
                 hitting_vs_r_hits INTEGER NOT NULL,
@@ -99,6 +104,7 @@ class SchemaService {
                 hitting_vs_r_hbp INTEGER NOT NULL,
                 hitting_vs_r_exit_velocity_count REAL NOT NULL,
                 hitting_vs_r_total_exit_velocity REAL NOT NULL,
+
                 pitching_vs_l_batters_faced INTEGER NOT NULL,
                 pitching_vs_l_outs INTEGER NOT NULL,
                 pitching_vs_l_runs_allowed INTEGER NOT NULL,
@@ -110,6 +116,7 @@ class SchemaService {
                 pitching_vs_l_bb_allowed INTEGER NOT NULL,
                 pitching_vs_l_so INTEGER NOT NULL,
                 pitching_vs_l_hbp_allowed INTEGER NOT NULL,
+
                 pitching_vs_r_batters_faced INTEGER NOT NULL,
                 pitching_vs_r_outs INTEGER NOT NULL,
                 pitching_vs_r_runs_allowed INTEGER NOT NULL,
@@ -121,6 +128,7 @@ class SchemaService {
                 pitching_vs_r_bb_allowed INTEGER NOT NULL,
                 pitching_vs_r_so INTEGER NOT NULL,
                 pitching_vs_r_hbp_allowed INTEGER NOT NULL,
+
                 pitch_types TEXT NOT NULL CHECK (json_valid(pitch_types)),
                 games_at_position TEXT NOT NULL CHECK (json_valid(games_at_position)),
                 innings_at_position TEXT NOT NULL CHECK (json_valid(innings_at_position)),
@@ -185,6 +193,7 @@ class SchemaService {
                 hitting_balls_in_play INTEGER NOT NULL,
                 hitting_exit_velocity_count REAL NOT NULL,
                 hitting_total_exit_velocity REAL NOT NULL,
+
                 pitching_games INTEGER NOT NULL,
                 pitching_starts INTEGER NOT NULL,
                 pitching_batters_faced INTEGER NOT NULL,
@@ -210,6 +219,7 @@ class SchemaService {
                 pitching_out_zone_contact_allowed INTEGER NOT NULL,
                 pitching_fouls_allowed INTEGER NOT NULL,
                 pitching_balls_in_play_allowed INTEGER NOT NULL,
+
                 fielding_errors INTEGER NOT NULL,
                 fielding_assists INTEGER NOT NULL,
                 fielding_putouts INTEGER NOT NULL,
@@ -218,9 +228,11 @@ class SchemaService {
                 fielding_catcher_caught_stealing INTEGER NOT NULL,
                 fielding_catcher_stolen_bases_allowed INTEGER NOT NULL,
                 fielding_passed_balls INTEGER NOT NULL,
+
                 running_sb INTEGER NOT NULL,
                 running_cs INTEGER NOT NULL,
                 running_sb_attempts INTEGER NOT NULL,
+
                 hitting_vs_l_pa INTEGER NOT NULL,
                 hitting_vs_l_ab INTEGER NOT NULL,
                 hitting_vs_l_hits INTEGER NOT NULL,
@@ -232,6 +244,7 @@ class SchemaService {
                 hitting_vs_l_hbp INTEGER NOT NULL,
                 hitting_vs_l_exit_velocity_count REAL NOT NULL,
                 hitting_vs_l_total_exit_velocity REAL NOT NULL,
+
                 hitting_vs_r_pa INTEGER NOT NULL,
                 hitting_vs_r_ab INTEGER NOT NULL,
                 hitting_vs_r_hits INTEGER NOT NULL,
@@ -243,6 +256,7 @@ class SchemaService {
                 hitting_vs_r_hbp INTEGER NOT NULL,
                 hitting_vs_r_exit_velocity_count REAL NOT NULL,
                 hitting_vs_r_total_exit_velocity REAL NOT NULL,
+
                 pitching_vs_l_batters_faced INTEGER NOT NULL,
                 pitching_vs_l_outs INTEGER NOT NULL,
                 pitching_vs_l_runs_allowed INTEGER NOT NULL,
@@ -254,6 +268,7 @@ class SchemaService {
                 pitching_vs_l_bb_allowed INTEGER NOT NULL,
                 pitching_vs_l_so INTEGER NOT NULL,
                 pitching_vs_l_hbp_allowed INTEGER NOT NULL,
+
                 pitching_vs_r_batters_faced INTEGER NOT NULL,
                 pitching_vs_r_outs INTEGER NOT NULL,
                 pitching_vs_r_runs_allowed INTEGER NOT NULL,
@@ -265,6 +280,7 @@ class SchemaService {
                 pitching_vs_r_bb_allowed INTEGER NOT NULL,
                 pitching_vs_r_so INTEGER NOT NULL,
                 pitching_vs_r_hbp_allowed INTEGER NOT NULL,
+
                 pitch_types TEXT NOT NULL CHECK (json_valid(pitch_types)),
                 games_at_position TEXT NOT NULL CHECK (json_valid(games_at_position)),
                 innings_at_position TEXT NOT NULL CHECK (json_valid(innings_at_position)),
@@ -280,13 +296,132 @@ class SchemaService {
                     player_id,
                     season
                 );
+
+            CREATE TABLE IF NOT EXISTS player_stats (
+                game_pk INTEGER NOT NULL,
+                player_id INTEGER NOT NULL,
+                game_date TEXT NOT NULL,
+
+                hitting_team_wins INTEGER NOT NULL,
+                hitting_team_losses INTEGER NOT NULL,
+                hitting_games INTEGER NOT NULL,
+                hitting_pa INTEGER NOT NULL,
+                hitting_ab INTEGER NOT NULL,
+                hitting_runs INTEGER NOT NULL,
+                hitting_hits INTEGER NOT NULL,
+                hitting_singles INTEGER NOT NULL,
+                hitting_doubles INTEGER NOT NULL,
+                hitting_triples INTEGER NOT NULL,
+                hitting_home_runs INTEGER NOT NULL,
+                hitting_rbi INTEGER NOT NULL,
+                hitting_bb INTEGER NOT NULL,
+                hitting_so INTEGER NOT NULL,
+                hitting_hbp INTEGER NOT NULL,
+                hitting_gidp INTEGER NOT NULL,
+                hitting_sac_flys INTEGER NOT NULL,
+
+                hitting_po INTEGER NOT NULL,
+                hitting_assists INTEGER NOT NULL,
+                hitting_outfield_assists INTEGER NOT NULL,
+                hitting_errors INTEGER NOT NULL,
+                hitting_passed_balls INTEGER NOT NULL,
+                hitting_cs_defense INTEGER NOT NULL,
+                hitting_double_plays INTEGER NOT NULL,
+
+                hitting_sb INTEGER NOT NULL,
+                hitting_sb_attempts INTEGER NOT NULL,
+                hitting_cs INTEGER NOT NULL,
+
+                hitting_pitches INTEGER NOT NULL,
+                hitting_balls INTEGER NOT NULL,
+                hitting_strikes INTEGER NOT NULL,
+                hitting_called_strikes INTEGER NOT NULL,
+                hitting_swinging_strikes INTEGER NOT NULL,
+                hitting_swings INTEGER NOT NULL,
+                hitting_fouls INTEGER NOT NULL,
+                hitting_in_zone INTEGER NOT NULL,
+                hitting_swing_at_balls INTEGER NOT NULL,
+                hitting_swing_at_strikes INTEGER NOT NULL,
+                hitting_in_zone_contact INTEGER NOT NULL,
+                hitting_out_zone_contact INTEGER NOT NULL,
+                hitting_balls_in_play INTEGER NOT NULL,
+                hitting_ground_balls INTEGER NOT NULL,
+                hitting_fly_balls INTEGER NOT NULL,
+                hitting_line_drives INTEGER NOT NULL,
+                hitting_popups INTEGER NOT NULL,
+
+                pitching_games INTEGER NOT NULL,
+                pitching_starts INTEGER NOT NULL,
+                pitching_wins INTEGER NOT NULL,
+                pitching_losses INTEGER NOT NULL,
+                pitching_cg INTEGER NOT NULL,
+                pitching_sho INTEGER NOT NULL,
+                pitching_saves INTEGER NOT NULL,
+                pitching_outs INTEGER NOT NULL,
+                pitching_ab INTEGER NOT NULL,
+                pitching_batters_faced INTEGER NOT NULL,
+                pitching_hits INTEGER NOT NULL,
+                pitching_singles INTEGER NOT NULL,
+                pitching_doubles INTEGER NOT NULL,
+                pitching_triples INTEGER NOT NULL,
+                pitching_runs INTEGER NOT NULL,
+                pitching_earned_runs INTEGER NOT NULL,
+                pitching_home_runs INTEGER NOT NULL,
+                pitching_bb INTEGER NOT NULL,
+                pitching_so INTEGER NOT NULL,
+                pitching_hbp INTEGER NOT NULL,
+                pitching_sac_flys INTEGER NOT NULL,
+                pitching_wild_pitches INTEGER NOT NULL,
+
+                pitching_pitches INTEGER NOT NULL,
+                pitching_balls INTEGER NOT NULL,
+                pitching_strikes INTEGER NOT NULL,
+                pitching_called_strikes INTEGER NOT NULL,
+                pitching_swinging_strikes INTEGER NOT NULL,
+                pitching_swings INTEGER NOT NULL,
+                pitching_fouls INTEGER NOT NULL,
+                pitching_in_zone INTEGER NOT NULL,
+                pitching_swing_at_balls INTEGER NOT NULL,
+                pitching_swing_at_strikes INTEGER NOT NULL,
+                pitching_in_zone_contact INTEGER NOT NULL,
+                pitching_out_zone_contact INTEGER NOT NULL,
+                pitching_balls_in_play INTEGER NOT NULL,
+                pitching_ground_balls INTEGER NOT NULL,
+                pitching_fly_balls INTEGER NOT NULL,
+                pitching_line_drives INTEGER NOT NULL,
+                pitching_popups INTEGER NOT NULL,
+
+                PRIMARY KEY (
+                    game_pk,
+                    player_id
+                ),
+                FOREIGN KEY (game_pk)
+                    REFERENCES games(game_pk)
+                    ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_player_stats_player
+                ON player_stats (
+                    player_id,
+                    game_pk DESC
+                );
+
+            CREATE INDEX IF NOT EXISTS idx_player_stats_game
+                ON player_stats (
+                    game_pk
+                );
+
+            CREATE INDEX IF NOT EXISTS idx_player_stats_player_date
+                ON player_stats (
+                    player_id,
+                    game_date DESC,
+                    game_pk DESC
+                );
         `)
     }
 
     public transaction<T>(callback: () => T): T {
-        return this.database.transaction(
-            callback
-        )()
+        return this.database.transaction(callback)()
     }
 
 }

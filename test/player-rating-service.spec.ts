@@ -25,6 +25,7 @@ import { PlayerRatingInputRepository } from "../src/ratings/repository/player-ra
 import { SchemaService } from "../src/importer/service/schema-service.js"
 import { DownloadService } from "../src/importer/service/download-service.js"
 import { PlayerRatingSeasonInputRepository } from "../src/ratings/repository/player-rating-season-input-repository.js"
+import { PlayerStatRepository } from "../src/ratings/repository/player-stat-repository.js"
 
 const season = 2025
 const baseDataDir = process.env.DATA_DIR ? process.env.DATA_DIR : "data"
@@ -60,10 +61,13 @@ const createServices = () => {
         database
     )
 
+    const playerStatRepository = new PlayerStatRepository(database)
+
     const downloadService = new DownloadService(
         schemaService,
         playerRatingInputRepository,
-        playerRatingSeasonInputRepository
+        playerRatingSeasonInputRepository,
+        playerStatRepository
     )
 
     const playerRatingService = new PlayerRatingService(

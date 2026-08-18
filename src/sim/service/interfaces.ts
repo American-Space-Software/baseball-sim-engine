@@ -248,8 +248,8 @@ interface GamePlayerBio {
 
 interface HitterStatLine {
 
-    teamWins:number
-    teamLosses:number
+    teamWins: number
+    teamLosses: number
 
     games: number
     pa: number
@@ -260,50 +260,50 @@ interface HitterStatLine {
     doubles: number
     triples: number
     homeRuns: number
-    hbp:number 
+    hbp: number
 
-    gidp:number
-    po:number
-    assists:number
-    outfieldAssists:number
+    gidp: number
+    po: number
+    assists: number
+    outfieldAssists: number
 
-    e:number
-    passedBalls:number
+    e: number
+    passedBalls: number
 
-    csDefense:number
-    doublePlays:number
+    csDefense: number
+    doublePlays: number
 
-    hbpPercent?:number
-    singlePercent?:number
-    doublePercent?:number
-    triplePercent?:number
-    homeRunPercent?:number
-    bbPercent?:number
-    soPercent?:number
+    hbpPercent?: number
+    singlePercent?: number
+    doublePercent?: number
+    triplePercent?: number
+    homeRunPercent?: number
+    bbPercent?: number
+    soPercent?: number
 
-    strikePercent?:number
-    calledStrikesPercent?:number
-    swingingStrikesPercent?:number    
-    ballPercent?:number
-    swingPercent?:number
-    foulPercent?:number
-    foulContactPercent?:number
-    swingAtBallsPercent?:number
-    swingAtStrikesPercent?:number
-    inZonePercent?:number
-    inZoneContactPercent?:number
-    outZoneContactPercent?:number
-    inPlayPercent?:number
-    babip?:number
+    strikePercent?: number
+    calledStrikesPercent?: number
+    swingingStrikesPercent?: number
+    ballPercent?: number
+    swingPercent?: number
+    foulPercent?: number
+    foulContactPercent?: number
+    swingAtBallsPercent?: number
+    swingAtStrikesPercent?: number
+    inZonePercent?: number
+    inZoneContactPercent?: number
+    outZoneContactPercent?: number
+    inPlayPercent?: number
+    babip?: number
 
-    groundBallPercent?:number
-    flyBallPercent?:number
-    ldPercent?:number
-    popupPercent?:number
+    groundBallPercent?: number
+    flyBallPercent?: number
+    ldPercent?: number
+    popupPercent?: number
 
     rbi: number
     sb: number
-    sbAttempts:number
+    sbAttempts: number
     cs: number
     bb: number
     so: number
@@ -311,24 +311,25 @@ interface HitterStatLine {
     obp?: number
     slg?: number
     ops?: number
-    wpa?:number
+    wpa?: number
 
-    avgPitchQuality: number
-    avgPitchPowerQuality: number
-    avgPitchLocationQuality: number
-    avgPitchMovementQuality: number
+    avgPitchQuality?: number
+    avgPitchPowerQuality?: number
+    avgPitchLocationQuality?: number
+    avgPitchMovementQuality?: number
 
-    runsPerGame?:number  
-    sbPerGame?:number  
-    sbAttemptsPerGame?:number
-    pitchesPerPA?:number
+    runsPerGame?: number
+    sbPerGame?: number
+    sbAttemptsPerGame?: number
+    pitchesPerPA?: number
 }
 
 interface PitcherStatLine {
+
     games: number
     wins: number
     losses: number
-    winPercent?:number
+    winPercent?: number
     era?: number
     starts: number
     outs: number
@@ -345,47 +346,46 @@ interface PitcherStatLine {
     bb: number
     so: number
     hbp: number
-    wpa:number 
-    wildPitches:number
+    wpa?: number
+    wildPitches: number
 
-    singlePercent?:number
-    doublePercent?:number
-    triplePercent?:number
-    homeRunPercent?:number
+    singlePercent?: number
+    doublePercent?: number
+    triplePercent?: number
+    homeRunPercent?: number
 
-    hbpPercent?:number
-    bbPercent?:number
-    soPercent?:number
-    strikePercent?:number
-    calledStrikesPercent?:number
-    swingingStrikesPercent?:number
-    ballPercent?:number
-    swingPercent?:number
-    inPlayPercent?:number
-    foulPercent?:number
-    foulContactPercent?:number
-    wildPitchPercent?:number
-    swingAtBallsPercent?:number
-    swingAtStrikesPercent?:number
-    inZonePercent?:number
-    inZoneContactPercent?:number
-    outZoneContactPercent?:number
-    babip?:number
+    hbpPercent?: number
+    bbPercent?: number
+    soPercent?: number
+    strikePercent?: number
+    calledStrikesPercent?: number
+    swingingStrikesPercent?: number
+    ballPercent?: number
+    swingPercent?: number
+    inPlayPercent?: number
+    foulPercent?: number
+    foulContactPercent?: number
+    wildPitchPercent?: number
+    swingAtBallsPercent?: number
+    swingAtStrikesPercent?: number
+    inZonePercent?: number
+    inZoneContactPercent?: number
+    outZoneContactPercent?: number
+    babip?: number
 
-    groundBallPercent?:number
-    flyBallPercent?:number
-    ldPercent?:number
-    popupPercent?:number
+    groundBallPercent?: number
+    flyBallPercent?: number
+    ldPercent?: number
+    popupPercent?: number
 
-    avgPitchQuality: number
-    avgPitchPowerQuality: number
-    avgPitchLocationQuality: number
-    avgPitchMovementQuality: number
+    avgPitchQuality?: number
+    avgPitchPowerQuality?: number
+    avgPitchLocationQuality?: number
+    avgPitchMovementQuality?: number
 
-    runsPerGame?:number
-    pitchesPerGame?:number
-    pitchesPerPA?:number
-
+    runsPerGame?: number
+    pitchesPerGame?: number
+    pitchesPerPA?: number
 }
 
 interface Colors {
@@ -2043,6 +2043,9 @@ interface PlayerRatingSeasonInput {
     playerId: string
     data: PlayerRatingInput
 }
+
+
+
 
 export {
     StadiumEnvironment, PitchingRole, PitchQuality, ContactQuality, StolenBaseByCount,  PitchCount, InZoneByCount,  PitchEnvironmentTarget, DefensiveCredit, Player, ThrowRoll, Game, StartGameCommand, RollChart, ContactTypeRollInput, FielderChanceRollInput, ShallowDeepRollInput, PowerRollInput, ShallowDeepChance,

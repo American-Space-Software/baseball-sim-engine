@@ -27,6 +27,7 @@ import { PlayerRatingInputRepository } from "../ratings/repository/player-rating
 import { SchemaService } from "./service/schema-service.js"
 import { DownloadService } from "./service/download-service.js"
 import { PlayerRatingSeasonInputRepository } from "../ratings/repository/player-rating-season-input-repository.js"
+import { PlayerStatRepository } from "../ratings/repository/player-stat-repository.js"
 
 
 const NUMBER_OF_WORKERS = 25
@@ -53,7 +54,8 @@ schemaService.load()
 
 const playerRatingInputRepository = new PlayerRatingInputRepository(database)
 const playerRatingSeasonInputRepository = new PlayerRatingSeasonInputRepository(database)
-const downloadService = new DownloadService(schemaService, playerRatingInputRepository, playerRatingSeasonInputRepository)
+const playerStatRepository = new PlayerStatRepository(database)
+const downloadService = new DownloadService(schemaService, playerRatingInputRepository, playerRatingSeasonInputRepository, playerStatRepository)
 
 const log = (...args: any[]) => {
     console.log("[IMPORTER]", ...args)

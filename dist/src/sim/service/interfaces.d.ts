@@ -221,10 +221,10 @@ interface HitterStatLine {
     slg?: number;
     ops?: number;
     wpa?: number;
-    avgPitchQuality: number;
-    avgPitchPowerQuality: number;
-    avgPitchLocationQuality: number;
-    avgPitchMovementQuality: number;
+    avgPitchQuality?: number;
+    avgPitchPowerQuality?: number;
+    avgPitchLocationQuality?: number;
+    avgPitchMovementQuality?: number;
     runsPerGame?: number;
     sbPerGame?: number;
     sbAttemptsPerGame?: number;
@@ -251,7 +251,7 @@ interface PitcherStatLine {
     bb: number;
     so: number;
     hbp: number;
-    wpa: number;
+    wpa?: number;
     wildPitches: number;
     singlePercent?: number;
     doublePercent?: number;
@@ -279,10 +279,10 @@ interface PitcherStatLine {
     flyBallPercent?: number;
     ldPercent?: number;
     popupPercent?: number;
-    avgPitchQuality: number;
-    avgPitchPowerQuality: number;
-    avgPitchLocationQuality: number;
-    avgPitchMovementQuality: number;
+    avgPitchQuality?: number;
+    avgPitchPowerQuality?: number;
+    avgPitchLocationQuality?: number;
+    avgPitchMovementQuality?: number;
     runsPerGame?: number;
     pitchesPerGame?: number;
     pitchesPerPA?: number;

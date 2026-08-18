@@ -14,6 +14,9 @@ import { PlayerRatingSeasonInputRepository } from "./repository/player-rating-se
 import { DownloadService } from "../importer/service/download-service.js"
 import { SchemaService } from "../importer/service/schema-service.js"
 import { PlayerRatingService } from "./service/player-rating-service.js"
+import { PlayerStatRepository } from "./repository/player-stat-repository.js"
+import { PlayerStatService } from "./service/player-stat-service.js"
+import { StatService } from "../sim/index.js"
 
 
 const defaultBaseDataDir = process.env.DATA_DIR ?? "data"
@@ -23,7 +26,10 @@ schemaService.load()
 
 const playerRatingInputRepository = new PlayerRatingInputRepository(database)
 const playerRatingSeasonInputRepository = new PlayerRatingSeasonInputRepository(database)
-const downloadService = new DownloadService(schemaService, playerRatingInputRepository, playerRatingSeasonInputRepository)
+const playerStatRepository = new PlayerStatRepository(database)
+const statService = new StatService()
+const playerStatService = new PlayerStatService(statService, playerStatRepository)
+const downloadService = new DownloadService(schemaService, playerRatingInputRepository, playerRatingSeasonInputRepository, playerStatRepository)
 const playerRatingService = new PlayerRatingService(playerRatingInputRepository, playerRatingSeasonInputRepository)
 
 
@@ -90,7 +96,9 @@ export {
     downloadService,
     exportPlayerRatings,
     playerRatingService,
-    PlayerRatingService
+    playerStatService,
+    PlayerRatingService,
+    PlayerStatService
 }
 
 

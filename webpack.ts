@@ -95,5 +95,15 @@ export default [
       path: path.resolve(__dirname, "dist"),
       clean: false
     }
+  },
+  {
+    ...baseConfig,
+    entry: "./src/presentation/index.ts",
+    output: {
+      ...baseConfig.output,
+      filename: "presentation.js",
+      path: path.resolve(__dirname, "dist"),
+      clean: false
+    }
   }  
 ]
