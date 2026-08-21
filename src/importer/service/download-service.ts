@@ -1,7 +1,8 @@
 import {
     downloadSeason,
     hooks,
-    queries
+    queries,
+    syncGame
 } from "baseball-database"
 
 import { PlayerRatingInputRepository } from "../../ratings/repository/player-rating-input-repository.js"
@@ -57,6 +58,41 @@ class DownloadService {
         }
 
         return results
+    }
+
+    public rebuildAllGames(): Set<number> {
+        this.prepare()
+
+        const currentSeason = new Date().getUTCFullYear()
+        const gamePks = queries.getCompletedGamePksByDateRange(`${this.firstRatingSeason}-01-01`, `${currentSeason + 1}-01-01`)
+        const rebuiltGamePks = new Set<number>()
+        const startedAt = Date.now()
+
+        console.log(`\nRebuilding ${gamePks.length} stored games.`)
+
+        for (let index = 0; index < gamePks.length; index++) {
+            const gamePk = gamePks[index]
+            const game = queries.getGame(gamePk)
+
+            if (!game) {
+                throw new Error(`Stored game not found: ${gamePk}.`)
+            }
+
+            syncGame(game)
+            rebuiltGamePks.add(gamePk)
+
+            const completed = index + 1
+
+            if (completed === gamePks.length || completed % 100 === 0) {
+                console.log(`[${completed}/${gamePks.length}] Rebuilt games.`)
+            }
+        }
+
+        const elapsedSeconds = Number(((Date.now() - startedAt) / 1000).toFixed(2))
+
+        console.log(`Finished rebuilding ${rebuiltGamePks.size} games in ${elapsedSeconds}s.`)
+
+        return rebuiltGamePks
     }
 
     public async rebuildRatingSeason(season: number): Promise<Set<number>> {

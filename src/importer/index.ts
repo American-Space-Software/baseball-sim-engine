@@ -1493,13 +1493,20 @@ export type {
 }
 
 if (process.argv[1] && path.basename(process.argv[1]) === "importer.js") {
-    const seasonArgument = process.argv[2]
-    const season = seasonArgument ? Number(seasonArgument) : new Date().getUTCFullYear()
+    const firstRatingSeason = 2008
+    const startSeasonArgument = process.argv[2]
+    const endSeasonArgument = process.argv[3]
+    const currentSeason = new Date().getUTCFullYear()
 
-    if (!Number.isInteger(season) || season < 1871) {
-        throw new Error(
-            `Invalid season: ${seasonArgument}`
-        )
+    const startSeason = startSeasonArgument ? Number(startSeasonArgument) : firstRatingSeason
+    const endSeason = endSeasonArgument ? Number(endSeasonArgument) : startSeasonArgument ? startSeason : currentSeason
+
+    if (!Number.isInteger(startSeason) || startSeason < 1871) {
+        throw new Error(`Invalid start season: ${startSeasonArgument}`)
+    }
+
+    if (!Number.isInteger(endSeason) || endSeason < startSeason) {
+        throw new Error(`Invalid end season: ${endSeasonArgument}`)
     }
 
     const options = {
@@ -1509,13 +1516,24 @@ if (process.argv[1] && path.basename(process.argv[1]) === "importer.js") {
         samplesPerCandidate: 5
     }
 
-    await exportPitchEnvironmentTarget(season, defaultBaseDataDir, options)
+    for (let season = startSeason; season <= endSeason; season++) {
+        console.log("")
+        console.log("========================================")
+        console.log(`GENERATING ENV: ${season}`)
+        console.log("========================================")
+
+        await exportPitchEnvironmentTarget(season, defaultBaseDataDir, options)
+    }
 
     console.log("")
     console.log("========================================")
     console.log("GENERATE ENV COMPLETE")
-    console.log(`SEASON: ${season}`)
+    console.log(`SEASONS: ${startSeason}-${endSeason}`)
     console.log("========================================")
-    console.log(JSON.stringify({ season, pitchEnvironmentTargetGenerated: true }, null, 2))
+    console.log(JSON.stringify({
+        firstSeason: startSeason,
+        endSeason,
+        seasonsGenerated: endSeason - startSeason + 1
+    }, null, 2))
     console.log("")
 }

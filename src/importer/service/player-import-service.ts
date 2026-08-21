@@ -251,10 +251,16 @@ class PlayerImportService {
 
         const startedAt = Date.now()
         const startDate = state.currentDate
+        let timer = Date.now()
+
         const statExport = this.getStatExport(
             startDate,
             gameDate
         )
+
+        console.log(`getStatExport: ${this.formatDuration(Date.now() - timer)}`)
+
+        timer = Date.now()
 
         const boundedStatExport = this.filterStatExportByDateRange(
             statExport,
@@ -262,18 +268,28 @@ class PlayerImportService {
             gameDate
         )
 
+        console.log(`filterStatExportByDateRange: ${this.formatDuration(Date.now() - timer)}`)
+
+        timer = Date.now()
+
         const addedStatExports = this.splitStatExportByDate(
             boundedStatExport
         )
+
+        console.log(`splitStatExportByDate: ${this.formatDuration(Date.now() - timer)}`)
 
         state.statExports.push(
             ...addedStatExports
         )
 
+        timer = Date.now()
+
         this.addAppearancesToState(
             state,
             addedStatExports
         )
+
+        console.log(`addAppearancesToState: ${this.formatDuration(Date.now() - timer)}`)
 
         state.currentDate = gameDate
 
@@ -449,56 +465,126 @@ class PlayerImportService {
     }    
 
     private splitStatExportByDate(statExport: StatExport): DatedStatExport[] {
-        const dates = Array.from(
-            new Set(
-                statExport.games.map(game =>
-                    game.gameDate
-                )
-            )
-        ).sort()
+        const exportsByDate = new Map<string, StatExport>()
+        const datesByGamePk = new Map<number, string>()
 
-        return dates.map(date => ({
-            date,
-            statExport: this.filterStatExportByDate(
-                statExport,
+        for (const game of statExport.games) {
+            const date = game.gameDate
+            const gamePk = Number(game.gamePk)
+
+            datesByGamePk.set(
+                gamePk,
                 date
             )
-        }))
-    }  
 
-    private filterStatExportByDate(statExport: StatExport, gameDate: string): StatExport {
-        const games = statExport.games.filter(game =>
-            game.gameDate === gameDate
-        )
-
-        const gamePks = new Set(
-            games.map(game =>
-                Number(game.gamePk)
+            let datedExport = exportsByDate.get(
+                date
             )
-        )
 
-        return {
-            games,
-            appearances: statExport.appearances.filter(appearance =>
-                gamePks.has(Number(appearance.gamePk))
-            ),
-            plateAppearances: statExport.plateAppearances.filter(plateAppearance =>
-                gamePks.has(Number(plateAppearance.gamePk))
-            ),
-            pitches: statExport.pitches.filter(pitch =>
-                gamePks.has(Number(pitch.gamePk))
-            ),
-            runnerMovements: statExport.runnerMovements.filter(runnerMovement =>
-                gamePks.has(Number(runnerMovement.gamePk))
-            ),
-            fieldingCredits: statExport.fieldingCredits.filter(fieldingCredit =>
-                gamePks.has(Number(fieldingCredit.gamePk))
-            ),
-            defensiveEvents: statExport.defensiveEvents.filter(defensiveEvent =>
-                gamePks.has(Number(defensiveEvent.gamePk))
+            if (!datedExport) {
+                datedExport = {
+                    games: [],
+                    appearances: [],
+                    plateAppearances: [],
+                    pitches: [],
+                    runnerMovements: [],
+                    fieldingCredits: [],
+                    defensiveEvents: []
+                }
+
+                exportsByDate.set(
+                    date,
+                    datedExport
+                )
+            }
+
+            datedExport.games.push(
+                game
             )
         }
-    }    
+
+        for (const appearance of statExport.appearances) {
+            const date = datesByGamePk.get(
+                Number(appearance.gamePk)
+            )
+
+            if (date) {
+                exportsByDate.get(date)?.appearances.push(
+                    appearance
+                )
+            }
+        }
+
+        for (const plateAppearance of statExport.plateAppearances) {
+            const date = datesByGamePk.get(
+                Number(plateAppearance.gamePk)
+            )
+
+            if (date) {
+                exportsByDate.get(date)?.plateAppearances.push(
+                    plateAppearance
+                )
+            }
+        }
+
+        for (const pitch of statExport.pitches) {
+            const date = datesByGamePk.get(
+                Number(pitch.gamePk)
+            )
+
+            if (date) {
+                exportsByDate.get(date)?.pitches.push(
+                    pitch
+                )
+            }
+        }
+
+        for (const runnerMovement of statExport.runnerMovements) {
+            const date = datesByGamePk.get(
+                Number(runnerMovement.gamePk)
+            )
+
+            if (date) {
+                exportsByDate.get(date)?.runnerMovements.push(
+                    runnerMovement
+                )
+            }
+        }
+
+        for (const fieldingCredit of statExport.fieldingCredits) {
+            const date = datesByGamePk.get(
+                Number(fieldingCredit.gamePk)
+            )
+
+            if (date) {
+                exportsByDate.get(date)?.fieldingCredits.push(
+                    fieldingCredit
+                )
+            }
+        }
+
+        for (const defensiveEvent of statExport.defensiveEvents) {
+            const date = datesByGamePk.get(
+                Number(defensiveEvent.gamePk)
+            )
+
+            if (date) {
+                exportsByDate.get(date)?.defensiveEvents.push(
+                    defensiveEvent
+                )
+            }
+        }
+
+        return Array.from(exportsByDate.entries())
+            .sort(([a], [b]) =>
+                a.localeCompare(b)
+            )
+            .map(([date, datedExport]) => ({
+                date,
+                statExport: datedExport
+            }))
+    }
+
 
     private removeUnneededDates(state: PlayerImportState): void {
         const requiredStartDate = this.getRequiredStartDate(state)

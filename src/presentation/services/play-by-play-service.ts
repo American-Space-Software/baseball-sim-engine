@@ -503,7 +503,7 @@ class PlayByPlayService {
         }
     }
 
-    private getPitchTypeFull(pitchType: PitchType): string {
+    public getPitchTypeFull(pitchType: PitchType): string {
         switch (pitchType) {
             case PitchType.FF: return "Fastball"
             case PitchType.CU: return "Curveball"

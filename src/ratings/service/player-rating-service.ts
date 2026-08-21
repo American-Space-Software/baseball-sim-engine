@@ -1,3 +1,5 @@
+import { queries } from "baseball-database"
+
 import { PitchType } from "../../sim/service/enums.js"
 
 import type {
@@ -9,6 +11,11 @@ import type {
 } from "../../sim/service/interfaces.js"
 import { PlayerRatingInputRepository } from "../../ratings/repository/player-rating-input-repository.js"
 import { PlayerRatingSeasonInputRepository } from "../../ratings/repository/player-rating-season-input-repository.js"
+import { PlayerRatingsRepository } from "../../ratings/repository/player-ratings-repository.js"
+
+import type {
+    PlayerRatingsRow
+} from "../../ratings/repository/player-ratings-repository.js"
 
 import {
     clamp,
@@ -95,20 +102,108 @@ class PlayerRatingService {
 
     constructor(
         private readonly playerRatingInputRepository: PlayerRatingInputRepository,
-        private readonly playerRatingSeasonInputRepository: PlayerRatingSeasonInputRepository
+        private readonly playerRatingSeasonInputRepository: PlayerRatingSeasonInputRepository,
+        private readonly playerRatingsRepository: PlayerRatingsRepository
     ) {}
 
 
     public async buildPlayerRatingsForDate(season: number, gameDate: string, pitchEnvironment: PitchEnvironmentTarget, filterPlayerIds?: Set<string>): Promise<Map<string, GeneratedPlayerRatings>> {
         const startedAt = Date.now()
-        const state = this.getOrCreateState(
-            season,
-            gameDate
-        )
 
         const selectedPlayerIds = this.getSelectedPlayerIds(
             season,
             filterPlayerIds
+        )
+
+        const storedRatings = await this.playerRatingsRepository.read(
+            gameDate
+        )
+
+        const ratingsByPlayerId = new Map(
+            storedRatings.map(rating => [
+                String(rating.playerId),
+                rating
+            ])
+        )
+
+        const missingPlayerIds = new Set(
+            Array.from(selectedPlayerIds).filter(playerId =>
+                !ratingsByPlayerId.has(playerId)
+            )
+        )
+
+        if (missingPlayerIds.size > 0) {
+            const generatedRatings = this.buildGeneratedPlayerRatingsForDate(
+                season,
+                gameDate,
+                pitchEnvironment,
+                missingPlayerIds
+            )
+
+            for (const playerId of missingPlayerIds) {
+                const generated =
+                    generatedRatings.get(playerId) ??
+                    this.buildBaselinePlayerRatings(
+                        pitchEnvironment,
+                        playerId
+                    )
+
+                ratingsByPlayerId.set(
+                    playerId,
+                    this.buildPlayerRatingsRow(
+                        gameDate,
+                        generated
+                    )
+                )
+            }
+
+            await this.playerRatingsRepository.write(
+                gameDate,
+                Array.from(ratingsByPlayerId.values()).sort((a, b) =>
+                    String(a.playerId).localeCompare(
+                        String(b.playerId)
+                    )
+                )
+            )
+        }
+
+        const ratings = new Map<string, GeneratedPlayerRatings>()
+
+        for (const playerId of selectedPlayerIds) {
+            const rating = ratingsByPlayerId.get(
+                playerId
+            )
+
+            if (!rating) {
+                continue
+            }
+
+            ratings.set(
+                playerId,
+                {
+                    playerId,
+                    hittingRatings: structuredClone(
+                        rating.hittingRatings
+                    ),
+                    pitchRatings: structuredClone(
+                        rating.pitchRatings
+                    )
+                }
+            )
+        }
+
+        console.log(
+            `${missingPlayerIds.size > 0 ? "Built" : "Loaded"} ${ratings.size} player ratings for ${gameDate} in ` +
+            `${this.formatDuration(Date.now() - startedAt)}.`
+        )
+
+        return ratings
+    }
+
+    private buildGeneratedPlayerRatingsForDate(season: number, gameDate: string, pitchEnvironment: PitchEnvironmentTarget, selectedPlayerIds: Set<string>): Map<string, GeneratedPlayerRatings> {
+        const state = this.getOrCreateState(
+            season,
+            gameDate
         )
 
         const pitchEnvironmentSignature = JSON.stringify(
@@ -176,13 +271,177 @@ class PlayerRatingService {
             )
         }
 
-        console.log(
-            `Built ${ratings.size} player ratings in ` +
-            `${this.formatDuration(Date.now() - startedAt)}.`
-        )
-
         return ratings
     }
+
+    private buildPlayerRatingsRow(gameDate: string, ratings: GeneratedPlayerRatings): PlayerRatingsRow {
+        const player = queries.getPlayer(
+            Number(ratings.playerId)
+        )
+
+        if (!player) {
+            throw new Error(
+                `Player ${ratings.playerId} does not exist in baseball-database.`
+            )
+        }
+
+        return {
+            playerId: ratings.playerId,
+            firstName: player.firstName,
+            lastName: player.lastName,
+            primaryPosition: player.primaryPosition,
+            age: this.getAge(
+                player.birthDate,
+                gameDate
+            ),
+            throws: player.throws,
+            hits: player.bats,
+            hittingRatings: structuredClone(
+                ratings.hittingRatings
+            ),
+            pitchRatings: structuredClone(
+                ratings.pitchRatings
+            )
+        }
+    }
+
+    private buildBaselinePlayerRatings(pitchEnvironment: PitchEnvironmentTarget, playerId: string): GeneratedPlayerRatings {
+        const averageRating = Number(
+            pitchEnvironment.avgRating
+        )
+
+        const contactRollInput =
+            pitchEnvironment
+                .battedBall
+                ?.contactRollInput
+
+        if (!Number.isFinite(averageRating)) {
+            throw new Error(
+                "Pitch environment has no valid average rating."
+            )
+        }
+
+        if (
+            !contactRollInput ||
+            !Number.isFinite(Number(contactRollInput.groundball)) ||
+            !Number.isFinite(Number(contactRollInput.flyBall)) ||
+            !Number.isFinite(Number(contactRollInput.lineDrive))
+        ) {
+            throw new Error(
+                "Pitch environment has no valid contact-roll input."
+            )
+        }
+
+        const player = queries.getPlayer(
+            Number(playerId)
+        )
+
+        if (!player) {
+            throw new Error(
+                `Player ${playerId} does not exist in baseball-database.`
+            )
+        }
+
+        const contactProfile = {
+            groundball: Number(
+                contactRollInput.groundball
+            ),
+            flyBall: Number(
+                contactRollInput.flyBall
+            ),
+            lineDrive: Number(
+                contactRollInput.lineDrive
+            )
+        }
+
+        const averageHittingSplit = {
+            plateDiscipline: averageRating,
+            contact: averageRating,
+            gapPower: averageRating,
+            homerunPower: averageRating
+        }
+
+        const primaryPosition = String(
+            player.primaryPosition ??
+            ""
+        ).toUpperCase()
+
+        return {
+            playerId,
+            hittingRatings: {
+                speed: averageRating,
+                steals: averageRating,
+                defense: averageRating,
+                arm: averageRating,
+                contactProfile,
+                vsR: {
+                    ...averageHittingSplit
+                },
+                vsL: {
+                    ...averageHittingSplit
+                }
+            },
+            pitchRatings: {
+                power: averageRating,
+                contactProfile,
+                vsR: {
+                    control: averageRating,
+                    movement: averageRating
+                },
+                vsL: {
+                    control: averageRating,
+                    movement: averageRating
+                },
+                pitches: primaryPosition === "P"
+                    ? [
+                        PitchType.FF
+                    ]
+                    : []
+            }
+        }
+    }
+
+    private getAge(birthDate: string | null | undefined, gameDate: string): number {
+        if (!birthDate) {
+            return 27
+        }
+
+        const birth = new Date(
+            `${birthDate}T12:00:00.000Z`
+        )
+
+        const date = new Date(
+            `${gameDate}T12:00:00.000Z`
+        )
+
+        if (
+            Number.isNaN(birth.getTime()) ||
+            Number.isNaN(date.getTime())
+        ) {
+            return 27
+        }
+
+        let age =
+            date.getUTCFullYear() -
+            birth.getUTCFullYear()
+
+        const monthDifference =
+            date.getUTCMonth() -
+            birth.getUTCMonth()
+
+        if (
+            monthDifference < 0 ||
+            (
+                monthDifference === 0 &&
+                date.getUTCDate() < birth.getUTCDate()
+            )
+        ) {
+            age--
+        }
+
+        return age
+    }
+
 
     public clearCache(season?: number): void {
         if (season === undefined) {
