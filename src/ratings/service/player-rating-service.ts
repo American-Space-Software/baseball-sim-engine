@@ -2,35 +2,21 @@ import { queries } from "baseball-database"
 
 import { PitchType } from "../../sim/service/enums.js"
 
-import type {
-    HittingRatings,
-    PitchEnvironmentTarget,
-    PitchRatings,
-    PitchTypeMovementStat,
-    PlayerRatingInput
-} from "../../sim/service/interfaces.js"
+import type { HittingRatings, PitchEnvironmentTarget, PitchRatings, PitchTypeMovementStat, PlayerRatingInput } from "../../sim/service/interfaces.js"
 import { PlayerRatingInputRepository } from "../../ratings/repository/player-rating-input-repository.js"
 import { PlayerRatingSeasonInputRepository } from "../../ratings/repository/player-rating-season-input-repository.js"
 import { PlayerRatingsRepository } from "../../ratings/repository/player-ratings-repository.js"
 
-import type {
-    PlayerRatingsRow
-} from "../../ratings/repository/player-ratings-repository.js"
+import type { PlayerRatingsRow } from "../../ratings/repository/player-ratings-repository.js"
 
-import {
-    clamp,
-    getAverage,
-    safeDiv
-} from "../../importer/util.js"
-
-
+import { clamp, getAverage, safeDiv } from "../../importer/util.js"
 
 interface GeneratedPlayerRatings {
     playerId: string
+    overallRating: number
     hittingRatings: HittingRatings
     pitchRatings: PitchRatings
 }
-
 
 interface RatingWindow {
     name: string
@@ -61,118 +47,48 @@ interface RatingDateRange {
 }
 
 const ratingWindows: RatingWindow[] = [
-    {
-        name: "career",
-        weight: 0.50,
-        minimumPlateAppearances: 0
-    },
-    {
-        name: "last-162",
-        weight: 0.30,
-        maximumAppearances: 162,
-        minimumPlateAppearances: 0
-    },
-    {
-        name: "16-30",
-        weight: 0.12,
-        minimumDaysAgo: 16,
-        maximumDaysAgo: 30,
-        minimumPlateAppearances: 25
-    },
-    {
-        name: "8-15",
-        weight: 0.06,
-        minimumDaysAgo: 8,
-        maximumDaysAgo: 15,
-        minimumPlateAppearances: 15
-    },
-    {
-        name: "1-7",
-        weight: 0.02,
-        minimumDaysAgo: 1,
-        maximumDaysAgo: 7,
-        minimumPlateAppearances: 10
-    }
+    { name: "career", weight: 0.50, minimumPlateAppearances: 0 },
+    { name: "last-162", weight: 0.30, maximumAppearances: 162, minimumPlateAppearances: 0 },
+    { name: "16-30", weight: 0.12, minimumDaysAgo: 16, maximumDaysAgo: 30, minimumPlateAppearances: 25 },
+    { name: "8-15", weight: 0.06, minimumDaysAgo: 8, maximumDaysAgo: 15, minimumPlateAppearances: 15 },
+    { name: "1-7", weight: 0.02, minimumDaysAgo: 1, maximumDaysAgo: 7, minimumPlateAppearances: 10 }
 ]
-
 
 class PlayerRatingService {
 
     private readonly states: PlayerRatingState[] = []
 
-    constructor(
-        private readonly playerRatingInputRepository: PlayerRatingInputRepository,
-        private readonly playerRatingSeasonInputRepository: PlayerRatingSeasonInputRepository,
-        private readonly playerRatingsRepository: PlayerRatingsRepository
-    ) {}
-
+    constructor(private readonly playerRatingInputRepository: PlayerRatingInputRepository, private readonly playerRatingSeasonInputRepository: PlayerRatingSeasonInputRepository, private readonly playerRatingsRepository: PlayerRatingsRepository) {}
 
     public async buildPlayerRatingsForDate(season: number, gameDate: string, pitchEnvironment: PitchEnvironmentTarget, filterPlayerIds?: Set<string>): Promise<Map<string, GeneratedPlayerRatings>> {
         const startedAt = Date.now()
 
-        const selectedPlayerIds = this.getSelectedPlayerIds(
-            season,
-            filterPlayerIds
-        )
+        const selectedPlayerIds = this.getSelectedPlayerIds(season, filterPlayerIds)
 
-        const storedRatings = await this.playerRatingsRepository.read(
-            gameDate
-        )
+        const storedRatings = await this.playerRatingsRepository.read(gameDate)
 
-        const ratingsByPlayerId = new Map(
-            storedRatings.map(rating => [
-                String(rating.playerId),
-                rating
-            ])
-        )
+        const ratingsByPlayerId = new Map(storedRatings.map(rating => [ String(rating.playerId), rating ]))
 
-        const missingPlayerIds = new Set(
-            Array.from(selectedPlayerIds).filter(playerId =>
-                !ratingsByPlayerId.has(playerId)
-            )
-        )
+        const missingPlayerIds = new Set(Array.from(selectedPlayerIds).filter(playerId => !ratingsByPlayerId.has(playerId)))
 
         if (missingPlayerIds.size > 0) {
-            const generatedRatings = this.buildGeneratedPlayerRatingsForDate(
-                season,
-                gameDate,
-                pitchEnvironment,
-                missingPlayerIds
-            )
+            const generatedRatings = this.buildGeneratedPlayerRatingsForDate(season, gameDate, pitchEnvironment, missingPlayerIds)
 
             for (const playerId of missingPlayerIds) {
                 const generated =
                     generatedRatings.get(playerId) ??
-                    this.buildBaselinePlayerRatings(
-                        pitchEnvironment,
-                        playerId
-                    )
+                    this.buildBaselinePlayerRatings(pitchEnvironment, playerId)
 
-                ratingsByPlayerId.set(
-                    playerId,
-                    this.buildPlayerRatingsRow(
-                        gameDate,
-                        generated
-                    )
-                )
+                ratingsByPlayerId.set(playerId, this.buildPlayerRatingsRow(gameDate, generated))
             }
 
-            await this.playerRatingsRepository.write(
-                gameDate,
-                Array.from(ratingsByPlayerId.values()).sort((a, b) =>
-                    String(a.playerId).localeCompare(
-                        String(b.playerId)
-                    )
-                )
-            )
+            await this.playerRatingsRepository.write(gameDate, Array.from(ratingsByPlayerId.values()).sort((a, b) => String(a.playerId).localeCompare(String(b.playerId))))
         }
 
         const ratings = new Map<string, GeneratedPlayerRatings>()
 
         for (const playerId of selectedPlayerIds) {
-            const rating = ratingsByPlayerId.get(
-                playerId
-            )
+            const rating = ratingsByPlayerId.get(playerId)
 
             if (!rating) {
                 continue
@@ -182,12 +98,9 @@ class PlayerRatingService {
                 playerId,
                 {
                     playerId,
-                    hittingRatings: structuredClone(
-                        rating.hittingRatings
-                    ),
-                    pitchRatings: structuredClone(
-                        rating.pitchRatings
-                    )
+                    overallRating: rating.overallRating,
+                    hittingRatings: structuredClone(rating.hittingRatings),
+                    pitchRatings: structuredClone(rating.pitchRatings)
                 }
             )
         }
@@ -201,41 +114,22 @@ class PlayerRatingService {
     }
 
     private buildGeneratedPlayerRatingsForDate(season: number, gameDate: string, pitchEnvironment: PitchEnvironmentTarget, selectedPlayerIds: Set<string>): Map<string, GeneratedPlayerRatings> {
-        const state = this.getOrCreateState(
-            season,
-            gameDate
-        )
+        const state = this.getOrCreateState(season, gameDate)
 
-        const pitchEnvironmentSignature = JSON.stringify(
-            pitchEnvironment
-        )
+        const pitchEnvironmentSignature = JSON.stringify(pitchEnvironment)
 
         let affectedPlayerIds: Set<string>
 
         if (state.currentDate === `${season - 1}-01-01`) {
-            affectedPlayerIds = this.initializeState(
-                state,
-                gameDate,
-                selectedPlayerIds
-            )
+            affectedPlayerIds = this.initializeState(state, gameDate, selectedPlayerIds)
         } else if (state.currentDate < gameDate) {
-            affectedPlayerIds = this.advanceState(
-                state,
-                gameDate,
-                selectedPlayerIds
-            )
+            affectedPlayerIds = this.advanceState(state, gameDate, selectedPlayerIds)
         } else {
-            affectedPlayerIds = this.loadMissingPlayers(
-                state,
-                gameDate,
-                selectedPlayerIds
-            )
+            affectedPlayerIds = this.loadMissingPlayers(state, gameDate, selectedPlayerIds)
         }
 
         if (state.pitchEnvironmentSignature !== pitchEnvironmentSignature) {
-            affectedPlayerIds = new Set(
-                selectedPlayerIds
-            )
+            affectedPlayerIds = new Set(selectedPlayerIds)
         }
 
         console.log(
@@ -243,11 +137,7 @@ class PlayerRatingService {
             `${affectedPlayerIds.size} require rebuilding.`
         )
 
-        this.rebuildPlayerRatings(
-            state,
-            pitchEnvironment,
-            affectedPlayerIds
-        )
+        this.rebuildPlayerRatings(state, pitchEnvironment, affectedPlayerIds)
 
         state.currentDate = gameDate
         state.pitchEnvironmentSignature = pitchEnvironmentSignature
@@ -255,29 +145,20 @@ class PlayerRatingService {
         const ratings = new Map<string, GeneratedPlayerRatings>()
 
         for (const playerId of selectedPlayerIds) {
-            const playerRatings = state.ratingsByPlayerId.get(
-                playerId
-            )
+            const playerRatings = state.ratingsByPlayerId.get(playerId)
 
             if (!playerRatings) {
                 continue
             }
 
-            ratings.set(
-                playerId,
-                structuredClone(
-                    playerRatings
-                )
-            )
+            ratings.set(playerId, structuredClone(playerRatings))
         }
 
         return ratings
     }
 
     private buildPlayerRatingsRow(gameDate: string, ratings: GeneratedPlayerRatings): PlayerRatingsRow {
-        const player = queries.getPlayer(
-            Number(ratings.playerId)
-        )
+        const player = queries.getPlayer(Number(ratings.playerId))
 
         if (!player) {
             throw new Error(
@@ -290,25 +171,17 @@ class PlayerRatingService {
             firstName: player.firstName,
             lastName: player.lastName,
             primaryPosition: player.primaryPosition,
-            age: this.getAge(
-                player.birthDate,
-                gameDate
-            ),
+            age: this.getAge(player.birthDate, gameDate),
             throws: player.throws,
             hits: player.bats,
-            hittingRatings: structuredClone(
-                ratings.hittingRatings
-            ),
-            pitchRatings: structuredClone(
-                ratings.pitchRatings
-            )
+            overallRating: ratings.overallRating,
+            hittingRatings: structuredClone(ratings.hittingRatings),
+            pitchRatings: structuredClone(ratings.pitchRatings)
         }
     }
 
     private buildBaselinePlayerRatings(pitchEnvironment: PitchEnvironmentTarget, playerId: string): GeneratedPlayerRatings {
-        const averageRating = Number(
-            pitchEnvironment.avgRating
-        )
+        const averageRating = Number(pitchEnvironment.avgRating)
 
         const contactRollInput =
             pitchEnvironment
@@ -316,9 +189,7 @@ class PlayerRatingService {
                 ?.contactRollInput
 
         if (!Number.isFinite(averageRating)) {
-            throw new Error(
-                "Pitch environment has no valid average rating."
-            )
+            throw new Error("Pitch environment has no valid average rating.")
         }
 
         if (
@@ -327,14 +198,10 @@ class PlayerRatingService {
             !Number.isFinite(Number(contactRollInput.flyBall)) ||
             !Number.isFinite(Number(contactRollInput.lineDrive))
         ) {
-            throw new Error(
-                "Pitch environment has no valid contact-roll input."
-            )
+            throw new Error("Pitch environment has no valid contact-roll input.")
         }
 
-        const player = queries.getPlayer(
-            Number(playerId)
-        )
+        const player = queries.getPlayer(Number(playerId))
 
         if (!player) {
             throw new Error(
@@ -343,15 +210,9 @@ class PlayerRatingService {
         }
 
         const contactProfile = {
-            groundball: Number(
-                contactRollInput.groundball
-            ),
-            flyBall: Number(
-                contactRollInput.flyBall
-            ),
-            lineDrive: Number(
-                contactRollInput.lineDrive
-            )
+            groundball: Number(contactRollInput.groundball),
+            flyBall: Number(contactRollInput.flyBall),
+            lineDrive: Number(contactRollInput.lineDrive)
         }
 
         const averageHittingSplit = {
@@ -361,13 +222,11 @@ class PlayerRatingService {
             homerunPower: averageRating
         }
 
-        const primaryPosition = String(
-            player.primaryPosition ??
-            ""
-        ).toUpperCase()
+        const primaryPosition = String(player.primaryPosition ?? "").toUpperCase()
 
         return {
             playerId,
+            overallRating: averageRating,
             hittingRatings: {
                 speed: averageRating,
                 steals: averageRating,
@@ -392,11 +251,7 @@ class PlayerRatingService {
                     control: averageRating,
                     movement: averageRating
                 },
-                pitches: primaryPosition === "P"
-                    ? [
-                        PitchType.FF
-                    ]
-                    : []
+                pitches: primaryPosition === "P" ? [PitchType.FF] : []
             }
         }
     }
@@ -431,10 +286,7 @@ class PlayerRatingService {
 
         if (
             monthDifference < 0 ||
-            (
-                monthDifference === 0 &&
-                date.getUTCDate() < birth.getUTCDate()
-            )
+            (monthDifference === 0 && date.getUTCDate() < birth.getUTCDate())
         ) {
             age--
         }
@@ -442,29 +294,21 @@ class PlayerRatingService {
         return age
     }
 
-
     public clearCache(season?: number): void {
         if (season === undefined) {
             this.states.length = 0
             return
         }
 
-        const stateIndex = this.states.findIndex(state =>
-            state.season === season
-        )
+        const stateIndex = this.states.findIndex(state => state.season === season)
 
         if (stateIndex >= 0) {
-            this.states.splice(
-                stateIndex,
-                1
-            )
+            this.states.splice(stateIndex, 1)
         }
     }
 
     private getOrCreateState(season: number, gameDate: string): PlayerRatingState {
-        const existing = this.states.find(state =>
-            state.season === season
-        )
+        const existing = this.states.find(state => state.season === season)
 
         if (
             existing &&
@@ -474,10 +318,7 @@ class PlayerRatingService {
         }
 
         if (existing) {
-            this.states.splice(
-                this.states.indexOf(existing),
-                1
-            )
+            this.states.splice(this.states.indexOf(existing), 1)
         }
 
         const created: PlayerRatingState = {
@@ -490,9 +331,7 @@ class PlayerRatingService {
             ratingsByPlayerId: new Map<string, GeneratedPlayerRatings>()
         }
 
-        this.states.push(
-            created
-        )
+        this.states.push(created)
 
         return created
     }
@@ -502,17 +341,10 @@ class PlayerRatingService {
             filterPlayerIds &&
             filterPlayerIds.size > 0
         ) {
-            return new Set(
-                Array.from(filterPlayerIds)
-                    .map(playerId =>
-                        String(playerId)
-                    )
-            )
+            return new Set(Array.from(filterPlayerIds).map(playerId => String(playerId)))
         }
 
-        return this.playerRatingInputRepository.getPlayerIdsForSeason(
-            season
-        )
+        return this.playerRatingInputRepository.getPlayerIdsForSeason(season)
     }
 
     private initializeState(state: PlayerRatingState, gameDate: string, selectedPlayerIds: Set<string>): Set<string> {
@@ -522,61 +354,19 @@ class PlayerRatingService {
             `Initializing rating inputs for ${selectedPlayerIds.size} players through ${gameDate}.`
         )
 
-        const careerStartedAt = Date.now()
+        state.careerInputs = this.getCareerInputs(state.season, gameDate, selectedPlayerIds)
 
-        state.careerInputs = this.getCareerInputs(
-            state.season,
-            gameDate,
-            selectedPlayerIds
-        )
-
-        // console.log(
-        //     `Loaded ${state.careerInputs.size} career inputs in ` +
-        //     `${this.formatDuration(Date.now() - careerStartedAt)}.`
-        // )
-
-        const last162StartedAt = Date.now()
-
-        state.last162Inputs = this.toInputMap(
-            this.playerRatingInputRepository.getLastAppearances(
-                gameDate,
-                this.getLast162Window().maximumAppearances ?? 162,
-                selectedPlayerIds
-            )
-        )
-
-        // console.log(
-        //     `Loaded ${state.last162Inputs.size} last-162 inputs in ` +
-        //     `${this.formatDuration(Date.now() - last162StartedAt)}.`
-        // )
+        state.last162Inputs = this.toInputMap(this.playerRatingInputRepository.getLastAppearances(gameDate, this.getLast162Window().maximumAppearances ?? 162, selectedPlayerIds))
 
         state.recentInputsByWindow.clear()
 
         for (const window of this.getRecentWindows()) {
-            const windowStartedAt = Date.now()
 
-            const dateRange = PlayerRatingService.getWindowDateRange(
-                gameDate,
-                window
-            )
+            const dateRange = PlayerRatingService.getWindowDateRange(gameDate, window)
 
-            const inputs = this.toInputMap(
-                this.playerRatingInputRepository.getForDateRange(
-                    dateRange.startDate,
-                    dateRange.endDateExclusive,
-                    selectedPlayerIds
-                )
-            )
+            const inputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(dateRange.startDate, dateRange.endDateExclusive, selectedPlayerIds))
 
-            state.recentInputsByWindow.set(
-                window.name,
-                inputs
-            )
-
-            // console.log(
-            //     `Loaded ${inputs.size} ${window.name} inputs in ` +
-            //     `${this.formatDuration(Date.now() - windowStartedAt)}.`
-            // )
+            state.recentInputsByWindow.set(window.name, inputs)
         }
 
         console.log(
@@ -584,114 +374,52 @@ class PlayerRatingService {
             `${this.formatDuration(Date.now() - startedAt)}.`
         )
 
-        return new Set(
-            selectedPlayerIds
-        )
+        return new Set(selectedPlayerIds)
     }
 
     private advanceState(state: PlayerRatingState, gameDate: string, selectedPlayerIds: Set<string>): Set<string> {
         const startedAt = Date.now()
-        const affectedPlayerIds = this.loadMissingPlayers(
-            state,
-            gameDate,
-            selectedPlayerIds
-        )
+        const affectedPlayerIds = this.loadMissingPlayers(state, gameDate, selectedPlayerIds)
 
-        const addedInputs = this.toInputMap(
-            this.playerRatingInputRepository.getForDateRange(
-                state.currentDate,
-                gameDate,
-                selectedPlayerIds
-            )
-        )
+        const addedInputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(state.currentDate, gameDate, selectedPlayerIds))
 
         for (const [playerId, addedInput] of addedInputs) {
-            affectedPlayerIds.add(
-                playerId
-            )
+            affectedPlayerIds.add(playerId)
 
-            const existingCareerInput = state.careerInputs.get(
-                playerId
-            )
+            const existingCareerInput = state.careerInputs.get(playerId)
 
-            state.careerInputs.set(
-                playerId,
-                existingCareerInput
-                    ? this.addPlayerRatingInputs(existingCareerInput, addedInput)
-                    : structuredClone(addedInput)
-            )
+            state.careerInputs.set(playerId, existingCareerInput ? this.addPlayerRatingInputs(existingCareerInput, addedInput) : structuredClone(addedInput))
         }
 
         for (const window of this.getRecentWindows()) {
-            const previousRange = PlayerRatingService.getWindowDateRange(
-                state.currentDate,
-                window
-            )
+            const previousRange = PlayerRatingService.getWindowDateRange(state.currentDate, window)
 
-            const currentRange = PlayerRatingService.getWindowDateRange(
-                gameDate,
-                window
-            )
+            const currentRange = PlayerRatingService.getWindowDateRange(gameDate, window)
 
             for (const changedRange of this.getChangedDateRanges(previousRange, currentRange)) {
-                const changedInputs = this.toInputMap(
-                    this.playerRatingInputRepository.getForDateRange(
-                        changedRange.startDate,
-                        changedRange.endDateExclusive,
-                        selectedPlayerIds
-                    )
-                )
+                const changedInputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(changedRange.startDate, changedRange.endDateExclusive, selectedPlayerIds))
 
-                this.addPlayerIds(
-                    affectedPlayerIds,
-                    changedInputs
-                )
+                this.addPlayerIds(affectedPlayerIds, changedInputs)
             }
         }
 
         if (affectedPlayerIds.size > 0) {
-            const refreshedLast162Inputs = this.toInputMap(
-                this.playerRatingInputRepository.getLastAppearances(
-                    gameDate,
-                    this.getLast162Window().maximumAppearances ?? 162,
-                    affectedPlayerIds
-                )
-            )
+            const refreshedLast162Inputs = this.toInputMap(this.playerRatingInputRepository.getLastAppearances(gameDate, this.getLast162Window().maximumAppearances ?? 162, affectedPlayerIds))
 
-            this.replaceInputs(
-                state.last162Inputs,
-                affectedPlayerIds,
-                refreshedLast162Inputs
-            )
+            this.replaceInputs(state.last162Inputs, affectedPlayerIds, refreshedLast162Inputs)
 
             for (const window of this.getRecentWindows()) {
-                const dateRange = PlayerRatingService.getWindowDateRange(
-                    gameDate,
-                    window
-                )
+                const dateRange = PlayerRatingService.getWindowDateRange(gameDate, window)
 
-                const refreshedInputs = this.toInputMap(
-                    this.playerRatingInputRepository.getForDateRange(
-                        dateRange.startDate,
-                        dateRange.endDateExclusive,
-                        affectedPlayerIds
-                    )
-                )
+                const refreshedInputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(dateRange.startDate, dateRange.endDateExclusive, affectedPlayerIds))
 
                 const windowInputs =
                     state.recentInputsByWindow.get(window.name) ??
                     new Map<string, PlayerRatingInput>()
 
-                this.replaceInputs(
-                    windowInputs,
-                    affectedPlayerIds,
-                    refreshedInputs
-                )
+                this.replaceInputs(windowInputs, affectedPlayerIds, refreshedInputs)
 
-                state.recentInputsByWindow.set(
-                    window.name,
-                    windowInputs
-                )
+                state.recentInputsByWindow.set(window.name, windowInputs)
             }
         }
 
@@ -705,70 +433,32 @@ class PlayerRatingService {
     }
 
     private loadMissingPlayers(state: PlayerRatingState, gameDate: string, selectedPlayerIds: Set<string>): Set<string> {
-        const missingPlayerIds = new Set(
-            Array.from(selectedPlayerIds).filter(playerId =>
-                !state.careerInputs.has(playerId)
-            )
-        )
+        const missingPlayerIds = new Set(Array.from(selectedPlayerIds).filter(playerId => !state.careerInputs.has(playerId)))
 
         if (missingPlayerIds.size === 0) {
             return missingPlayerIds
         }
 
-        const careerInputs = this.getCareerInputs(
-            state.season,
-            gameDate,
-            missingPlayerIds
-        )
+        const careerInputs = this.getCareerInputs(state.season, gameDate, missingPlayerIds)
 
-        const last162Inputs = this.toInputMap(
-            this.playerRatingInputRepository.getLastAppearances(
-                gameDate,
-                this.getLast162Window().maximumAppearances ?? 162,
-                missingPlayerIds
-            )
-        )
+        const last162Inputs = this.toInputMap(this.playerRatingInputRepository.getLastAppearances(gameDate, this.getLast162Window().maximumAppearances ?? 162, missingPlayerIds))
 
-        this.replaceInputs(
-            state.careerInputs,
-            missingPlayerIds,
-            careerInputs
-        )
+        this.replaceInputs(state.careerInputs, missingPlayerIds, careerInputs)
 
-        this.replaceInputs(
-            state.last162Inputs,
-            missingPlayerIds,
-            last162Inputs
-        )
+        this.replaceInputs(state.last162Inputs, missingPlayerIds, last162Inputs)
 
         for (const window of this.getRecentWindows()) {
-            const dateRange = PlayerRatingService.getWindowDateRange(
-                gameDate,
-                window
-            )
+            const dateRange = PlayerRatingService.getWindowDateRange(gameDate, window)
 
-            const inputs = this.toInputMap(
-                this.playerRatingInputRepository.getForDateRange(
-                    dateRange.startDate,
-                    dateRange.endDateExclusive,
-                    missingPlayerIds
-                )
-            )
+            const inputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(dateRange.startDate, dateRange.endDateExclusive, missingPlayerIds))
 
             const windowInputs =
                 state.recentInputsByWindow.get(window.name) ??
                 new Map<string, PlayerRatingInput>()
 
-            this.replaceInputs(
-                windowInputs,
-                missingPlayerIds,
-                inputs
-            )
+            this.replaceInputs(windowInputs, missingPlayerIds, inputs)
 
-            state.recentInputsByWindow.set(
-                window.name,
-                windowInputs
-            )
+            state.recentInputsByWindow.set(window.name, windowInputs)
         }
 
         return missingPlayerIds
@@ -778,52 +468,13 @@ class PlayerRatingService {
         const startedAt = Date.now()
         const careerInputs = new Map<string, PlayerRatingInput>()
 
-        // console.log(
-        //     `Loading prior-season rating inputs for ${playerIds.size} players before ${season}.`
-        // )
-
-        const seasonStartedAt = Date.now()
-
-        const seasonInputs = this.playerRatingSeasonInputRepository.getBeforeSeason(
-            season,
-            playerIds
-        )
-
-        // console.log(
-        //     `Loaded ${seasonInputs.length} prior-season rows in ` +
-        //     `${this.formatDuration(Date.now() - seasonStartedAt)}.`
-        // )
-
-        const seasonMergeStartedAt = Date.now()
+        const seasonInputs = this.playerRatingSeasonInputRepository.getBeforeSeason(season, playerIds)
 
         for (const seasonInput of seasonInputs) {
-            const existing = careerInputs.get(
-                seasonInput.playerId
-            )
+            const existing = careerInputs.get(seasonInput.playerId)
 
-            careerInputs.set(
-                seasonInput.playerId,
-                existing
-                    ? this.addPlayerRatingInputs(
-                        existing,
-                        seasonInput.data
-                    )
-                    : structuredClone(
-                        seasonInput.data
-                    )
-            )
+            careerInputs.set(seasonInput.playerId, existing ? this.addPlayerRatingInputs(existing, seasonInput.data) : structuredClone(seasonInput.data))
         }
-
-        // console.log(
-        //     `Merged prior-season rows into ${careerInputs.size} players in ` +
-        //     `${this.formatDuration(Date.now() - seasonMergeStartedAt)}.`
-        // )
-
-        // console.log(
-        //     `Loading current-season rating inputs from ${season}-01-01 through ${gameDate}.`
-        // )
-
-        const currentSeasonStartedAt = Date.now()
 
         const currentSeasonInputs = this.playerRatingInputRepository.getForDateRange(
             `${season}-01-01`,
@@ -831,40 +482,11 @@ class PlayerRatingService {
             playerIds
         )
 
-        // console.log(
-        //     `Loaded ${currentSeasonInputs.length} current-season player inputs in ` +
-        //     `${this.formatDuration(Date.now() - currentSeasonStartedAt)}.`
-        // )
-
-        const currentSeasonMergeStartedAt = Date.now()
-
         for (const currentSeasonInput of currentSeasonInputs) {
-            const existing = careerInputs.get(
-                currentSeasonInput.playerId
-            )
+            const existing = careerInputs.get(currentSeasonInput.playerId)
 
-            careerInputs.set(
-                currentSeasonInput.playerId,
-                existing
-                    ? this.addPlayerRatingInputs(
-                        existing,
-                        currentSeasonInput
-                    )
-                    : structuredClone(
-                        currentSeasonInput
-                    )
-            )
+            careerInputs.set(currentSeasonInput.playerId, existing ? this.addPlayerRatingInputs(existing, currentSeasonInput) : structuredClone(currentSeasonInput))
         }
-
-        // console.log(
-        //     `Merged current-season inputs into ${careerInputs.size} players in ` +
-        //     `${this.formatDuration(Date.now() - currentSeasonMergeStartedAt)}.`
-        // )
-
-        // console.log(
-        //     `Built career inputs for ${careerInputs.size} players in ` +
-        //     `${this.formatDuration(Date.now() - startedAt)}.`
-        // )
 
         return careerInputs
     }
@@ -879,14 +501,10 @@ class PlayerRatingService {
         const recentWindows = this.getRecentWindows()
 
         for (const playerId of affectedPlayerIds) {
-            const careerInput = state.careerInputs.get(
-                playerId
-            )
+            const careerInput = state.careerInputs.get(playerId)
 
             if (!careerInput) {
-                state.ratingsByPlayerId.delete(
-                    playerId
-                )
+                state.ratingsByPlayerId.delete(playerId)
 
                 continue
             }
@@ -894,24 +512,16 @@ class PlayerRatingService {
             const ratingSets: WeightedRatingsSet[] = [
                 {
                     weight: careerWindow.weight,
-                    ratings: PlayerRatingService.buildPlayerRatings(
-                        pitchEnvironment,
-                        careerInput
-                    )
+                    ratings: PlayerRatingService.buildPlayerRatings(pitchEnvironment, careerInput)
                 }
             ]
 
-            const last162Input = state.last162Inputs.get(
-                playerId
-            )
+            const last162Input = state.last162Inputs.get(playerId)
 
             if (last162Input) {
                 ratingSets.push({
                     weight: last162Window.weight,
-                    ratings: PlayerRatingService.buildPlayerRatings(
-                        pitchEnvironment,
-                        last162Input
-                    )
+                    ratings: PlayerRatingService.buildPlayerRatings(pitchEnvironment, last162Input)
                 })
             }
 
@@ -922,59 +532,36 @@ class PlayerRatingService {
 
                 if (
                     !playerInput ||
-                    !PlayerRatingService.hasMinimumWindowSample(
-                        playerInput,
-                        window
-                    )
+                    !PlayerRatingService.hasMinimumWindowSample(playerInput, window)
                 ) {
                     continue
                 }
 
                 ratingSets.push({
                     weight: window.weight,
-                    ratings: PlayerRatingService.buildPlayerRatings(
-                        pitchEnvironment,
-                        playerInput
-                    )
+                    ratings: PlayerRatingService.buildPlayerRatings(pitchEnvironment, playerInput)
                 })
             }
 
-            state.ratingsByPlayerId.set(
-                playerId,
-                PlayerRatingService.buildWeightedPlayerRatings(
-                    ratingSets
-                )
-            )
+            state.ratingsByPlayerId.set(playerId, PlayerRatingService.buildWeightedPlayerRatings(ratingSets))
         }
     }
 
     private addPlayerRatingInputs(existing: PlayerRatingInput, added: PlayerRatingInput): PlayerRatingInput {
-        const merged = this.addRatingValues(
-            existing,
-            added,
-            []
-        ) as PlayerRatingInput
+        const merged = this.addRatingValues(existing, added, []) as PlayerRatingInput
 
         merged.playerId = existing.playerId
 
-        this.finalizePlayerRatingInput(
-            merged
-        )
+        this.finalizePlayerRatingInput(merged)
 
         return merged
     }
 
     private addRatingValues(existing: any, added: any, path: string[]): any {
         if (typeof existing === "number" || typeof added === "number") {
-            const existingValue = Number(
-                existing ??
-                0
-            )
+            const existingValue = Number(existing ?? 0)
 
-            const addedValue = Number(
-                added ??
-                0
-            )
+            const addedValue = Number(added ?? 0)
 
             if (
                 path.at(-1)?.startsWith("avg") ||
@@ -987,11 +574,7 @@ class PlayerRatingService {
         }
 
         if (Array.isArray(existing) || Array.isArray(added)) {
-            return structuredClone(
-                existing ??
-                added ??
-                []
-            )
+            return structuredClone(existing ?? added ?? [])
         }
 
         if (
@@ -1007,23 +590,13 @@ class PlayerRatingService {
             ])
 
             for (const key of keys) {
-                result[key] = this.addRatingValues(
-                    existing?.[key],
-                    added?.[key],
-                    [
-                        ...path,
-                        key
-                    ]
-                )
+                result[key] = this.addRatingValues(existing?.[key], added?.[key], [...path, key ])
             }
 
             return result
         }
 
-        return structuredClone(
-            existing ??
-            added
-        )
+        return structuredClone(existing ?? added)
     }
 
     private finalizePlayerRatingInput(playerInput: PlayerRatingInput): void {
@@ -1055,64 +628,41 @@ class PlayerRatingService {
     }
 
     private toInputMap(inputs: PlayerRatingInput[]): Map<string, PlayerRatingInput> {
-        return new Map(
-            inputs.map(playerInput => [
-                playerInput.playerId,
-                playerInput
-            ])
-        )
+        return new Map(inputs.map(playerInput => [ playerInput.playerId, playerInput ]))
     }
 
     private replaceInputs(target: Map<string, PlayerRatingInput>, playerIds: Set<string>, replacement: Map<string, PlayerRatingInput>): void {
         for (const playerId of playerIds) {
-            target.delete(
-                playerId
-            )
+            target.delete(playerId)
         }
 
         for (const [playerId, playerInput] of replacement) {
-            target.set(
-                playerId,
-                structuredClone(
-                    playerInput
-                )
-            )
+            target.set(playerId, structuredClone(playerInput))
         }
     }
 
     private getCareerWindow(): RatingWindow {
-        const window = ratingWindows.find(candidate =>
-            candidate.name === "career"
-        )
+        const window = ratingWindows.find(candidate => candidate.name === "career")
 
         if (!window) {
-            throw new Error(
-                "Career rating window must be configured."
-            )
+            throw new Error("Career rating window must be configured.")
         }
 
         return window
     }
 
     private getLast162Window(): RatingWindow {
-        const window = ratingWindows.find(candidate =>
-            candidate.name === "last-162"
-        )
+        const window = ratingWindows.find(candidate => candidate.name === "last-162")
 
         if (!window) {
-            throw new Error(
-                "Last-162 rating window must be configured."
-            )
+            throw new Error("Last-162 rating window must be configured.")
         }
 
         return window
     }
 
     private getRecentWindows(): RatingWindow[] {
-        return ratingWindows.filter(window =>
-            window.minimumDaysAgo !== undefined &&
-            window.maximumDaysAgo !== undefined
-        )
+        return ratingWindows.filter(window => window.minimumDaysAgo !== undefined && window.maximumDaysAgo !== undefined)
     }
 
     private getChangedDateRanges(previousRange: RatingDateRange, currentRange: RatingDateRange): RatingDateRange[] {
@@ -1159,30 +709,24 @@ class PlayerRatingService {
             })
         }
 
-        return ranges.filter(range =>
-            range.startDate < range.endDateExclusive
-        )
+        return ranges.filter(range => range.startDate < range.endDateExclusive)
     }
 
     private addPlayerIds(target: Set<string>, inputs: Map<string, PlayerRatingInput>): void {
         for (const playerId of inputs.keys()) {
-            target.add(
-                String(playerId)
-            )
+            target.add(String(playerId))
         }
     }
 
     private static buildPlayerRatings(pitchEnvironment: PitchEnvironmentTarget, playerInput: PlayerRatingInput): GeneratedPlayerRatings {
+        const hittingRatings = PlayerRatingService.buildHittingRatings(pitchEnvironment, playerInput)
+        const pitchRatings = PlayerRatingService.buildPitchRatings(pitchEnvironment, playerInput)
+
         return {
             playerId: playerInput.playerId,
-            hittingRatings: PlayerRatingService.buildHittingRatings(
-                pitchEnvironment,
-                playerInput
-            ),
-            pitchRatings: PlayerRatingService.buildPitchRatings(
-                pitchEnvironment,
-                playerInput
-            )
+            overallRating: this.getOverallRating(playerInput.playerId, hittingRatings, pitchRatings),
+            hittingRatings,
+            pitchRatings
         }
     }
 
@@ -1191,10 +735,7 @@ class PlayerRatingService {
         const hitter = playerInput.hitting
 
         if (hitter.pa <= 0) {
-            return this.emptyHittingRatings(
-                env,
-                playerInput
-            )
+            return this.emptyHittingRatings(env, playerInput)
         }
 
         const vsR = playerInput.splits.hitting.vsR
@@ -1242,9 +783,7 @@ class PlayerRatingService {
         const contact = this.rating(env, avgRating + this.sumDeltas([
             this.getHigherIsBetterDelta(avg, leagueAvg, avgRating),
             this.getHigherIsBetterDelta(babip, env.outcome.babip, avgRating),
-            this.averageDeltas([
-                this.getLowerIsBetterDelta(soRate, leagueSORate, avgRating * 0.5)
-            ])
+            this.averageDeltas([ this.getLowerIsBetterDelta(soRate, leagueSORate, avgRating * 0.5) ])
         ]))
 
         const plateDiscipline = this.rating(env, avgRating + this.sumDeltas([
@@ -1264,25 +803,16 @@ class PlayerRatingService {
             this.getHigherIsBetterDelta(ev, leagueEV, avgRating * 0.15)
         ]))
 
-        const { speed, steals } = this.getRunningRatings(
-            env,
-            playerInput
-        )
+        const { speed, steals } = this.getRunningRatings(env, playerInput)
 
-        const { defense, arm } = this.getFieldingRatings(
-            env,
-            playerInput
-        )
+        const { defense, arm } = this.getFieldingRatings(env, playerInput)
 
         return {
             speed,
             steals,
             defense,
             arm,
-            contactProfile: this.getHitterContactProfile(
-                env,
-                playerInput
-            ),
+            contactProfile: this.getHitterContactProfile(env, playerInput),
             vsR: {
                 plateDiscipline: this.applyHittingSplit(env, plateDiscipline, vsR, hitter, "plateDiscipline"),
                 contact: this.applyHittingSplit(env, contact, vsR, hitter, "contact"),
@@ -1343,10 +873,7 @@ class PlayerRatingService {
             this.getHigherIsBetterDelta(playerSuccessRate, leagueSuccessRate, avgRating * 0.75)
         ]))
 
-        return {
-            speed,
-            steals
-        }
+        return { speed, steals }
     }
 
     private static getHitterPowerOutcomeCount(hitter: any): number {
@@ -1408,9 +935,7 @@ class PlayerRatingService {
             delta = this.sumDeltas([
                 this.getHigherIsBetterDelta(splitAvg, overallAvg, avgRating),
                 this.getHigherIsBetterDelta(splitBabip, overallBabip, avgRating),
-                this.averageDeltas([
-                    this.getLowerIsBetterDelta(splitSO, overallSO, avgRating * 0.5)
-                ])
+                this.averageDeltas([ this.getLowerIsBetterDelta(splitSO, overallSO, avgRating * 0.5) ])
             ])
         }
 
@@ -1438,9 +963,7 @@ class PlayerRatingService {
         const pitcher = playerInput.pitching
 
         if (pitcher.battersFaced <= 0) {
-            return this.emptyPitchRatings(
-                env
-            )
+            return this.emptyPitchRatings(env)
         }
 
         const leaguePitcher = env.importReference.pitcher
@@ -1455,78 +978,39 @@ class PlayerRatingService {
         const pitcherPowerOutcomeCount = this.getPitcherPowerOutcomeCount(pitcher)
         const leaguePitcherPowerOutcomeCount = this.getPitcherPowerOutcomeCount(leaguePitcher)
 
-        const leagueGapAllowedRate = safeDiv(
-            leaguePitcher.doublesAllowed + leaguePitcher.triplesAllowed,
-            leaguePitcherPowerOutcomeCount,
-            env.outcome.doublePercent + env.outcome.triplePercent
-        )
+        const leagueGapAllowedRate = safeDiv(leaguePitcher.doublesAllowed + leaguePitcher.triplesAllowed, leaguePitcherPowerOutcomeCount, env.outcome.doublePercent + env.outcome.triplePercent)
 
-        const leagueHRAllowedRate = safeDiv(
-            leaguePitcher.homeRunsAllowed,
-            leaguePitcherPowerOutcomeCount,
-            env.outcome.homeRunPercent
-        )
+        const leagueHRAllowedRate = safeDiv(leaguePitcher.homeRunsAllowed, leaguePitcherPowerOutcomeCount, env.outcome.homeRunPercent)
 
-        const gapAllowedRate = safeDiv(
-            pitcher.doublesAllowed + pitcher.triplesAllowed,
-            pitcherPowerOutcomeCount,
-            leagueGapAllowedRate
-        )
+        const gapAllowedRate = safeDiv(pitcher.doublesAllowed + pitcher.triplesAllowed, pitcherPowerOutcomeCount, leagueGapAllowedRate)
 
-        const hrAllowedRate = safeDiv(
-            pitcher.homeRunsAllowed,
-            pitcherPowerOutcomeCount,
-            leagueHRAllowedRate
-        )
+        const hrAllowedRate = safeDiv(pitcher.homeRunsAllowed, pitcherPowerOutcomeCount, leagueHRAllowedRate)
 
         const leagueZoneContactAllowed = env.swing.inZoneContactPercent / 100
         const leagueChaseContactAllowed = env.swing.outZoneContactPercent / 100
 
-        const zoneContactAllowed = safeDiv(
-            pitcher.inZoneContactAllowed,
-            pitcher.swingAtStrikesAllowed,
-            leagueZoneContactAllowed
-        )
+        const zoneContactAllowed = safeDiv(pitcher.inZoneContactAllowed, pitcher.swingAtStrikesAllowed, leagueZoneContactAllowed)
 
-        const chaseContactAllowed = safeDiv(
-            pitcher.outZoneContactAllowed,
-            pitcher.swingAtBallsAllowed,
-            leagueChaseContactAllowed
-        )
+        const chaseContactAllowed = safeDiv(pitcher.outZoneContactAllowed, pitcher.swingAtBallsAllowed, leagueChaseContactAllowed)
 
-        const playerFastball = this.getFastballVelocity(
-            playerInput
-        )
+        const playerFastball = this.getFastballVelocity(playerInput)
 
-        const leagueFastball = this.getLeagueFastballVelocity(
-            env
-        )
+        const leagueFastball = this.getLeagueFastballVelocity(env)
 
-        const playerMovement = this.getPitchMovement(
-            playerInput
-        )
+        const playerMovement = this.getPitchMovement(playerInput)
 
-        const leagueMovement = this.getLeaguePitchMovement(
-            env
-        )
+        const leagueMovement = this.getLeaguePitchMovement(env)
 
         const power = this.rating(env, avgRating + this.sumDeltas([
             this.getHigherIsBetterDelta(soRate, env.outcome.soPercent, powerScale),
             this.getHigherIsBetterDelta(playerFastball, leagueFastball, powerScale),
-            this.averageDeltas([
-                this.getLowerIsBetterDelta(zoneContactAllowed, leagueZoneContactAllowed, avgRating),
-                this.getLowerIsBetterDelta(chaseContactAllowed, leagueChaseContactAllowed, avgRating)
-            ])
+            this.averageDeltas([ this.getLowerIsBetterDelta(zoneContactAllowed, leagueZoneContactAllowed, avgRating), this.getLowerIsBetterDelta(chaseContactAllowed, leagueChaseContactAllowed, avgRating) ])
         ]))
 
         const control = this.rating(env, avgRating + this.sumDeltas([
             this.getLowerIsBetterDelta(bbRate, env.outcome.bbPercent, avgRating),
             this.averageDeltas([
-                this.getHigherIsBetterDelta(
-                    safeDiv(pitcher.strikesThrown, pitcher.pitchesThrown),
-                    safeDiv(leaguePitcher.strikesThrown, leaguePitcher.pitchesThrown),
-                    avgRating
-                ),
+                this.getHigherIsBetterDelta(safeDiv(pitcher.strikesThrown, pitcher.pitchesThrown), safeDiv(leaguePitcher.strikesThrown, leaguePitcher.pitchesThrown), avgRating),
                 this.getHigherIsBetterDelta(
                     safeDiv(pitcher.pitchesThrown - pitcher.ballsThrown, pitcher.pitchesThrown),
                     safeDiv(leaguePitcher.pitchesThrown - leaguePitcher.ballsThrown, leaguePitcher.pitchesThrown),
@@ -1536,10 +1020,7 @@ class PlayerRatingService {
         ]))
 
         const movement = this.rating(env, avgRating + this.sumDeltas([
-            this.averageDeltas([
-                this.getLowerIsBetterDelta(gapAllowedRate, leagueGapAllowedRate, avgRating),
-                this.getLowerIsBetterDelta(hrAllowedRate, leagueHRAllowedRate, avgRating)
-            ]),
+            this.averageDeltas([ this.getLowerIsBetterDelta(gapAllowedRate, leagueGapAllowedRate, avgRating), this.getLowerIsBetterDelta(hrAllowedRate, leagueHRAllowedRate, avgRating) ]),
             this.averageDeltas([
                 this.getLowerIsBetterDelta(zoneContactAllowed, leagueZoneContactAllowed, avgRating),
                 this.getLowerIsBetterDelta(chaseContactAllowed, leagueChaseContactAllowed, avgRating),
@@ -1549,10 +1030,7 @@ class PlayerRatingService {
 
         return {
             power,
-            contactProfile: this.getPitcherContactProfile(
-                env,
-                playerInput
-            ),
+            contactProfile: this.getPitcherContactProfile(env, playerInput),
             vsR: {
                 control: this.applyPitchingSplit(env, control, vsR, pitcher, "control"),
                 movement: this.applyPitchingSplit(env, movement, vsR, pitcher, "movement")
@@ -1561,9 +1039,7 @@ class PlayerRatingService {
                 control: this.applyPitchingSplit(env, control, vsL, pitcher, "control"),
                 movement: this.applyPitchingSplit(env, movement, vsL, pitcher, "movement")
             },
-            pitches: this.getPitchTypes(
-                playerInput
-            )
+            pitches: this.getPitchTypes(playerInput)
         }
     }
 
@@ -1581,7 +1057,7 @@ class PlayerRatingService {
         const atBats = Number(pitcher.atBats ?? pitcher.ab ?? Math.max(0, battersFaced - walks - hbp))
 
         return Math.max(0, atBats - strikeouts)
-    }    
+    }
 
     private static applyPitchingSplit(env: PitchEnvironmentTarget, baseRating: number, split: any, overall: any, ratingType: "control" | "movement"): number {
         if (!split || split.battersFaced <= 0 || overall.battersFaced <= 0) return baseRating
@@ -1601,36 +1077,20 @@ class PlayerRatingService {
             safeDiv(overall.doublesAllowed + overall.triplesAllowed, this.getPitcherPowerOutcomeCount(overall))
         )
 
-        const overallGapAllowedRate = safeDiv(
-            overall.doublesAllowed + overall.triplesAllowed,
-            this.getPitcherPowerOutcomeCount(overall)
-        )
+        const overallGapAllowedRate = safeDiv(overall.doublesAllowed + overall.triplesAllowed, this.getPitcherPowerOutcomeCount(overall))
 
-        const splitHRAllowedRate = safeDiv(
-            split.homeRunsAllowed,
-            this.getPitcherPowerOutcomeCount(split),
-            safeDiv(overall.homeRunsAllowed, this.getPitcherPowerOutcomeCount(overall))
-        )
+        const splitHRAllowedRate = safeDiv(split.homeRunsAllowed, this.getPitcherPowerOutcomeCount(split), safeDiv(overall.homeRunsAllowed, this.getPitcherPowerOutcomeCount(overall)))
 
-        const overallHRAllowedRate = safeDiv(
-            overall.homeRunsAllowed,
-            this.getPitcherPowerOutcomeCount(overall)
-        )
+        const overallHRAllowedRate = safeDiv(overall.homeRunsAllowed, this.getPitcherPowerOutcomeCount(overall))
 
         let delta = 0
 
         if (ratingType === "control") {
-            delta = this.averageDeltas([
-                this.getLowerIsBetterDelta(splitBB, overallBB, avgRating),
-                this.getHigherIsBetterDelta(splitSO, overallSO, avgRating)
-            ])
+            delta = this.averageDeltas([ this.getLowerIsBetterDelta(splitBB, overallBB, avgRating), this.getHigherIsBetterDelta(splitSO, overallSO, avgRating) ])
         }
 
         if (ratingType === "movement") {
-            delta = this.averageDeltas([
-                this.getLowerIsBetterDelta(splitGapAllowedRate, overallGapAllowedRate, avgRating),
-                this.getLowerIsBetterDelta(splitHRAllowedRate, overallHRAllowedRate, avgRating)
-            ])
+            delta = this.averageDeltas([ this.getLowerIsBetterDelta(splitGapAllowedRate, overallGapAllowedRate, avgRating), this.getLowerIsBetterDelta(splitHRAllowedRate, overallHRAllowedRate, avgRating) ])
         }
 
         return this.rating(env, baseRating + (delta * reliability))
@@ -1680,24 +1140,13 @@ class PlayerRatingService {
 
     private static getPitchTypes(playerInput: PlayerRatingInput): PitchType[] {
         const pitchTypes = playerInput.pitching.pitchTypes ?? {}
-        const validPitchTypes = new Set(
-            Object.values(PitchType) as PitchType[]
-        )
+        const validPitchTypes = new Set(Object.values(PitchType) as PitchType[])
 
         const pitches = Object.entries(pitchTypes)
-            .filter(([pitchType, stat]) =>
-                validPitchTypes.has(pitchType as PitchType) &&
-                !!stat &&
-                Number(stat.count ?? 0) > 0
-            )
-            .sort((a, b) =>
-                Number(b[1]?.count ?? 0) -
-                Number(a[1]?.count ?? 0)
-            )
+            .filter(([pitchType, stat]) => validPitchTypes.has(pitchType as PitchType) && !!stat && Number(stat.count ?? 0) > 0)
+            .sort((a, b) => Number(b[1]?.count ?? 0) - Number(a[1]?.count ?? 0))
             .slice(0, 5)
-            .map(([pitchType]) =>
-                pitchType as PitchType
-            )
+            .map(([pitchType]) => pitchType as PitchType)
 
         return pitches.length > 0
             ? pitches
@@ -1713,20 +1162,11 @@ class PlayerRatingService {
             pitchTypes[PitchType.FF],
             pitchTypes[PitchType.SI],
             pitchTypes[PitchType.FC]
-        ].filter((pitch): pitch is PitchTypeMovementStat =>
-            !!pitch &&
-            pitch.count > 0
-        )
+        ].filter((pitch): pitch is PitchTypeMovementStat => !!pitch && pitch.count > 0)
 
-        if (fastballs.length === 0) {
-            return 0
-        }
+        if (fastballs.length === 0) return 0
 
-        return Math.max(
-            ...fastballs.map(pitch =>
-                pitch.avgMph
-            )
-        )
+        return Math.max(...fastballs.map(pitch => pitch.avgMph))
     }
 
     private static getLeagueFastballVelocity(env: PitchEnvironmentTarget): number {
@@ -1747,27 +1187,11 @@ class PlayerRatingService {
             pitch.count > 0
         )
 
-        const total = entries.reduce(
-            (sum, pitch) =>
-                sum + pitch.count,
-            0
-        )
+        const total = entries.reduce((sum, pitch) => sum + pitch.count, 0)
 
-        if (total <= 0) {
-            return 0
-        }
+        if (total <= 0) return 0
 
-        return entries.reduce(
-            (sum, pitch) =>
-                sum + (
-                    (
-                        Math.abs(pitch.avgHorizontalBreak) +
-                        Math.abs(pitch.avgVerticalBreak)
-                    ) *
-                    pitch.count
-                ),
-            0
-        ) / total
+        return entries.reduce((sum, pitch) => sum + ((Math.abs(pitch.avgHorizontalBreak) + Math.abs(pitch.avgVerticalBreak)) * pitch.count), 0) / total
     }
 
     private static getLeaguePitchMovement(env: PitchEnvironmentTarget): number {
@@ -1785,10 +1209,7 @@ class PlayerRatingService {
         const low = env.avgRating / 2
         const avgRating = env.avgRating
 
-        const fieldingRatings = this.getFieldingRatings(
-            env,
-            playerInput
-        )
+        const fieldingRatings = this.getFieldingRatings(env, playerInput)
 
         return {
             speed: avgRating,
@@ -1833,9 +1254,7 @@ class PlayerRatingService {
                 control: low,
                 movement: low
             },
-            pitches: [
-                PitchType.FF
-            ]
+            pitches: [PitchType.FF]
         }
     }
 
@@ -1878,24 +1297,13 @@ class PlayerRatingService {
         const leagueCatcherCaughtStealing = Number(leagueFielding.catcherCaughtStealing ?? 0)
         const leagueCatcherStolenBasesAllowed = Number(leagueFielding.catcherStolenBasesAllowed ?? 0)
 
-        const catcherThrowRate = safeDiv(
-            playerCatcherCaughtStealing,
-            playerCatcherCaughtStealing +
-            playerCatcherStolenBasesAllowed
-        )
+        const catcherThrowRate = safeDiv(playerCatcherCaughtStealing, playerCatcherCaughtStealing + playerCatcherStolenBasesAllowed)
 
-        const leagueCatcherThrowRate = safeDiv(
-            leagueCatcherCaughtStealing,
-            leagueCatcherCaughtStealing +
-            leagueCatcherStolenBasesAllowed
-        )
+        const leagueCatcherThrowRate = safeDiv(leagueCatcherCaughtStealing, leagueCatcherCaughtStealing + leagueCatcherStolenBasesAllowed)
 
         const defense = this.rating(env, avgRating + this.sumDeltas([
             this.getHigherIsBetterDelta(fieldingPct, leagueFieldingPct, avgRating),
-            this.averageDeltas([
-                this.getHigherIsBetterDelta(assistShare, leagueAssistShare, avgRating * 0.5),
-                this.getHigherIsBetterDelta(putoutShare, leaguePutoutShare, avgRating * 0.5)
-            ])
+            this.averageDeltas([ this.getHigherIsBetterDelta(assistShare, leagueAssistShare, avgRating * 0.5), this.getHigherIsBetterDelta(putoutShare, leaguePutoutShare, avgRating * 0.5) ])
         ]))
 
         const arm = this.rating(env, avgRating + this.sumDeltas([
@@ -1904,10 +1312,7 @@ class PlayerRatingService {
             this.getHigherIsBetterDelta(catcherThrowRate, leagueCatcherThrowRate, avgRating)
         ]))
 
-        return {
-            defense,
-            arm
-        }
+        return { defense, arm }
     }
 
     private static allocateToHundred(values: { groundball: number, flyBall: number, lineDrive: number }): { groundball: number, flyBall: number, lineDrive: number } {
@@ -1959,7 +1364,6 @@ class PlayerRatingService {
         const finite = values.filter(value => Number.isFinite(value))
 
         if (finite.length === 0) return 0
-
         return getAverage(finite)
     }
 
@@ -1997,10 +1401,7 @@ class PlayerRatingService {
         return damped * scale
     }
 
-    private static getWindowDateRange(gameDate: string, window: RatingWindow): {
-        startDate: string
-        endDateExclusive: string
-    } {
+    private static getWindowDateRange(gameDate: string, window: RatingWindow): RatingDateRange {
         if (
             window.minimumDaysAgo === undefined ||
             window.maximumDaysAgo === undefined
@@ -2018,16 +1419,9 @@ class PlayerRatingService {
             `${gameDate}T12:00:00.000Z`
         )
 
-        startDate.setUTCDate(
-            startDate.getUTCDate() -
-            window.maximumDaysAgo
-        )
+        startDate.setUTCDate(startDate.getUTCDate() - window.maximumDaysAgo)
 
-        endDateExclusive.setUTCDate(
-            endDateExclusive.getUTCDate() -
-            window.minimumDaysAgo +
-            1
-        )
+        endDateExclusive.setUTCDate(endDateExclusive.getUTCDate() - window.minimumDaysAgo + 1)
 
         return {
             startDate: startDate.toISOString().slice(0, 10),
@@ -2037,28 +1431,13 @@ class PlayerRatingService {
 
     private static hasMinimumWindowSample(playerInput: PlayerRatingInput, window: RatingWindow): boolean {
         const hasPitchingHistory =
-            Number(
-                playerInput.pitching.games ??
-                0
-            ) > 0 ||
-            Number(
-                playerInput.pitching.battersFaced ??
-                0
-            ) > 0 ||
-            Number(
-                playerInput.pitching.outs ??
-                0
-            ) > 0
+            Number(playerInput.pitching.games ?? 0) > 0 ||
+            Number(playerInput.pitching.battersFaced ?? 0) > 0 ||
+            Number(playerInput.pitching.outs ?? 0) > 0
 
         const hasHittingHistory =
-            Number(
-                playerInput.hitting.games ??
-                0
-            ) > 0 ||
-            Number(
-                playerInput.hitting.pa ??
-                0
-            ) > 0
+            Number(playerInput.hitting.games ?? 0) > 0 ||
+            Number(playerInput.hitting.pa ?? 0) > 0
 
         if (
             hasPitchingHistory &&
@@ -2067,35 +1446,22 @@ class PlayerRatingService {
             return true
         }
 
-        const plateAppearances = Number(
-            playerInput.hitting.pa ??
-            0
-        )
+        const plateAppearances = Number(playerInput.hitting.pa ?? 0)
 
-        return Number.isFinite(
-            plateAppearances
-        ) &&
+        return Number.isFinite(plateAppearances) &&
             plateAppearances >=
             window.minimumPlateAppearances
     }
 
     private static buildWeightedPlayerRatings(ratingsSets: WeightedRatingsSet[]): GeneratedPlayerRatings {
         if (ratingsSets.length === 0) {
-            throw new Error(
-                "Cannot build weighted player ratings without rating sets."
-            )
+            throw new Error("Cannot build weighted player ratings without rating sets.")
         }
 
-        const totalWeight = ratingsSets.reduce(
-            (total, set) =>
-                total + set.weight,
-            0
-        )
+        const totalWeight = ratingsSets.reduce((total, set) => total + set.weight, 0)
 
         if (!Number.isFinite(totalWeight) || totalWeight <= 0) {
-            throw new Error(
-                `Cannot build weighted player ratings with total weight ${totalWeight}.`
-            )
+            throw new Error(`Cannot build weighted player ratings with total weight ${totalWeight}.`)
         }
 
         const normalizedSets = ratingsSets.map(set => ({
@@ -2104,51 +1470,70 @@ class PlayerRatingService {
         }))
 
         const source = normalizedSets[0].ratings
+        const hittingRatings = this.blendRatingValues(
+            normalizedSets.map(set => ({
+                value: set.ratings.hittingRatings,
+                weight: set.weight
+            })),
+            source.hittingRatings
+        ) as HittingRatings
+        const pitchRatings = this.blendRatingValues(
+            normalizedSets.map(set => ({
+                value: set.ratings.pitchRatings,
+                weight: set.weight
+            })),
+            source.pitchRatings
+        ) as PitchRatings
 
         return {
             playerId: source.playerId,
-            hittingRatings: this.blendRatingValues(
-                normalizedSets.map(set => ({
-                    value: set.ratings.hittingRatings,
-                    weight: set.weight
-                })),
-                source.hittingRatings
-            ),
-            pitchRatings: this.blendRatingValues(
-                normalizedSets.map(set => ({
-                    value: set.ratings.pitchRatings,
-                    weight: set.weight
-                })),
-                source.pitchRatings
-            )
+            overallRating: this.getOverallRating(source.playerId, hittingRatings, pitchRatings),
+            hittingRatings,
+            pitchRatings
         }
     }
 
-    private static blendRatingValues(values: {
-        value: any
-        weight: number
-    }[], source: any): any {
+    private static getOverallRating(playerId: string, hittingRatings: HittingRatings, pitchRatings: PitchRatings): number {
+        const player = queries.getPlayer(Number(playerId))
+
+        if (!player) {
+            throw new Error(`Player ${playerId} does not exist in baseball-database.`)
+        }
+
+        if (String(player.primaryPosition ?? "").toUpperCase() === "P") {
+            return Math.round((pitchRatings.power + pitchRatings.vsL.control + pitchRatings.vsL.movement + pitchRatings.vsR.control + pitchRatings.vsR.movement) / 5)
+        }
+
+        return Math.round((
+            hittingRatings.arm +
+            hittingRatings.defense +
+            hittingRatings.speed +
+            hittingRatings.steals +
+            hittingRatings.vsL.contact +
+            hittingRatings.vsL.gapPower +
+            hittingRatings.vsL.homerunPower +
+            hittingRatings.vsL.plateDiscipline +
+            hittingRatings.vsR.contact +
+            hittingRatings.vsR.gapPower +
+            hittingRatings.vsR.homerunPower +
+            hittingRatings.vsR.plateDiscipline
+        ) / 12)
+    }
+
+    private static blendRatingValues(values: { value: any, weight: number }[], source: any): any {
         if (typeof source === "number") {
             return values.reduce(
                 (total, entry) => {
-                    const value = Number(
-                        entry.value
-                    )
+                    const value = Number(entry.value)
 
-                    return total + (
-                        Number.isFinite(value)
-                            ? value * entry.weight
-                            : 0
-                    )
+                    return total + (Number.isFinite(value) ? value * entry.weight : 0)
                 },
                 0
             )
         }
 
         if (Array.isArray(source)) {
-            return structuredClone(
-                source
-            )
+            return structuredClone(source)
         }
 
         if (!source || typeof source !== "object") {
@@ -2170,7 +1555,6 @@ class PlayerRatingService {
         return result
     }
 
-
     private formatDuration(milliseconds: number): string {
         if (milliseconds < 1000) {
             return `${Math.round(milliseconds)}ms`
@@ -2182,18 +1566,12 @@ class PlayerRatingService {
             return `${seconds.toFixed(2)}s`
         }
 
-        const minutes = Math.floor(
-            seconds /
-            60
-        )
+        const minutes = Math.floor(seconds / 60)
 
-        const remainingSeconds = Math.round(
-            seconds %
-            60
-        )
+        const remainingSeconds = Math.round(seconds % 60)
 
         return `${minutes}m ${remainingSeconds}s`
-    }    
+    }
 }
 
 export {

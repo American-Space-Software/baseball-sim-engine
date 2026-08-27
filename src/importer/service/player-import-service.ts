@@ -258,8 +258,6 @@ class PlayerImportService {
             gameDate
         )
 
-        console.log(`getStatExport: ${this.formatDuration(Date.now() - timer)}`)
-
         timer = Date.now()
 
         const boundedStatExport = this.filterStatExportByDateRange(
@@ -268,15 +266,12 @@ class PlayerImportService {
             gameDate
         )
 
-        console.log(`filterStatExportByDateRange: ${this.formatDuration(Date.now() - timer)}`)
-
         timer = Date.now()
 
         const addedStatExports = this.splitStatExportByDate(
             boundedStatExport
         )
 
-        console.log(`splitStatExportByDate: ${this.formatDuration(Date.now() - timer)}`)
 
         state.statExports.push(
             ...addedStatExports
@@ -289,7 +284,6 @@ class PlayerImportService {
             addedStatExports
         )
 
-        console.log(`addAppearancesToState: ${this.formatDuration(Date.now() - timer)}`)
 
         state.currentDate = gameDate
 

@@ -1,0 +1,738 @@
+<template>
+
+  <div class="game-state ${vm.isTopInning ? "top-inning" : "bottom-inning"}" style="--away-color: ${awayColor}; --home-color: ${homeColor}; --away-font-color: ${awayFontColor}; --home-font-color: ${homeFontColor};">
+
+    <div class="game-summary">
+
+      <div class="game-score">
+        <table>
+          <tr class="${vm.isTopInning ? "at-bat" : ""}">
+            <td class="name" style="background-color: ${awayColor}; color: ${awayFontColor};">
+              <strong>${vm.game.away.abbrev}</strong>
+            </td>
+            <td class="runs">${vm.score.away}</td>
+            <td class="inning" rowspan="2">
+              ${vm.isTopInning ? $h`▲ ${vm.currentInning}` : $h`${vm.currentInning} ▼`}
+            </td>
+          </tr>
+
+          <tr class="${!vm.isTopInning ? "at-bat" : ""}">
+            <td class="name" style="background-color: ${homeColor}; color: ${homeFontColor};">
+              <strong>${vm.game.home.abbrev}</strong>
+            </td>
+            <td class="runs">${vm.score.home}</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="state-info">
+
+        <div class="info-wrapper">
+          <span class="label">B</span>${gameViewService.getBalls(3, vm.balls)}<br />
+          <span class="label">S</span>${gameViewService.getBalls(2, vm.strikes)}<br />
+          <span class="label">O</span>${gameViewService.getBalls(2, vm.outs)}
+        </div>
+
+        <div class="diamond-wrapper">
+          <div class="diamond">
+            <div class="first base ${vm.runner1B ? "runner" : ""}"></div>
+            <div class="second base ${vm.runner2B ? "runner" : ""}"></div>
+            <div class="third base ${vm.runner3B ? "runner" : ""}"></div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <div class="game-main">
+
+      <div class="left">
+        <div class="content">
+
+          <div class="card card-raised ${vm.atBatBoxscore.team._id === vm.awayBoxscore.team._id ? "card-atbat" : "card-notatbat"}">
+
+            <div class="card-header">
+              ${vm.awayBoxscore.team.name ?? vm.awayBoxscore.team.abbrev}
+            </div>
+
+            <div class="card-content card-content-padding">
+
+              <table class="lineup">
+                <thead>
+                  <tr>
+                    <th class="num order">#</th>
+                    <th class="image"></th>
+                    <th class="name">Name</th>
+                    <th>Bats</th>
+                    <th>POS</th>
+                    <th class="stats">Today</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+
+                  ${getLineupPlayers(vm.awayBoxscore.team).map((player, index) => $h`
+                    <tr class="${vm.atBatBoxscore.team._id === vm.awayBoxscore.team._id && vm.awayBoxscore.team.currentHitterIndex === index ? "at-bat" : ""}">
+
+                      <td class="num order">${index + 1}</td>
+
+                      <td class="image">
+                        ${getPlayerImageUrl ? $h`
+                          <img src="${getPlayerImageUrl(player)}" />
+                        ` : $h``}
+                      </td>
+
+                      <td class="name">
+                        ${getPlayerHref ? $h`
+                          <a href="${getPlayerHref(player)}">${player.displayName ?? player.fullName}</a>
+                        ` : $h`
+                          ${player.displayName ?? player.fullName}
+                        `}
+                      </td>
+
+                      <td>${player.hits}</td>
+                      <td class="pos">${player.currentPosition}</td>
+                      <td class="stats">${gameViewService.getHitterGameStatsShort(player)}</td>
+
+                    </tr>
+                  `)}
+
+                </tbody>
+              </table>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+
+      <div class="middle">
+
+        <div class="game-info">
+
+          <div class="field-layer">
+
+            ${fieldImageUrl ? $h`
+              <img src="${fieldImageUrl}" class="field-image" />
+            ` : $h``}
+
+
+            ${vm.showHitter && vm.hitter ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.hitter) : "#"}" class="runner hitter offense-player ${vm.matchupHandedness?.hits === "R" ? "rhb" : "lhb"}">
+
+                ${vm.matchupHandedness?.hits === "L" && getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.hitter)}" />
+                  </div>
+                ` : $h``}
+
+                <div class="wrapper">
+                  <div class="text">${vm.hitter.displayName ?? vm.hitter.fullName}</div>
+
+                  <div class="game-stats">
+                    ${gameViewService.getHitterGameStatsShort(vm.hitter)}
+                  </div>
+                </div>
+
+                ${vm.matchupHandedness?.hits === "R" && getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.hitter)}" />
+                  </div>
+                ` : $h``}
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.runner1B ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.runner1B) : "#"}" class="runner firstBase offense-player">
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.runner1B)}" />
+                  </div>
+                ` : $h``}
+
+                <div class="wrapper">
+                  <div class="text">${vm.runner1B.displayName ?? vm.runner1B.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.runner1B.hittingRatings.speed)}">${ratingToGrade(vm.runner1B.hittingRatings.speed)}</div>
+                      <div class="chip-label">SPD</div>
+                    </div>
+                  </div>
+                </div>
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.runner2B ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.runner2B) : "#"}" class="runner secondBase offense-player">
+
+                <div class="wrapper">
+                  <div class="text">${vm.runner2B.displayName ?? vm.runner2B.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.runner2B.hittingRatings.speed)}">${ratingToGrade(vm.runner2B.hittingRatings.speed)}</div>
+                      <div class="chip-label">SPD</div>
+                    </div>
+                  </div>
+                </div>
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.runner2B)}" />
+                  </div>
+                ` : $h``}
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.runner3B ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.runner3B) : "#"}" class="runner thirdBase offense-player">
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.runner3B)}" />
+                  </div>
+                ` : $h``}
+
+                <div class="wrapper">
+                  <div class="text">${vm.runner3B.displayName ?? vm.runner3B.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.runner3B.hittingRatings.speed)}">${ratingToGrade(vm.runner3B.hittingRatings.speed)}</div>
+                      <div class="chip-label">SPD</div>
+                    </div>
+                  </div>
+                </div>
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.showPitcher && vm.pitcher ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.pitcher) : "#"}" class="defender p defense-player" data-pos="P">
+
+                <div class="wrapper">
+                  <div class="text">${vm.pitcher.displayName ?? vm.pitcher.fullName}</div>
+
+                  <div class="game-stats">
+                    ${gameViewService.getPitcherGameStatsShort(vm.pitcher)}
+                  </div>
+                </div>
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.pitcher)}" />
+                  </div>
+                ` : $h``}
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.showPitcher && vm.catcher ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.catcher) : "#"}" class="defender c top defense-player" data-pos="C">
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.catcher)}" />
+                  </div>
+                ` : $h``}
+
+                <div class="wrapper">
+                  <div class="text">${vm.catcher.displayName ?? vm.catcher.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.catcher.hittingRatings.arm)}">${ratingToGrade(vm.catcher.hittingRatings.arm)}</div>
+                      <div class="chip-label">ARM</div>
+                    </div>
+                  </div>
+                </div>
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.showPitcher && vm.firstBase ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.firstBase) : "#"}" class="defender firstBase defense-player" data-pos="1B">
+
+                <div class="wrapper">
+                  <div class="text">${vm.firstBase.displayName ?? vm.firstBase.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.firstBase.hittingRatings.defense)}">${ratingToGrade(vm.firstBase.hittingRatings.defense)}</div>
+                      <div class="chip-label">DEF</div>
+                    </div>
+                  </div>
+                </div>
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.firstBase)}" />
+                  </div>
+                ` : $h``}
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.showPitcher && vm.secondBase ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.secondBase) : "#"}" class="defender secondBase defense-player" data-pos="2B">
+
+                <div class="wrapper">
+                  <div class="text">${vm.secondBase.displayName ?? vm.secondBase.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.secondBase.hittingRatings.defense)}">${ratingToGrade(vm.secondBase.hittingRatings.defense)}</div>
+                      <div class="chip-label">DEF</div>
+                    </div>
+                  </div>
+                </div>
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.secondBase)}" />
+                  </div>
+                ` : $h``}
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.showPitcher && vm.thirdBase ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.thirdBase) : "#"}" class="defender thirdBase defense-player" data-pos="3B">
+
+                <div class="wrapper">
+                  <div class="text">${vm.thirdBase.displayName ?? vm.thirdBase.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.thirdBase.hittingRatings.defense)}">${ratingToGrade(vm.thirdBase.hittingRatings.defense)}</div>
+                      <div class="chip-label">DEF</div>
+                    </div>
+                  </div>
+                </div>
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.thirdBase)}" />
+                  </div>
+                ` : $h``}
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.showPitcher && vm.shortstop ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.shortstop) : "#"}" class="defender ss defense-player" data-pos="SS">
+
+                <div class="wrapper">
+                  <div class="text">${vm.shortstop.displayName ?? vm.shortstop.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.shortstop.hittingRatings.defense)}">${ratingToGrade(vm.shortstop.hittingRatings.defense)}</div>
+                      <div class="chip-label">DEF</div>
+                    </div>
+                  </div>
+                </div>
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.shortstop)}" />
+                  </div>
+                ` : $h``}
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.showPitcher && vm.leftField ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.leftField) : "#"}" class="defender lf defense-player" data-pos="LF">
+
+                <div class="wrapper">
+                  <div class="text">${vm.leftField.displayName ?? vm.leftField.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.leftField.hittingRatings.defense)}">${ratingToGrade(vm.leftField.hittingRatings.defense)}</div>
+                      <div class="chip-label">DEF</div>
+                    </div>
+                  </div>
+                </div>
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.leftField)}" />
+                  </div>
+                ` : $h``}
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.showPitcher && vm.centerField ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.centerField) : "#"}" class="defender cf defense-player" data-pos="CF">
+
+                <div class="wrapper">
+                  <div class="text">${vm.centerField.displayName ?? vm.centerField.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.centerField.hittingRatings.defense)}">${ratingToGrade(vm.centerField.hittingRatings.defense)}</div>
+                      <div class="chip-label">DEF</div>
+                    </div>
+                  </div>
+                </div>
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.centerField)}" />
+                  </div>
+                ` : $h``}
+
+              </a>
+            ` : $h``}
+
+
+            ${vm.showPitcher && vm.rightField ? $h`
+              <a href="${getPlayerHref ? getPlayerHref(vm.rightField) : "#"}" class="defender rf defense-player" data-pos="RF">
+
+                <div class="wrapper">
+                  <div class="text">${vm.rightField.displayName ?? vm.rightField.fullName}</div>
+
+                  <div class="game-stats">
+                    <div class="chip">
+                      <div class="chip-media bg-${getRatingBadgeColor(vm.rightField.hittingRatings.defense)}">${ratingToGrade(vm.rightField.hittingRatings.defense)}</div>
+                      <div class="chip-label">DEF</div>
+                    </div>
+                  </div>
+                </div>
+
+                ${getPlayerImageUrl ? $h`
+                  <div class="image">
+                    <img src="${getPlayerImageUrl(vm.rightField)}" />
+                  </div>
+                ` : $h``}
+
+              </a>
+            ` : $h``}
+
+
+            <div class="at-bat-ended">
+              <div class="card">
+                <div class="card-content">
+                  <div class="result-wrapper">
+                    <div class="result"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <div class="right">
+        <div class="content">
+
+          <div class="card card-raised ${vm.atBatBoxscore.team._id === vm.homeBoxscore.team._id ? "card-atbat" : "card-notatbat"}">
+
+            <div class="card-header">
+              ${vm.homeBoxscore.team.name ?? vm.homeBoxscore.team.abbrev}
+            </div>
+
+            <div class="card-content card-content-padding">
+
+              <table class="lineup">
+                <thead>
+                  <tr>
+                    <th class="num order">#</th>
+                    <th class="image"></th>
+                    <th class="name">Name</th>
+                    <th>Bats</th>
+                    <th>POS</th>
+                    <th class="stats">Today</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+
+                  ${getLineupPlayers(vm.homeBoxscore.team).map((player, index) => $h`
+                    <tr class="${vm.atBatBoxscore.team._id === vm.homeBoxscore.team._id && vm.homeBoxscore.team.currentHitterIndex === index ? "at-bat" : ""}">
+
+                      <td class="num order">${index + 1}</td>
+
+                      <td class="image">
+                        ${getPlayerImageUrl ? $h`
+                          <img src="${getPlayerImageUrl(player)}" />
+                        ` : $h``}
+                      </td>
+
+                      <td class="name">
+                        ${getPlayerHref ? $h`
+                          <a href="${getPlayerHref(player)}">${player.displayName ?? player.fullName}</a>
+                        ` : $h`
+                          ${player.displayName ?? player.fullName}
+                        `}
+                      </td>
+
+                      <td>${player.hits}</td>
+                      <td class="pos">${player.currentPosition}</td>
+                      <td class="stats">${gameViewService.getHitterGameStatsShort(player)}</td>
+
+                    </tr>
+                  `)}
+
+                </tbody>
+              </table>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+
+    <div class="bottom-bar">
+
+      <div class="matchup">
+
+        <div class="matchup-detail away" style="background-color: ${awayColor}; color: ${awayFontColor};">
+
+          ${vm.awayPlayer ? $h`
+            ${getPlayerImageUrl ? $h`
+              <span class="icon">
+                <img src="${getPlayerImageUrl(vm.awayPlayer)}" />
+              </span>
+            ` : $h``}
+
+            <div class="label">${vm.awayPlayer._id === vm.pitcher?._id ? "Pitching" : "At Bat"}</div>
+
+            <div class="player">
+              ${getPlayerHref ? $h`
+                <a href="${getPlayerHref(vm.awayPlayer)}" style="color: inherit;">${vm.awayPlayer.displayName ?? vm.awayPlayer.fullName}</a>
+              ` : $h`
+                ${vm.awayPlayer.displayName ?? vm.awayPlayer.fullName}
+              `}
+            </div>
+
+            <div class="game-stats">
+              ${vm.awayPlayer._id === vm.pitcher?._id
+                ? gameViewService.getPitcherGameStats(vm.awayPlayer)
+                : gameViewService.getHitterGameStats(vm.awayPlayer)}
+            </div>
+          ` : $h``}
+
+        </div>
+
+
+        <div class="matchup-detail" style="background-color: ${homeColor}; color: ${homeFontColor};">
+
+          ${vm.homePlayer ? $h`
+            ${getPlayerImageUrl ? $h`
+              <span class="icon">
+                <img src="${getPlayerImageUrl(vm.homePlayer)}" />
+              </span>
+            ` : $h``}
+
+            <div class="label">${vm.homePlayer._id === vm.pitcher?._id ? "Pitching" : "At Bat"}</div>
+
+            <div class="player">
+              ${getPlayerHref ? $h`
+                <a href="${getPlayerHref(vm.homePlayer)}" style="color: inherit;">${vm.homePlayer.displayName ?? vm.homePlayer.fullName}</a>
+              ` : $h`
+                ${vm.homePlayer.displayName ?? vm.homePlayer.fullName}
+              `}
+            </div>
+
+            <div class="game-stats">
+              ${vm.homePlayer._id === vm.pitcher?._id
+                ? gameViewService.getPitcherGameStats(vm.homePlayer)
+                : gameViewService.getHitterGameStats(vm.homePlayer)}
+            </div>
+          ` : $h``}
+
+        </div>
+
+      </div>
+
+
+      <div class="page-content messages-content">
+        <div class="messages messages-init game-messages"></div>
+      </div>
+
+      <a href="#" class="messages-action button button-fill popover-open" data-popover=".popover-game-info">
+        <i class="f7-icons">info</i>
+      </a>
+
+      <div class="popover popover-game-info">
+        <div class="popover-angle"></div>
+        <div class="popover-inner">
+          <div class="list inset list-strong list-dividers-ios">
+            <ul>
+              <li>
+                ${gamePlaybackService.isAutomatic() ? $h`
+                  ${gamePlaybackService.isPaused() ? $h`
+                    <a href="#" class="list-button popover-close" @click=${resume}>Resume</a>
+                  ` : $h`
+                    <a href="#" class="list-button popover-close" @click=${pause}>Pause</a>
+                  `}
+                ` : $h`
+                  <a href="#" class="list-button popover-close" @click=${advance}>Next Pitch</a>
+                `}
+              </li>
+              ${getBoxscoreHref ? $h`
+                <li>
+                  <a href="${getBoxscoreHref(vm.game)}" class="list-button popover-close">Box Score</a>
+                </li>
+              ` : $h``}
+              ${getGameLogHref ? $h`
+                <li>
+                  <a href="${getGameLogHref(vm.game)}" class="list-button popover-close">Game Log</a>
+                </li>
+              ` : $h``}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+</template>
+
+<style>
+
+.game-state.top-inning .offense-player .wrapper,
+.game-state.bottom-inning .defense-player .wrapper {
+  border: 2px solid var(--away-color);
+}
+
+.game-state.top-inning .offense-player .text,
+.game-state.bottom-inning .defense-player .text {
+  background: var(--away-color);
+  color: var(--away-font-color);
+}
+
+.game-state.top-inning .offense-player img,
+.game-state.bottom-inning .defense-player img {
+  border-color: var(--away-color);
+}
+
+.game-state.top-inning .defense-player .wrapper,
+.game-state.bottom-inning .offense-player .wrapper {
+  border: 2px solid var(--home-color);
+}
+
+.game-state.top-inning .defense-player .text,
+.game-state.bottom-inning .offense-player .text {
+  background: var(--home-color);
+  color: var(--home-font-color);
+}
+
+.game-state.top-inning .defense-player img,
+.game-state.bottom-inning .offense-player img {
+  border-color: var(--home-color);
+}
+
+.game-state .offense-player .text,
+.game-state .defense-player .text {
+  text-decoration: none;
+}
+
+</style>
+
+<script>
+
+export default (props, { $h, $update }) => {
+
+    let vm = props.vm
+    let gameViewService = props.gameviewservice
+    let fieldImageUrl = props.fieldimageurl
+    let getPlayerImageUrl = props.getplayerimageurl
+    let getPlayerHref = props.getplayerhref
+    let getBoxscoreHref = props.getboxscorehref
+    let getGameLogHref = props.getgameloghref
+    let gamePlaybackService = props.gameplaybackservice
+    let awayColor = props.awaycolor || "#0A3161"
+    let homeColor = props.homecolor || "#B31942"
+
+    const getFontColor = color => {
+        const value = String(color).replace("#", "")
+        const r = parseInt(value.substring(0, 2), 16)
+        const g = parseInt(value.substring(2, 4), 16)
+        const b = parseInt(value.substring(4, 6), 16)
+
+        return r * 0.299 + g * 0.587 + b * 0.114 > 160 ? "#000000" : "#ffffff"
+    }
+
+    let awayFontColor = getFontColor(awayColor)
+    let homeFontColor = getFontColor(homeColor)
+
+    const getLineupPlayers = team => {
+        return team.lineupIds.map(playerId => team.players.find(player => player._id === playerId)).filter(player => player)
+    }
+
+    const getRatingBadgeColor = rating => {
+        if (rating == null) return "color-gray"
+        if (rating >= 146) return "color-green"
+        if (rating >= 122) return "color-blue"
+        if (rating >= 83) return "color-yellow"
+        if (rating >= 47) return "color-orange"
+        return "color-red"
+    }
+
+    const ratingToGrade = rating => {
+        if (rating == null) return ""
+        if (rating >= 170) return "A+"
+        if (rating >= 158) return "A"
+        if (rating >= 146) return "A-"
+        if (rating >= 134) return "B+"
+        if (rating >= 122) return "B"
+        if (rating >= 110) return "B-"
+        if (rating >= 95) return "C+"
+        if (rating >= 83) return "C"
+        if (rating >= 71) return "C-"
+        if (rating >= 59) return "D+"
+        if (rating >= 47) return "D"
+        if (rating >= 35) return "D-"
+        return "F"
+    }
+
+    const advance = () => gamePlaybackService.advance()
+
+    const pause = async () => {
+        gamePlaybackService.pause()
+        await $update()
+    }
+
+    const resume = async () => {
+        gamePlaybackService.resume()
+        await $update()
+    }
+
+    return $render
+
+}
+
+</script>

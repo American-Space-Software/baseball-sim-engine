@@ -13,7 +13,8 @@ import type {
 } from "../../sim/service/interfaces.js"
 
 import {
-    PlayByPlayService
+    PlayByPlayService,
+    PlayDescriptionType
 } from "./play-by-play-service.js"
 
 import type {
@@ -421,6 +422,26 @@ class GameViewService {
 
     public getBalls(total: number, filled: number): string {
         return Array.from({ length: total }, (_, index) => index < filled ? "🟡" : "⚪").join("")
+    }
+
+    public getMessagesFromPlayDescriptions(descriptions: PlayDescription[]) {
+        return descriptions.map(description => {
+            const message: any = {
+                text: description.text,
+                type: "received",
+                name: "Gamelog"
+            }
+
+            if (description.meta?.pitch) {
+                if (description.type === PlayDescriptionType.RESULT) {
+                    message.header = this.getInPlayHeader(description.meta.pitch)
+                } else {
+                    message.header = this.getPitchHeader(description.meta.pitch)
+                }
+            }
+
+            return message
+        })
     }
 
 }

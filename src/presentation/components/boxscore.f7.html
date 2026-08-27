@@ -1,0 +1,213 @@
+<template>
+
+  <div class="block block-outline block-strong">
+
+    <div class="block-header">
+      ${vm.team.name ?? vm.team.abbrev}
+    </div>
+
+    <div class="stat-table-wrapper">
+      <table class="data-table small-font game-table">
+
+        <thead>
+          <tr>
+            <th class="image"></th>
+            <th class="name">Batting</th>
+            <th class="numeric-cell">POS</th>
+            <th class="numeric-cell">AB</th>
+            <th class="numeric-cell">R</th>
+            <th class="numeric-cell">H</th>
+            <th class="numeric-cell">2B</th>
+            <th class="numeric-cell">3B</th>
+            <th class="numeric-cell">HR</th>
+            <th class="numeric-cell">RBI</th>
+            <th class="numeric-cell">BB</th>
+            <th class="numeric-cell">HBP</th>
+            <th class="numeric-cell">SO</th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          ${info.batters.map(row => $h`
+            <tr class="${getBatterClass(row.player)}">
+
+              <td class="image">
+                ${getPlayerImageUrl ? $h`
+                  <img src="${getPlayerImageUrl(row.player)}" />
+                ` : ` `}
+              </td>
+
+              <td class="name">
+                ${row.subNumber ? `${row.subNumber}-` : ` `}
+
+                ${getPlayerHref ? $h`
+                  <a href="${getPlayerHref(row.player)}">${row.player.fullName}</a>
+                ` : row.player.fullName}
+              </td>
+
+              <td class="pos">${row.player.currentPosition}</td>
+              <td class="numeric-cell">${row.player.hitResult.atBats}</td>
+              <td class="numeric-cell">${row.player.hitResult.runs}</td>
+              <td class="numeric-cell">${row.player.hitResult.hits}</td>
+              <td class="numeric-cell">${row.player.hitResult.doubles}</td>
+              <td class="numeric-cell">${row.player.hitResult.triples}</td>
+              <td class="numeric-cell">${row.player.hitResult.homeRuns}</td>
+              <td class="numeric-cell">${row.player.hitResult.rbi}</td>
+              <td class="numeric-cell">${row.player.hitResult.bb}</td>
+              <td class="numeric-cell">${row.player.hitResult.hbp}</td>
+              <td class="numeric-cell">${row.player.hitResult.so}</td>
+
+            </tr>
+          `)}
+
+        </tbody>
+
+      </table>
+    </div>
+
+
+    <div class="stat-table-wrapper">
+      <table class="data-table small-font game-table">
+
+        <thead>
+          <tr>
+            <th class="image"></th>
+            <th class="name">Pitching</th>
+            <th class="numeric-cell">POS</th>
+            <th class="numeric-cell">W</th>
+            <th class="numeric-cell">L</th>
+            <th class="numeric-cell">IP</th>
+            <th class="numeric-cell">H</th>
+            <th class="numeric-cell">R</th>
+            <th class="numeric-cell">ER</th>
+            <th class="numeric-cell">HR</th>
+            <th class="numeric-cell">BB</th>
+            <th class="numeric-cell">SO</th>
+            <th class="numeric-cell">HBP</th>
+            <th class="numeric-cell">BF</th>
+            <th class="numeric-cell">PIT</th>
+            <th class="numeric-cell">STR</th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          ${info.pitchers.map(row => $h`
+            <tr class="${getPitcherClass(row.player)}">
+
+              <td class="image">
+                ${getPlayerImageUrl ? $h`
+                  <img src="${getPlayerImageUrl(row.player)}" />
+                ` : ` `}
+              </td>
+
+              <td class="name">
+                ${row.subNumber ? `${row.subNumber}-` : ` `}
+
+                ${getPlayerHref ? $h`
+                  <a href="${getPlayerHref(row.player)}">${row.player.fullName}</a>
+                ` : row.player.fullName}
+              </td>
+
+              <td class="pos">${row.player.currentPosition}</td>
+              <td class="numeric-cell">${row.player.pitchResult.wins}</td>
+              <td class="numeric-cell">${row.player.pitchResult.losses}</td>
+              <td class="numeric-cell">${row.player.pitchResult.ip}</td>
+              <td class="numeric-cell">${row.player.pitchResult.hits}</td>
+              <td class="numeric-cell">${row.player.pitchResult.runs}</td>
+              <td class="numeric-cell">${row.player.pitchResult.er}</td>
+              <td class="numeric-cell">${row.player.pitchResult.homeRuns}</td>
+              <td class="numeric-cell">${row.player.pitchResult.bb}</td>
+              <td class="numeric-cell">${row.player.pitchResult.so}</td>
+              <td class="numeric-cell">${row.player.pitchResult.hbp}</td>
+              <td class="numeric-cell">${row.player.pitchResult.battersFaced}</td>
+              <td class="numeric-cell">${row.player.pitchResult.pitches}</td>
+              <td class="numeric-cell">${row.player.pitchResult.strikes}</td>
+
+            </tr>
+          `)}
+
+        </tbody>
+
+      </table>
+    </div>
+
+
+    <div class="batter-summary">
+
+      ${info.doubles.length > 0 ? $h`
+        <strong>2B:</strong> ${arrayToString(info.doubles)}<br />
+      ` : ` `}
+
+      ${info.triples.length > 0 ? $h`
+        <strong>3B:</strong> ${arrayToString(info.triples)}<br />
+      ` : ` `}
+
+      ${info.homeRuns.length > 0 ? $h`
+        <strong>HR:</strong> ${arrayToString(info.homeRuns)}<br />
+      ` : ` `}
+
+      ${info.totalBases.length > 0 ? $h`
+        <strong>TB:</strong> ${arrayToString(info.totalBases)}<br />
+      ` : ` `}
+
+      ${info.rbi.length > 0 ? $h`
+        <strong>RBI:</strong> ${arrayToString(info.rbi)}<br />
+      ` : ` `}
+
+    </div>
+
+  </div>
+
+</template>
+
+<style>
+
+
+</style>
+
+<script>
+
+export default (props) => {
+
+    let vm = props.vm
+    let substitutions = props.substitutions ?? []
+    let boxscoreService = props.boxscoreservice
+    let getPlayerImageUrl = props.getplayerimageurl
+    let getPlayerHref = props.getplayerhref
+
+    const info = boxscoreService.getBoxscoreInfo(substitutions, vm)
+
+    const arrayToString = (values) => {
+        return values.map(value => `${value.name}${value.value > 1 ? ` ${value.value}` : ""}`).join("; ")
+    }
+
+    const getBatterClass = (player) => {
+        if (vm.isComplete) {
+            return ""
+        }
+
+        if (vm.team.lineupIds[vm.team.currentHitterIndex] !== player._id) {
+            return ""
+        }
+
+        const batting = vm.isTopInning && vm.side === "AWAY" || !vm.isTopInning && vm.side === "HOME"
+
+        return batting ? "at-bat" : "at-bat-next"
+    }
+
+    const getPitcherClass = (player) => {
+        if (vm.isComplete || vm.team.currentPitcherId !== player._id) {
+            return ""
+        }
+
+        const pitching = vm.isTopInning && vm.side === "HOME" || !vm.isTopInning && vm.side === "AWAY"
+
+        return pitching ? "pitching" : ""
+    }
+
+    return $render
+
+}
+</script>

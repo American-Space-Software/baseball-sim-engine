@@ -1,25 +1,38 @@
 import { strict as assert } from "assert"
 
 import { beforeEach, describe, it } from "mocha"
-import { PlayerStatRepository } from "../src/ratings/repository/player-stat-repository.js"
-import type {  PlayerStatRow } from "../src/ratings/repository/player-stat-repository.js"
 
-import { PlayerStatService } from "../src/ratings/service/player-stat-service.js"
-import { StatService } from "../src/sim/service/stat-service.js"
+import {
+    queries
+} from "baseball-database"
 
+import {
+    PlayerStatRepository
+} from "../src/ratings/repository/player-stat-repository.js"
+
+import type {
+    PlayerStatRow
+} from "../src/ratings/repository/player-stat-repository.js"
+
+import {
+    PlayerStatService
+} from "../src/ratings/service/player-stat-service.js"
+
+import {
+    StatService
+} from "../src/sim/service/stat-service.js"
 
 
 class PlayerStatRepositoryStub {
 
-    public career: PlayerStatRow[] = []
     public seasons: PlayerStatRow[] = []
 
-    public getCareer(): PlayerStatRow[] {
-        return this.career
-    }
+    public getSeasons(_endDateExclusive: string, filterPlayerIds?: Set<string>): PlayerStatRow[] {
+        if (!filterPlayerIds) {
+            return this.seasons
+        }
 
-    public getSeasons(): PlayerStatRow[] {
-        return this.seasons
+        return this.seasons.filter(row => filterPlayerIds.has(row.playerId))
     }
 
 }
@@ -29,14 +42,26 @@ describe("PlayerStatService", function () {
 
     let repository: PlayerStatRepositoryStub
     let service: PlayerStatService
+    let originalGetPlayer
 
     beforeEach(function () {
         repository = new PlayerStatRepositoryStub()
         service = new PlayerStatService(new StatService(), repository as unknown as PlayerStatRepository)
+
+        originalGetPlayer = queries.getPlayer
+
+        queries.getPlayer = ((playerId: number) => ({
+            playerId,
+            birthDate: "1995-01-01"
+        })) as typeof queries.getPlayer
+    })
+
+    afterEach(function () {
+        queries.getPlayer = originalGetPlayer
     })
 
     it("returns career hitter stats", function () {
-        repository.career = [createRow()]
+        repository.seasons = [createRow()]
 
         const result = service.getCareerHitterStats("101", "2027-01-01")
 
@@ -67,7 +92,7 @@ describe("PlayerStatService", function () {
     })
 
     it("returns career hitter fielding stats", function () {
-        repository.career = [createRow()]
+        repository.seasons = [createRow()]
 
         const result = service.getCareerHitterStats("101", "2027-01-01")
 
@@ -81,7 +106,7 @@ describe("PlayerStatService", function () {
     })
 
     it("returns career hitter pitch percentages", function () {
-        repository.career = [createRow()]
+        repository.seasons = [createRow()]
 
         const result = service.getCareerHitterStats("101", "2027-01-01")
 
@@ -110,7 +135,7 @@ describe("PlayerStatService", function () {
     })
 
     it("returns career hitter batted-ball and per-game rates", function () {
-        repository.career = [createRow()]
+        repository.seasons = [createRow()]
 
         const result = service.getCareerHitterStats("101", "2027-01-01")
 
@@ -118,7 +143,6 @@ describe("PlayerStatService", function () {
         assert.equal(result.flyBallPercent, 6 / 20)
         assert.equal(result.ldPercent, 4 / 20)
         assert.equal(result.popupPercent, 2 / 20)
-
         assert.equal(result.runsPerGame, 10 / 15)
         assert.equal(result.sbPerGame, 4 / 15)
         assert.equal(result.sbAttemptsPerGame, 6 / 15)
@@ -126,7 +150,7 @@ describe("PlayerStatService", function () {
     })
 
     it("returns career pitcher stats", function () {
-        repository.career = [createRow()]
+        repository.seasons = [createRow({ playerId: "201" })]
 
         const result = service.getCareerPitcherStats("201", "2027-01-01")
 
@@ -154,7 +178,7 @@ describe("PlayerStatService", function () {
     })
 
     it("returns career pitcher outcome percentages", function () {
-        repository.career = [createRow()]
+        repository.seasons = [createRow({ playerId: "201" })]
 
         const result = service.getCareerPitcherStats("201", "2027-01-01")
 
@@ -168,7 +192,7 @@ describe("PlayerStatService", function () {
     })
 
     it("returns career pitcher pitch percentages", function () {
-        repository.career = [createRow()]
+        repository.seasons = [createRow({ playerId: "201" })]
 
         const result = service.getCareerPitcherStats("201", "2027-01-01")
 
@@ -190,7 +214,7 @@ describe("PlayerStatService", function () {
     })
 
     it("returns career pitcher batted-ball and per-game rates", function () {
-        repository.career = [createRow()]
+        repository.seasons = [createRow({ playerId: "201" })]
 
         const result = service.getCareerPitcherStats("201", "2027-01-01")
 
@@ -198,10 +222,22 @@ describe("PlayerStatService", function () {
         assert.equal(result.flyBallPercent, 25 / 80)
         assert.equal(result.ldPercent, 15 / 80)
         assert.equal(result.popupPercent, 5 / 80)
-
         assert.equal(result.runsPerGame, 15 / 10)
         assert.equal(result.pitchesPerGame, 400 / 10)
         assert.equal(result.pitchesPerPA, 400 / 120)
+    })
+
+    it("aggregates career stats across seasons", function () {
+        repository.seasons = [
+            createRow({ season: 2025, hittingHits: 10 }),
+            createRow({ season: 2026, hittingHits: 20 })
+        ]
+
+        const result = service.getCareerHitterStats("101", "2027-01-01")
+
+        assert.equal(result.hits, 30)
+        assert.equal(result.games, 30)
+        assert.equal(result.pa, 100)
     })
 
     it("returns hitter season stats in repository order", function () {
@@ -219,8 +255,8 @@ describe("PlayerStatService", function () {
 
     it("returns pitcher season stats in repository order", function () {
         repository.seasons = [
-            createRow({ season: 2025, pitchingWins: 1 }),
-            createRow({ season: 2026, pitchingWins: 3 })
+            createRow({ playerId: "201", season: 2025, pitchingWins: 1 }),
+            createRow({ playerId: "201", season: 2026, pitchingWins: 3 })
         ]
 
         const results = service.getSeasonPitcherStats("201", "2027-01-01")
@@ -230,7 +266,7 @@ describe("PlayerStatService", function () {
         assert.equal(results[1]?.wins, 3)
     })
 
-    it("throws when career stats do not exist", function () {
+    it("throws when stats do not exist", function () {
         assert.throws(
             () => service.getCareerHitterStats("999", "2027-01-01"),
             /Player stats not found for player 999/

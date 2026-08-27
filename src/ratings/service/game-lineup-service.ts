@@ -225,7 +225,9 @@ class GameLineupService {
             ),
             stamina: 0,
             maxPitchCount: 0,
-            overallRating: 100,
+            overallRating: entry.position === Position.PITCHER
+                ? this.getAveragePitchingRating(rated.pitchRatings)
+                : this.getAverageHittingRating(rated.hittingRatings),
             hittingRatings: rated.hittingRatings,
             pitchRatings: rated.pitchRatings,
             isRetired: false,
@@ -795,6 +797,40 @@ class GameLineupService {
 
         return age
     }
+
+    private getAverageHittingRating(hittingRatings: GeneratedPlayerRatings["hittingRatings"]): number {
+        return Math.round(
+            (
+                hittingRatings.arm +
+                hittingRatings.defense +
+                hittingRatings.speed +
+                hittingRatings.steals +
+                hittingRatings.vsL.contact +
+                hittingRatings.vsL.gapPower +
+                hittingRatings.vsL.homerunPower +
+                hittingRatings.vsL.plateDiscipline +
+                hittingRatings.vsR.contact +
+                hittingRatings.vsR.gapPower +
+                hittingRatings.vsR.homerunPower +
+                hittingRatings.vsR.plateDiscipline
+            ) /
+            12
+        )
+    }
+
+    private getAveragePitchingRating(pitchRatings: GeneratedPlayerRatings["pitchRatings"]): number {
+        return Math.round(
+            (
+                pitchRatings.power +
+                pitchRatings.vsL.control +
+                pitchRatings.vsL.movement +
+                pitchRatings.vsR.control +
+                pitchRatings.vsR.movement
+            ) /
+            5
+        )
+    }
+
 
     private toHandedness(value: unknown): Handedness {
         if (value === Handedness.L || value === "L") {

@@ -1,13 +1,9 @@
 import fs from "fs"
 import path from "path"
 
-import {
-    database
-} from "baseball-database"
+import { database } from "baseball-database"
 
-import type {
-    PitchEnvironmentTarget
-} from "../sim/service/interfaces.js"
+import type { PitchEnvironmentTarget } from "../sim/service/interfaces.js"
 
 import { PlayerRatingInputRepository } from "./repository/player-rating-input-repository.js"
 import { PlayerRatingSeasonInputRepository } from "./repository/player-rating-season-input-repository.js"
@@ -27,7 +23,6 @@ import { PitcherWorkloadService } from "./service/pitcher-workload-service.js"
 import { PitcherAppearanceRepository } from "./repository/pitcher-appearance-repository.js"
 import { PitchEnvironmentTargetService } from "./service/pitch-environment-target-service.js"
 import { PlayerImportService } from "../importer/service/player-import-service.js"
-
 import { StatAccumulatorService } from "../importer/service/stat-accumulator-service.js"
 import { StatClassificationService } from "../importer/service/stat-classification-service.js"
 
@@ -66,9 +61,9 @@ const mlbGameBundleService = new MlbGameBundleService(
     mlbRosterService,
     gameLineupService,
     playerRatingService,
-    pitchEnvironmentTargetService
+    pitchEnvironmentTargetService,
+    playerStatService
 )
-
 
 async function exportPlayerRatings(season: number, baseDataDir = defaultBaseDataDir): Promise<any[]> {
     const seasonDataDir = path.join(baseDataDir, String(season))
@@ -92,7 +87,6 @@ async function exportPlayerRatings(season: number, baseDataDir = defaultBaseData
 
     return playerRatings
 }
-
 
 async function exportPlayerRatingsRange(startSeason: number, endSeason: number, baseDataDir = defaultBaseDataDir): Promise<Map<number, number>> {
     validateSeasonRange(startSeason, endSeason)
@@ -123,13 +117,10 @@ async function exportPlayerRatingsRange(startSeason: number, endSeason: number, 
     return results
 }
 
-
 function getSeasonRatingsDate(season: number): string {
     const currentSeason = new Date().getUTCFullYear()
-
     return season < currentSeason ? `${season + 1}-01-01` : new Date().toISOString().slice(0, 10)
 }
-
 
 function validateSeasonRange(startSeason: number, endSeason: number): void {
     if (!Number.isInteger(startSeason) || startSeason < firstRatingSeason) {
@@ -141,28 +132,23 @@ function validateSeasonRange(startSeason: number, endSeason: number): void {
     }
 }
 
-
 async function readJson<T>(filePath: string): Promise<T> {
     return JSON.parse(await fs.promises.readFile(filePath, "utf8")) as T
 }
-
 
 async function writeJson(filePath: string, data: any): Promise<void> {
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
     await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), "utf8")
 }
 
-
 async function fileExists(filePath: string): Promise<boolean> {
     try {
         await fs.promises.access(filePath, fs.constants.F_OK)
-
         return true
     } catch {
         return false
     }
 }
-
 
 export {
     downloadService,
@@ -170,12 +156,12 @@ export {
     exportPlayerRatingsRange,
     playerRatingService,
     playerStatService,
+    pitchEnvironmentTargetService,
     mlbGameBundleService,
     MlbGameBundleService,
     PlayerRatingService,
     PlayerStatService
 }
-
 
 if (process.argv[1] && path.basename(process.argv[1]) === "ratings.js") {
     const action = process.argv[2]

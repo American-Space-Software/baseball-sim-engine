@@ -236,6 +236,7 @@ function buildImport(playerId: string, value: number, plateAppearances = 100): P
 function buildRatings(playerId: string, value: number, pitches = ["FF"]): any {
     return {
         playerId,
+        overallRating: value,
         hittingRatings: {
             speed: value,
             steals: value,
@@ -294,6 +295,7 @@ function buildRatingsRow(playerId: string, value: number): PlayerRatingsRow {
         age: 27,
         throws: "R",
         hits: "R",
+        overallRating: ratings.overallRating,
         hittingRatings: ratings.hittingRatings,
         pitchRatings: ratings.pitchRatings
     }
@@ -390,6 +392,11 @@ describe("PlayerRatingService", function () {
 
             assert.ok(
                 player
+            )
+
+            assert.equal(
+                player.overallRating,
+                123
             )
 
             assert.equal(
@@ -569,6 +576,11 @@ describe("PlayerRatingService", function () {
                 )
 
                 assert.equal(
+                    ratings.get("1")?.overallRating,
+                    90
+                )
+
+                assert.equal(
                     ratings.get("1")?.hittingRatings.speed,
                     90
                 )
@@ -705,6 +717,11 @@ describe("PlayerRatingService", function () {
                     31
                 )
 
+                assert.equal(
+                    writtenRows[0].overallRating,
+                    120
+                )
+
                 assert.ok(
                     Math.abs(
                         writtenRows[0].hittingRatings.speed - 120
@@ -779,6 +796,11 @@ describe("PlayerRatingService", function () {
 
             assert.ok(
                 player
+            )
+
+            assert.equal(
+                player.overallRating,
+                100
             )
 
             assert.equal(
@@ -945,6 +967,11 @@ describe("PlayerRatingService", function () {
                 assert.equal(
                     inputCalls,
                     0
+                )
+
+                assert.equal(
+                    ratings.get("1")?.overallRating,
+                    115
                 )
 
                 assert.equal(
@@ -1151,6 +1178,11 @@ describe("PlayerRatingService", function () {
                 )
 
                 assert.equal(
+                    player.overallRating,
+                    expected
+                )
+
+                assert.equal(
                     player.hittingRatings.speed,
                     expected
                 )
@@ -1167,6 +1199,17 @@ describe("PlayerRatingService", function () {
 
 
         it("uses the career set for nonnumeric rating values", function () {
+            queries.getPlayer = (() => ({
+                playerId: 1,
+                firstName: "Test",
+                lastName: "Player",
+                fullName: "Test Player",
+                primaryPosition: "1B",
+                birthDate: "2000-01-01",
+                throws: "R",
+                bats: "R"
+            })) as unknown as typeof queries.getPlayer
+
             const ratings = (PlayerRatingService as any).buildWeightedPlayerRatings([
                 {
                     ratings: buildRatings(

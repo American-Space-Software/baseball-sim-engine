@@ -1,15 +1,18 @@
 import path, { dirname } from "path"
+
 import webpack from "webpack"
+
 import fs from "fs"
+
 import { fileURLToPath } from "url"
 
 const __filename = fileURLToPath(import.meta.url)
+
 const __dirname = dirname(__filename)
 
 const packageConfig = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, "package.json"), "utf8")
 )
-
 
 const pitchEnvironmentTargetPath = path.resolve(__dirname, "data/2025/_pitch_environment_target.json")
 
@@ -21,19 +24,24 @@ if (!fs.existsSync(pitchEnvironmentTargetPath) || fs.statSync(pitchEnvironmentTa
 const VERSION = JSON.stringify(packageConfig.version)
 
 
-
 const baseConfig = {
+
   mode: "production",
+
   target: "node",
+
   experiments: {
     outputModule: true
   },
+
   resolve: {
     extensions: [".ts", ".js"],
+
     extensionAlias: {
       ".js": [".js", ".ts"]
     }
   },
+
   module: {
     rules: [
       {
@@ -45,6 +53,7 @@ const baseConfig = {
   },
 
   externalsType: "module",
+
   externals: {
     "baseball-database": "baseball-database",
     "better-sqlite3": "better-sqlite3"
@@ -52,23 +61,30 @@ const baseConfig = {
 
   output: {
     filename: "index.js",
+
     library: {
       type: "module"
     },
+
     chunkFormat: "module"
   },
+
   plugins: [
     new webpack.DefinePlugin({
       VERSION
     })
   ]
+
 }
 
 
 export default [
+
   {
     ...baseConfig,
+
     entry: "./src/sim/index.ts",
+
     output: {
       ...baseConfig.output,
       filename: "index.js",
@@ -76,9 +92,12 @@ export default [
       clean: true
     }
   },
+
   {
     ...baseConfig,
+
     entry: "./src/importer/index.ts",
+
     output: {
       ...baseConfig.output,
       filename: "importer.js",
@@ -86,9 +105,12 @@ export default [
       clean: false
     }
   },
+
   {
     ...baseConfig,
+
     entry: "./src/ratings/index.ts",
+
     output: {
       ...baseConfig.output,
       filename: "ratings.js",
@@ -96,14 +118,37 @@ export default [
       clean: false
     }
   },
+
   {
     ...baseConfig,
+
+    target: "web",
+
     entry: "./src/presentation/index.ts",
+
+    resolve: {
+      ...baseConfig.resolve,
+      extensions: [".ts", ".js", ".f7.html"]
+    },
+
+    module: {
+      rules: [
+        ...baseConfig.module.rules,
+        {
+          test: /\.f7\.html$/,
+          loader: "framework7-loader"
+        }
+      ]
+    },
+
+    externals: {},
+
     output: {
       ...baseConfig.output,
       filename: "presentation.js",
       path: path.resolve(__dirname, "dist"),
       clean: false
     }
-  }  
+  }
+
 ]

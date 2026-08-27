@@ -1,0 +1,113 @@
+<template>
+
+  ${vm ? $h`
+
+    <table class="linescore">
+
+      <thead>
+
+        <tr>
+
+          <th></th>
+
+          ${Array.from({ length: vm.away.innings.length }, (_, index) => index + 1).map(inning => $h`
+
+            <th>${inning}</th>
+
+          `)}
+
+          <th>R</th>
+
+          <th>H</th>
+
+          <th>E</th>
+
+        </tr>
+
+      </thead>
+
+      <tbody>
+
+        <tr>
+
+          <td>
+
+            ${vm.isTopInning && !vm.isComplete ? $h`
+
+              <strong>${vm.away.name}</strong>
+
+            ` : vm.away.name}
+
+          </td>
+
+          ${vm.away.innings.map((runs, index) => $h`
+
+            <td class="align-center ${vm.currentInning === index + 1 && vm.isTopInning && !vm.isComplete ? "current" : ""}">
+
+              ${runs ?? ""}
+
+            </td>
+
+          `)}
+
+          <td class="align-center">${vm.away.runs}</td>
+
+          <td class="align-center">${vm.away.hits}</td>
+
+          <td class="align-center">${vm.away.errors}</td>
+
+        </tr>
+
+        <tr>
+
+          <td>
+
+            ${!vm.isTopInning && !vm.isComplete ? $h`
+
+              <strong>${vm.home.name}</strong>
+
+            ` : vm.home.name}
+
+          </td>
+
+          ${vm.home.innings.map((runs, index) => $h`
+
+            <td class="align-center ${vm.currentInning === index + 1 && !vm.isTopInning && !vm.isComplete ? "current" : ""}">
+
+              ${runs ?? ""}
+
+            </td>
+
+          `)}
+
+          <td class="align-center">${vm.home.runs}</td>
+
+          <td class="align-center">${vm.home.hits}</td>
+
+          <td class="align-center">${vm.home.errors}</td>
+
+        </tr>
+
+      </tbody>
+
+    </table>
+
+  ` : ` `}
+
+</template>
+
+<style>
+
+</style>
+
+<script>
+
+export default (props) => {
+
+    let vm = props.vm
+
+    return $render
+
+}
+
+</script>

@@ -4,6 +4,7 @@ import { PlayerRatingSeasonInputRepository } from "../../ratings/repository/play
 import { PlayerRatingsRepository } from "../../ratings/repository/player-ratings-repository.js";
 interface GeneratedPlayerRatings {
     playerId: string;
+    overallRating: number;
     hittingRatings: HittingRatings;
     pitchRatings: PitchRatings;
 }
@@ -72,6 +73,7 @@ declare class PlayerRatingService {
     private static getWindowDateRange;
     private static hasMinimumWindowSample;
     private static buildWeightedPlayerRatings;
+    private static getOverallRating;
     private static blendRatingValues;
     private formatDuration;
 }

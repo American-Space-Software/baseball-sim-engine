@@ -1,5 +1,9 @@
 import seedrandom from "seedrandom"
 
+import {
+    v4 as uuid
+} from "uuid"
+
 import type {
     Game,
     StartGameCommand
@@ -29,19 +33,52 @@ class GamePlaybackService {
     public start(command: StartGameCommand, options: GamePlaybackOptions = {}): Game {
         this.reset()
 
+        const game = {
+            _id: uuid()
+        } as Game
+
+        const seed = options.seed ?? game._id
+
         this.pitchIntervalMs = options.pitchIntervalMs ?? DEFAULT_PITCH_INTERVAL_MS
         this.automatic = options.automatic ?? true
         this.paused = false
         this.onUpdate = options.onUpdate
         this.onComplete = options.onComplete
-        this.rng = options.rng ?? seedrandom(options.seed)
+        this.rng = options.rng ?? seedrandom(seed, { state: true })
 
-        this.simService.initGame(command.game)
-        this.game = this.simService.startGame(command)
+        const startCommand = structuredClone(command)
+
+        startCommand.game = game
+        startCommand.date = new Date(command.date)
+
+        this.simService.initGame(game)
+        this.game = this.simService.startGame(startCommand)
 
         this.onUpdate?.(this.game)
 
         if (this.automatic) {
+            this.scheduleNextPitch()
+        }
+
+        return this.game
+    }
+
+    public load(game: Game, playbackState: GamePlaybackState, options: GamePlaybackOptions = {}): Game {
+        this.reset()
+
+        this.game = game
+        this.pitchIntervalMs = options.pitchIntervalMs ?? DEFAULT_PITCH_INTERVAL_MS
+        this.automatic = options.automatic ?? true
+        this.paused = false
+        this.onUpdate = options.onUpdate
+        this.onComplete = options.onComplete
+        this.rng = options.rng ?? seedrandom("", {
+            state: structuredClone(playbackState.rngState)
+        })
+
+        this.onUpdate?.(this.game)
+
+        if (this.automatic && !this.game.isFinished) {
             this.scheduleNextPitch()
         }
 
@@ -128,8 +165,27 @@ class GamePlaybackService {
         }
     }
 
+    public setCallbacks(onUpdate?: GamePlaybackUpdate, onComplete?: GamePlaybackComplete): void {
+        this.onUpdate = onUpdate
+        this.onComplete = onComplete
+    }
+
     public getGame(): Game | undefined {
         return this.game
+    }
+
+    public getPlaybackState(): GamePlaybackState {
+        if (!this.rng) {
+            throw new Error("Game playback has not been started.")
+        }
+
+        if (!this.rng.state) {
+            throw new Error("The current random number generator does not support state persistence.")
+        }
+
+        return {
+            rngState: structuredClone(this.rng.state())
+        }
     }
 
     public isAutomatic(): boolean {
@@ -167,6 +223,11 @@ class GamePlaybackService {
 }
 
 
+interface GamePlaybackState {
+    rngState: seedrandom.State
+}
+
+
 interface GamePlaybackOptions {
     automatic?: boolean
     pitchIntervalMs?: number
@@ -189,5 +250,6 @@ export {
 export type {
     GamePlaybackComplete,
     GamePlaybackOptions,
+    GamePlaybackState,
     GamePlaybackUpdate
 }

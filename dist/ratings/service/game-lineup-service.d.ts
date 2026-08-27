@@ -24,6 +24,8 @@ declare class GameLineupService {
     private getTeamSide;
     private getStartingPitcherId;
     private getAge;
+    private getAverageHittingRating;
+    private getAveragePitchingRating;
     private toHandedness;
     private isPitcher;
     private getErrorMessage;

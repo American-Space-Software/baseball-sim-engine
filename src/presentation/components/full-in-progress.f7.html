@@ -1,0 +1,214 @@
+<template>
+
+  <div class="game-page">
+
+    ${gameViewModel?.game ? $h`
+
+      <${GameState}
+        vm=${gameViewModel}
+        gameviewservice=${gameViewService}
+        fieldimageurl=${fieldImageUrl}
+        getplayerimageurl=${getPlayerImageUrl}
+        getplayerhref=${getPlayerHref}
+        getboxscorehref=${getBoxscoreHref}
+        getgameloghref=${getGameLogHref}
+        gameplaybackservice=${gamePlaybackService}
+      />
+
+    ` : $h`
+
+      <div class="block">
+        No game found.
+      </div>
+
+    `}
+
+  </div>
+
+</template>
+
+<style>
+
+
+</style>
+
+<script>
+
+import GameState from "./game-state.f7.html"
+
+export default (props, { $onMounted, $onBeforeUnmount, $, $f7, $update }) => {
+
+    let gameWebService = props.gamewebservice
+    let gameViewService = props.gameviewservice
+    let gameMessageService = props.gamemessageservice
+    let gamePlaybackService = props.gameplaybackservice
+    let game = props.game
+    let fieldImageUrl = props.fieldimageurl
+    let getPlayerImageUrl = props.getplayerimageurl
+    let getPlayerHref = props.getplayerhref
+    let getBoxscoreHref = props.getboxscorehref
+    let getGameLogHref = props.getgameloghref
+    let updateCallback = props.updatecallback
+    let completeCallback = props.completecallback
+
+    let gameViewModel = game ? gameWebService.getGameViewModel(game) : undefined
+    let messagesComponent
+    let messageSyncVersion = 0
+    let messageSyncQueue = Promise.resolve()
+    let allPopups = [".at-bat-ended"]
+
+    const updateGameViewModel = () => {
+        const updatedViewModel = gameWebService.getGameViewModel(game)
+
+        if (!gameViewModel) {
+            gameViewModel = updatedViewModel
+            return
+        }
+
+        Object.assign(gameViewModel, updatedViewModel)
+    }
+
+    const showPopup = popup => {
+        for (const item of allPopups) {
+            if (item !== popup) $(item).hide()
+        }
+
+        $(popup).css("display", "flex")
+    }
+
+    const closeAllPopups = () => {
+        for (const popup of allPopups) $(popup).hide()
+    }
+
+    const syncPopup = (atBatState, descriptions) => {
+        if (atBatState === "ENDED") {
+            const result = descriptions.find(description => description.type === "RESULT")?.text ?? ""
+
+            $(".at-bat-ended .result").text(result)
+            showPopup(".at-bat-ended")
+
+            return
+        }
+
+        closeAllPopups()
+    }
+
+    const getMessages = descriptions => gameViewService.getMessagesFromPlayDescriptions(descriptions)
+
+    const getMessagesComponent = () => {
+        const existing = $f7.messages?.get(".game-messages")
+
+        if (existing) return existing
+
+        return $f7.messages?.create({ el: ".game-messages" })
+    }
+
+    const syncMessages = async (allMessages, showDelay) => {
+        if (!messagesComponent) return
+
+        const existingMessages = messagesComponent.messages ?? []
+        const sync = gameMessageService.getSync(existingMessages, allMessages)
+
+        messageSyncVersion++
+
+        const version = messageSyncVersion
+
+        messageSyncQueue = messageSyncQueue.then(async () => {
+            if (version !== messageSyncVersion) return
+
+            if (sync.clear) messagesComponent.clear()
+
+            for (const message of sync.messages) {
+                if (version !== messageSyncVersion) return
+
+                if (showDelay) {
+                    messagesComponent.showTyping()
+                    await delay(500)
+                }
+
+                if (version !== messageSyncVersion) return
+
+                messagesComponent.addMessage(message)
+                messagesComponent.hideTyping()
+            }
+        })
+
+        await messageSyncQueue
+    }
+
+    const syncGameUi = async showDelay => {
+        const descriptions = gameWebService.getCurrentDescriptions(game)
+        const allMessages = getMessages(descriptions)
+        const atBatState = gameWebService.getAtBatState(game)
+
+        syncPopup(atBatState, descriptions)
+
+        await $update()
+        await syncMessages(allMessages, showDelay)
+    }
+
+    const onGameUpdate = async (updatedGame, showDelay = true) => {
+        game = updatedGame
+
+        updateGameViewModel()
+
+        if (updateCallback) await updateCallback(game)
+
+        await syncGameUi(showDelay)
+    }
+
+    const onGameComplete = async completedGame => {
+        game = completedGame
+
+        updateGameViewModel()
+
+        if (completeCallback) await completeCallback(game)
+
+        closeAllPopups()
+
+        await $update()
+
+        const descriptions = gameWebService.getCurrentDescriptions(game)
+
+        await syncMessages(getMessages(descriptions), false)
+    }
+
+    const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
+
+    const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
+
+    $onMounted(async () => {
+        if (!game) return
+
+        gamePlaybackService.setCallbacks(
+            updatedGame => onGameUpdate(updatedGame, true),
+            onGameComplete
+        )
+
+        updateGameViewModel()
+
+        await $update()
+        await nextFrame()
+        await nextFrame()
+
+        messagesComponent = getMessagesComponent()
+
+        await syncGameUi(false)
+
+        if (messagesComponent) messagesComponent.scroll(0)
+    })
+
+    $onBeforeUnmount(() => {
+        messageSyncVersion++
+
+        closeAllPopups()
+
+        gamePlaybackService.pause()
+        gamePlaybackService.setCallbacks()
+    })
+
+    return $render
+
+}
+
+</script>

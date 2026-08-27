@@ -20,30 +20,29 @@ import {
 
 describe("GamePlaybackService", function () {
 
-    it("initializes and starts the game", function () {
-        const game = buildGame()
-        const command = buildCommand(game)
+    it("initializes and starts a new game with a UUID", function () {
+        const command = buildCommand()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        const result = service.start(command, {
+        const game = service.start(command, {
             automatic: false
         })
 
-        assert.equal(result, game)
+        assert.match(game._id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
         assert.equal(service.getGame(), game)
         assert.equal(simService.initGameCalls.length, 1)
         assert.equal(simService.initGameCalls[0], game)
         assert.equal(simService.startGameCalls.length, 1)
-        assert.equal(simService.startGameCalls[0], command)
+        assert.equal(simService.startGameCalls[0].game, game)
+        assert.notEqual(game, command.game)
     })
 
     it("calls the initial update callback when the game starts", function () {
-        const game = buildGame()
         const updates: Game[] = []
         const service = new GamePlaybackService(buildSimService())
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             automatic: false,
             onUpdate: updatedGame => updates.push(updatedGame)
         })
@@ -54,7 +53,7 @@ describe("GamePlaybackService", function () {
     it("is automatic by default", function () {
         const service = new GamePlaybackService(buildSimService())
 
-        service.start(buildCommand(buildGame()), {
+        service.start(buildCommand(), {
             pitchIntervalMs: 100000
         })
 
@@ -66,7 +65,7 @@ describe("GamePlaybackService", function () {
     it("can start in manual mode", function () {
         const service = new GamePlaybackService(buildSimService())
 
-        service.start(buildCommand(buildGame()), {
+        service.start(buildCommand(), {
             automatic: false
         })
 
@@ -74,11 +73,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("advances the game by one pitch", function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             automatic: false
         })
 
@@ -91,12 +89,11 @@ describe("GamePlaybackService", function () {
     })
 
     it("uses the supplied random number generator", function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
         const rng = (() => 0.5) as seedrandom.PRNG
 
-        service.start(buildCommand(game), {
+        service.start(buildCommand(), {
             automatic: false,
             rng
         })
@@ -109,16 +106,15 @@ describe("GamePlaybackService", function () {
     it("uses a seeded random number generator when one is not supplied", function () {
         const firstSimService = buildSimService()
         const secondSimService = buildSimService()
-
         const firstService = new GamePlaybackService(firstSimService)
         const secondService = new GamePlaybackService(secondSimService)
 
-        firstService.start(buildCommand(buildGame()), {
+        firstService.start(buildCommand(), {
             automatic: false,
             seed: "test-seed"
         })
 
-        secondService.start(buildCommand(buildGame()), {
+        secondService.start(buildCommand(), {
             automatic: false,
             seed: "test-seed"
         })
@@ -130,11 +126,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("calls the update callback after advancing", function () {
-        const game = buildGame()
         const updates: Game[] = []
         const service = new GamePlaybackService(buildSimService())
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             automatic: false,
             onUpdate: updatedGame => updates.push(updatedGame)
         })
@@ -148,19 +143,18 @@ describe("GamePlaybackService", function () {
     })
 
     it("finishes the game when the simulated pitch completes it", function () {
-        const game = buildGame()
         const simService = buildSimService({
-            simPitch: currentGame => {
-                currentGame.isComplete = true
+            simPitch: game => {
+                game.isComplete = true
             },
-            finishGame: currentGame => {
-                currentGame.isFinished = true
+            finishGame: game => {
+                game.isFinished = true
             }
         })
 
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             automatic: false
         })
 
@@ -174,21 +168,20 @@ describe("GamePlaybackService", function () {
     })
 
     it("calls the completion callback after finishing the game", function () {
-        const game = buildGame()
         const completedGames: Game[] = []
 
         const simService = buildSimService({
-            simPitch: currentGame => {
-                currentGame.isComplete = true
+            simPitch: game => {
+                game.isComplete = true
             },
-            finishGame: currentGame => {
-                currentGame.isFinished = true
+            finishGame: game => {
+                game.isFinished = true
             }
         })
 
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             automatic: false,
             onComplete: completedGame => completedGames.push(completedGame)
         })
@@ -199,20 +192,22 @@ describe("GamePlaybackService", function () {
     })
 
     it("finishes a complete game without simulating another pitch", function () {
-        const game = buildGame({
-            isComplete: true,
-            isFinished: false
-        })
-
         const simService = buildSimService({
-            finishGame: currentGame => {
-                currentGame.isFinished = true
+            startGame: command => {
+                command.game.isStarted = true
+                command.game.isComplete = true
+                command.game.isFinished = false
+
+                return command.game
+            },
+            finishGame: game => {
+                game.isFinished = true
             }
         })
 
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        service.start(buildCommand(), {
             automatic: false
         })
 
@@ -223,15 +218,19 @@ describe("GamePlaybackService", function () {
     })
 
     it("does not advance an already finished game", function () {
-        const game = buildGame({
-            isComplete: true,
-            isFinished: true
+        const simService = buildSimService({
+            startGame: command => {
+                command.game.isStarted = true
+                command.game.isComplete = true
+                command.game.isFinished = true
+
+                return command.game
+            }
         })
 
-        const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             automatic: false
         })
 
@@ -252,11 +251,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("automatically advances after the configured interval", async function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        service.start(buildCommand(), {
             pitchIntervalMs: 5
         })
 
@@ -268,25 +266,24 @@ describe("GamePlaybackService", function () {
     })
 
     it("continues automatically until the game finishes", async function () {
-        const game = buildGame()
         let pitches = 0
 
         const simService = buildSimService({
-            simPitch: currentGame => {
+            simPitch: game => {
                 pitches++
 
                 if (pitches === 3) {
-                    currentGame.isComplete = true
+                    game.isComplete = true
                 }
             },
-            finishGame: currentGame => {
-                currentGame.isFinished = true
+            finishGame: game => {
+                game.isFinished = true
             }
         })
 
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             pitchIntervalMs: 1
         })
 
@@ -298,11 +295,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("pauses automatic playback", async function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        service.start(buildCommand(), {
             pitchIntervalMs: 20
         })
 
@@ -317,11 +313,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("resumes automatic playback", async function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        service.start(buildCommand(), {
             pitchIntervalMs: 5
         })
 
@@ -339,15 +334,19 @@ describe("GamePlaybackService", function () {
     })
 
     it("does not resume a finished game", async function () {
-        const game = buildGame({
-            isComplete: true,
-            isFinished: true
+        const simService = buildSimService({
+            startGame: command => {
+                command.game.isStarted = true
+                command.game.isComplete = true
+                command.game.isFinished = true
+
+                return command.game
+            }
         })
 
-        const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        service.start(buildCommand(), {
             pitchIntervalMs: 1
         })
 
@@ -360,11 +359,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("does not resume automatic playback when automatic mode is disabled", async function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        service.start(buildCommand(), {
             automatic: false,
             pitchIntervalMs: 1
         })
@@ -378,11 +376,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("stops automatic playback without discarding the game", async function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             pitchIntervalMs: 20
         })
 
@@ -397,11 +394,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("allows manual advancement after automatic playback is stopped", function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             pitchIntervalMs: 100000
         })
 
@@ -413,11 +409,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("enables automatic playback after starting manually", async function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        service.start(buildCommand(), {
             automatic: false,
             pitchIntervalMs: 5
         })
@@ -432,11 +427,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("disables automatic playback", async function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             pitchIntervalMs: 20
         })
 
@@ -450,11 +444,10 @@ describe("GamePlaybackService", function () {
     })
 
     it("changes the automatic pitch interval", async function () {
-        const game = buildGame()
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(game), {
+        service.start(buildCommand(), {
             pitchIntervalMs: 100000
         })
 
@@ -480,10 +473,9 @@ describe("GamePlaybackService", function () {
     })
 
     it("reset discards the current game", function () {
-        const game = buildGame()
         const service = new GamePlaybackService(buildSimService())
 
-        service.start(buildCommand(game), {
+        const game = service.start(buildCommand(), {
             automatic: false
         })
 
@@ -500,7 +492,7 @@ describe("GamePlaybackService", function () {
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(buildGame()), {
+        service.start(buildCommand(), {
             pitchIntervalMs: 20
         })
 
@@ -513,29 +505,248 @@ describe("GamePlaybackService", function () {
     })
 
     it("starting another game resets the previous playback", function () {
-        const firstGame = buildGame({
-            id: "first"
-        })
-
-        const secondGame = buildGame({
-            id: "second"
-        })
-
         const simService = buildSimService()
         const service = new GamePlaybackService(simService)
 
-        service.start(buildCommand(firstGame), {
+        const firstGame = service.start(buildCommand(), {
             automatic: false
         })
 
-        service.start(buildCommand(secondGame), {
+        const secondGame = service.start(buildCommand(), {
             automatic: false
         })
 
+        assert.notEqual(firstGame._id, secondGame._id)
         assert.equal(service.getGame(), secondGame)
         assert.equal(simService.initGameCalls.length, 2)
         assert.equal(simService.startGameCalls.length, 2)
     })
+
+
+    it("returns the current random number generator state", function () {
+        const service = new GamePlaybackService(buildSimService())
+
+        service.start(buildCommand(), {
+            automatic: false,
+            seed: "test-seed"
+        })
+
+        const state = service.getPlaybackState()
+
+        assert.ok(state.rngState)
+    })
+
+    it("throws when getting playback state before playback has started", function () {
+        const service = new GamePlaybackService(buildSimService())
+
+        assert.throws(
+            () => service.getPlaybackState(),
+            /Game playback has not been started/
+        )
+    })
+
+    it("loads an existing game without initializing or starting it", function () {
+        const sourceService = new GamePlaybackService(buildSimService())
+
+        const game = sourceService.start(buildCommand(), {
+            automatic: false,
+            seed: "test-seed"
+        })
+
+        sourceService.advance()
+
+        const playbackState = sourceService.getPlaybackState()
+
+        const simService = buildSimService()
+        const service = new GamePlaybackService(simService)
+
+        const result = service.load(
+            game,
+            playbackState,
+            {
+                automatic: false
+            }
+        )
+
+        assert.equal(result, game)
+        assert.equal(service.getGame(), game)
+        assert.equal(simService.initGameCalls.length, 0)
+        assert.equal(simService.startGameCalls.length, 0)
+    })
+
+    it("calls the update callback when loading an existing game", function () {
+        const sourceService = new GamePlaybackService(buildSimService())
+
+        const game = sourceService.start(buildCommand(), {
+            automatic: false,
+            seed: "test-seed"
+        })
+
+        const playbackState = sourceService.getPlaybackState()
+        const updates: Game[] = []
+
+        const service = new GamePlaybackService(buildSimService())
+
+        service.load(
+            game,
+            playbackState,
+            {
+                automatic: false,
+                onUpdate: updatedGame => updates.push(updatedGame)
+            }
+        )
+
+        assert.deepEqual(updates, [
+            game
+        ])
+    })
+
+    it("continues the same random number sequence after loading", function () {
+        const firstSimService = buildSimService()
+        const firstService = new GamePlaybackService(firstSimService)
+
+        const firstGame = firstService.start(buildCommand(), {
+            automatic: false,
+            seed: "test-seed"
+        })
+
+        firstService.advance()
+        firstService.advance()
+
+        const playbackState = firstService.getPlaybackState()
+        const savedGame = structuredClone(firstGame)
+
+        firstService.advance()
+
+        const expectedRng = firstSimService.simPitchCalls[2].rng
+        const expectedValue = expectedRng()
+
+        const secondSimService = buildSimService()
+        const secondService = new GamePlaybackService(secondSimService)
+
+        secondService.load(
+            savedGame,
+            playbackState,
+            {
+                automatic: false
+            }
+        )
+
+        secondService.advance()
+
+        const actualRng = secondSimService.simPitchCalls[0].rng
+        const actualValue = actualRng()
+
+        assert.equal(actualValue, expectedValue)
+    })
+
+    it("restores playback state in another service instance", function () {
+        const firstValues: number[] = []
+
+        const firstSimService = buildSimService({
+            simPitch: (game, rng) => {
+                firstValues.push(rng())
+            }
+        })
+
+        const firstService = new GamePlaybackService(firstSimService)
+
+        const game = firstService.start(buildCommand(), {
+            automatic: false,
+            seed: "cross-browser-seed"
+        })
+
+        firstService.advance()
+        firstService.advance()
+
+        const playbackState = firstService.getPlaybackState()
+        const savedGame = structuredClone(game)
+
+        firstService.advance()
+
+        const expectedValue = firstValues[2]
+
+        const secondValues: number[] = []
+
+        const secondSimService = buildSimService({
+            simPitch: (loadedGame, rng) => {
+                secondValues.push(rng())
+            }
+        })
+
+        const secondService = new GamePlaybackService(secondSimService)
+
+        secondService.load(
+            savedGame,
+            playbackState,
+            {
+                automatic: false
+            }
+        )
+
+        secondService.advance()
+
+        assert.equal(secondValues[0], expectedValue)
+    })
+
+    it("automatically continues a loaded game", async function () {
+        const sourceService = new GamePlaybackService(buildSimService())
+
+        const game = sourceService.start(buildCommand(), {
+            automatic: false,
+            seed: "test-seed"
+        })
+
+        const playbackState = sourceService.getPlaybackState()
+
+        const simService = buildSimService()
+        const service = new GamePlaybackService(simService)
+
+        service.load(
+            game,
+            playbackState,
+            {
+                pitchIntervalMs: 1
+            }
+        )
+
+        await waitFor(() => simService.simPitchCalls.length >= 1)
+
+        service.stop()
+
+        assert.equal(simService.simPitchCalls.length >= 1, true)
+    })
+
+    it("does not automatically continue a finished loaded game", async function () {
+        const sourceService = new GamePlaybackService(buildSimService())
+
+        const game = sourceService.start(buildCommand(), {
+            automatic: false,
+            seed: "test-seed"
+        })
+
+        const playbackState = sourceService.getPlaybackState()
+
+        game.isComplete = true
+        game.isFinished = true
+
+        const simService = buildSimService()
+        const service = new GamePlaybackService(simService)
+
+        service.load(
+            game,
+            playbackState,
+            {
+                pitchIntervalMs: 1
+            }
+        )
+
+        await delay(10)
+
+        assert.equal(simService.simPitchCalls.length, 0)
+    })
+
+
 
 })
 
@@ -584,6 +795,8 @@ function buildSimService(overrides: SimServiceOverrides = {}): SimServiceStub {
             }
 
             command.game.isStarted = true
+            command.game.isComplete = false
+            command.game.isFinished = false
 
             return command.game
         },
@@ -611,24 +824,11 @@ function buildSimService(overrides: SimServiceOverrides = {}): SimServiceStub {
 }
 
 
-function buildGame(options: {
-    id?: string
-    isStarted?: boolean
-    isComplete?: boolean
-    isFinished?: boolean
-} = {}): Game {
+function buildCommand(): StartGameCommand {
     return {
-        _id: options.id ?? "game",
-        isStarted: options.isStarted ?? false,
-        isComplete: options.isComplete ?? false,
-        isFinished: options.isFinished ?? false
-    } as Game
-}
-
-
-function buildCommand(game: Game): StartGameCommand {
-    return {
-        game,
+        game: {
+            _id: "source-game"
+        } as Game,
 
         home: {
             _id: "home"

@@ -1447,6 +1447,9 @@ class RunnerService {
 
         command.play.runner.events.push(...this.filterNonEvents(pitchEvents, undefined))
 
+        command.offense.runner1BId = command.play.runner.result.end.first
+        command.offense.runner2BId = command.play.runner.result.end.second
+        command.offense.runner3BId = command.play.runner.result.end.third
 
         this.validateInningOver( [].concat(command.halfInningRunnerEvents).concat(command.play.runner.events) )
 

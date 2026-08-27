@@ -6,6 +6,7 @@ interface PlayerRatingsRow {
     age: number;
     throws: any;
     hits: any;
+    overallRating: number;
     hittingRatings: any;
     pitchRatings: any;
 }

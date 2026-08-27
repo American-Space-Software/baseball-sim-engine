@@ -1,3 +1,4 @@
+import { PitchType } from "../../sim/service/enums.js";
 import type { Game, Pitch, Play } from "../../sim/service/interfaces.js";
 declare class PlayByPlayService {
     getPlayDescriptions(game: Game, play: Play): PlayDescription[];
@@ -22,7 +23,7 @@ declare class PlayByPlayService {
     private getShallowDeepDescription;
     private getPositionDescription;
     private getPositionDescriptionNoun;
-    private getPitchTypeFull;
+    getPitchTypeFull(pitchType: PitchType): string;
     private getGamePlayers;
     private getTeamName;
     private isBatterRunnerPrimaryEvent;
