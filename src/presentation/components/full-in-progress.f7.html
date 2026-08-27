@@ -100,7 +100,15 @@ export default (props, { $onMounted, $onBeforeUnmount, $, $f7, $update }) => {
 
         if (existing) return existing
 
-        return $f7.messages?.create({ el: ".game-messages" })
+        return $f7.messages?.create({
+            el: ".game-messages",
+            scrollMessages: true,
+            scrollMessagesOnEdge: true
+        })
+    }
+
+    const scrollInitialMessages = () => {
+        if (messagesComponent) messagesComponent.scroll(0)
     }
 
     const syncMessages = async (allMessages, showDelay) => {
@@ -195,11 +203,26 @@ export default (props, { $onMounted, $onBeforeUnmount, $, $f7, $update }) => {
 
         await syncGameUi(false)
 
-        if (messagesComponent) messagesComponent.scroll(0)
+        if (messagesComponent) {
+            messagesComponent.layout()
+            messagesComponent.scroll(0)
+        }
+
+        const page = $(".page[data-name='sim-game']")[0]
+
+        if (page) {
+            page.addEventListener("page:afterin", scrollInitialMessages, { once: true })
+        }
     })
 
     $onBeforeUnmount(() => {
         messageSyncVersion++
+
+        const page = $(".page[data-name='sim-game']")[0]
+
+        if (page) {
+            page.removeEventListener("page:afterin", scrollInitialMessages)
+        }
 
         closeAllPopups()
 
