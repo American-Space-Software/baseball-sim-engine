@@ -590,15 +590,19 @@
           <div class="list inset list-strong list-dividers-ios">
             <ul>
               <li>
-                ${gamePlaybackService.isAutomatic() ? $h`
-                  ${gamePlaybackService.isPaused() ? $h`
-                    <a href="#" class="list-button popover-close" @click=${resume}>Resume</a>
-                  ` : $h`
-                    <a href="#" class="list-button popover-close" @click=${pause}>Pause</a>
-                  `}
+                ${paused ? $h`
+                  <a href="#" class="list-button popover-close" @click=${resume}>Resume</a>
                 ` : $h`
-                  <a href="#" class="list-button popover-close" @click=${advance}>Next Pitch</a>
+                  <a href="#" class="list-button popover-close" @click=${pause}>Pause</a>
                 `}
+              </li>
+              ${paused ? $h`
+                <li>
+                  <a href="#" class="list-button popover-close" @click=${advance}>Next Pitch</a>
+                </li>
+              ` : $h` `}
+              <li>
+                <a href="#" class="list-button popover-close" @click=${simToEnd}>Sim to End</a>
               </li>
               ${getBoxscoreHref ? $h`
                 <li>
@@ -664,7 +668,7 @@
 
 <script>
 
-export default (props, { $h, $update }) => {
+export default (props, { $h }) => {
 
     let vm = props.vm
     let gameViewService = props.gameviewservice
@@ -673,7 +677,11 @@ export default (props, { $h, $update }) => {
     let getPlayerHref = props.getplayerhref
     let getBoxscoreHref = props.getboxscorehref
     let getGameLogHref = props.getgameloghref
-    let gamePlaybackService = props.gameplaybackservice
+    let paused = props.paused === true
+    let advanceCallback = props.advancecallback
+    let pauseCallback = props.pausecallback
+    let resumeCallback = props.resumecallback
+    let simToEndCallback = props.simtoendcallback
     let awayColor = props.awaycolor || "#0A3161"
     let homeColor = props.homecolor || "#B31942"
 
@@ -719,16 +727,28 @@ export default (props, { $h, $update }) => {
         return "F"
     }
 
-    const advance = () => gamePlaybackService.advance()
+    const advance = async () => {
+        if (advanceCallback) {
+            await advanceCallback()
+        }
+    }
 
     const pause = async () => {
-        gamePlaybackService.pause()
-        await $update()
+        if (pauseCallback) {
+            await pauseCallback()
+        }
     }
 
     const resume = async () => {
-        gamePlaybackService.resume()
-        await $update()
+        if (resumeCallback) {
+            await resumeCallback()
+        }
+    }
+
+    const simToEnd = async () => {
+        if (simToEndCallback) {
+            await simToEndCallback()
+        }
     }
 
     return $render

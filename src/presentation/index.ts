@@ -72,7 +72,6 @@ import LineScoreComponent from "./components/linescore.f7.html"
 import GameLogComponent from "./components/gamelog.f7.html"
 import GameStateComponent from "./components/game-state.f7.html"
 import BoxscoreComponent from "./components/boxscore.f7.html"
-import GameCompletedComponent from "./components/full-complete.f7.html"
 import GameInProgressComponent from "./components/full-in-progress.f7.html"
 
 
@@ -109,7 +108,6 @@ export {
     GameLogComponent,
     GameStateComponent,
     BoxscoreComponent,
-    GameCompletedComponent,
     GameInProgressComponent
 }
 

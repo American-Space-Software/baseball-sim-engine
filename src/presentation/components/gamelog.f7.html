@@ -2,121 +2,117 @@
 
   <div class="game-log">
 
-    <div class="fixed-width-content center">
+    <div class="list cards-list">
 
-      <div class="list cards-list">
+      <ul>
 
-        <ul>
+        ${playByPlay.filter(entry => entry.play?.result !== undefined).map(entry => $h`
 
-          ${playByPlay.filter(entry => entry.play?.result !== undefined).map(entry => $h`
+          <li class="card recap card-header-divider card-outline">
 
-            <li class="card recap card-header-divider card-outline">
+            <div class="card-header">
 
-              <div class="card-header">
+              ${entry.play.inningTop ? "Top of" : "Bottom of"} ${gameViewService.getNumberWithOrdinal(entry.play.inningNum)} Inning
 
-                ${entry.play.inningTop ? "Top of" : "Bottom of"} ${gameViewService.getNumberWithOrdinal(entry.play.inningNum)} Inning
+              <div class="diamond-wrapper">
 
-                <div class="diamond-wrapper">
+                <div class="diamond">
 
-                  <div class="diamond">
+                  <div class="first base ${entry.play.runner?.result?.end?.first ? "runner" : ""}"></div>
 
-                    <div class="first base ${entry.play.runner?.result?.end?.first ? "runner" : ""}"></div>
+                  <div class="second base ${entry.play.runner?.result?.end?.second ? "runner" : ""}"></div>
 
-                    <div class="second base ${entry.play.runner?.result?.end?.second ? "runner" : ""}"></div>
-
-                    <div class="third base ${entry.play.runner?.result?.end?.third ? "runner" : ""}"></div>
-
-                  </div>
+                  <div class="third base ${entry.play.runner?.result?.end?.third ? "runner" : ""}"></div>
 
                 </div>
 
               </div>
 
-              <div class="card-content card-content-padding play-description">
+            </div>
 
-                <div class="chip result">
+            <div class="card-content card-content-padding play-description">
 
-                  <div class="chip-label">${entry.play.result}</div>
+              <div class="chip result">
 
-                </div>
+                <div class="chip-label">${entry.play.result}</div>
 
-                ${entry.descriptions.map(description => $h`
+              </div>
 
-                  <div class="message message-received ${description.type === "RESULT" ? "main" : ""}">
+              ${entry.descriptions.map(description => $h`
 
-                    <div class="message-content">
+                <div class="message message-received ${description.type === "RESULT" ? "main" : ""}">
 
-                      ${description.meta?.pitch ? $h`
+                  <div class="message-content">
 
-                        <div class="message-header">
+                    ${description.meta?.pitch ? $h`
 
-                          ${description.type === "RESULT"
-                            ? gameViewService.getInPlayHeader(description.meta.pitch)
-                            : gameViewService.getPitchHeader(description.meta.pitch)}
+                      <div class="message-header">
 
-                        </div>
-
-                      ` : $h``}
-
-                      <div class="message-bubble">
-
-                        <div class="message-text">${description.text}</div>
+                        ${description.type === "RESULT"
+                          ? gameViewService.getInPlayHeader(description.meta.pitch)
+                          : gameViewService.getPitchHeader(description.meta.pitch)}
 
                       </div>
+
+                    ` : ` `}
+
+                    <div class="message-bubble">
+
+                      <div class="message-text">${description.text}</div>
 
                     </div>
 
                   </div>
 
-                `)}
-
-                <div class="info-wrapper">
-
-                  <span class="label">Outs</span>
-
-                  ${gameViewService.getBalls(3, entry.play.count?.end?.outs ?? 0)}
-
                 </div>
 
-                ${entry.play.credits?.length > 0 ? $h`
+              `)}
 
-                  <div class="defense">
+              <div class="info-wrapper">
 
-                    <strong>Defense</strong>
+                <span class="label">Outs</span>
 
-                    <ul>
-
-                      ${entry.play.credits.map(credit => {
-
-                        const player = gamePlayers[credit._id]
-
-                        return $h`
-
-                          <li>
-
-                            ${player ? `${player.currentPosition} ${player.fullName}` : credit._id} - ${credit.type}
-
-                          </li>
-
-                        `
-
-                      })}
-
-                    </ul>
-
-                  </div>
-
-                ` : $h``}
+                ${gameViewService.getBalls(3, entry.play.count?.end?.outs ?? 0)}
 
               </div>
 
-            </li>
+              ${entry.play.credits?.length > 0 ? $h`
 
-          `)}
+                <div class="defense">
 
-        </ul>
+                  <strong>Defense</strong>
 
-      </div>
+                  <ul>
+
+                    ${entry.play.credits.map(credit => {
+
+                      const player = gamePlayers[credit._id]
+
+                      return $h`
+
+                        <li>
+
+                          ${player ? `${player.currentPosition} ${player.fullName}` : credit._id} - ${credit.type}
+
+                        </li>
+
+                      `
+
+                    })}
+
+                  </ul>
+
+                </div>
+
+              ` : ` `}
+
+            </div>
+
+          </li>
+
+        `)}
+
+      </ul>
 
     </div>
 
@@ -124,16 +120,15 @@
 
 </template>
 
-
 <style>
+
 
 
 </style>
 
-
 <script>
 
-export default (props) => {
+export default props => {
 
     let playByPlay = props.playbyplay ?? []
     let gamePlayers = props.gameplayers ?? {}
@@ -142,4 +137,5 @@ export default (props) => {
     return $render
 
 }
+
 </script>
