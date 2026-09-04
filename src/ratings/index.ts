@@ -25,6 +25,10 @@ import { PitchEnvironmentTargetService } from "./service/pitch-environment-targe
 import { PlayerImportService } from "../importer/service/player-import-service.js"
 import { StatAccumulatorService } from "../importer/service/stat-accumulator-service.js"
 import { StatClassificationService } from "../importer/service/stat-classification-service.js"
+import { DownloaderService } from "./service/downloader-service.js"
+import { BaseballSavantService } from "./service/baseball-savant-service.js"
+import { TeamRatingService } from "./service/team-rating-service.js"
+import { TeamRatingRepository } from "./repository/team-rating-repository.js"
 
 const firstRatingSeason = 2008
 const defaultBaseDataDir = process.env.DATA_DIR ?? "data"
@@ -39,6 +43,15 @@ const playerStatRepository = new PlayerStatRepository(database)
 const pitcherAppearanceRepository = new PitcherAppearanceRepository(defaultBaseDataDir)
 const pitchEnvironmentTargetRepository = new PitchEnvironmentTargetRepository(defaultBaseDataDir)
 
+const downloaderService = new DownloaderService(
+    defaultBaseDataDir,
+    1000 * 60 * 60
+)
+
+const baseballSavantService = new BaseballSavantService(
+    downloaderService
+)
+
 const statService = new StatService()
 const playerStatService = new PlayerStatService(statService, playerStatRepository)
 const downloadService = new DownloadService(schemaService, playerRatingInputRepository, playerRatingSeasonInputRepository, playerStatRepository)
@@ -50,19 +63,24 @@ const playerImportService = new PlayerImportService(defaultBaseDataDir, statAccu
 
 const pitchEnvironmentTargetService = new PitchEnvironmentTargetService(
     pitchEnvironmentTargetRepository,
-    playerImportService
+    playerImportService,
+    downloadService
 )
 
 const mlbRosterService = new MlbRosterService()
 const pitcherAppearanceService = new PitcherAppearanceService(pitcherAppearanceRepository)
 const pitcherWorkloadService = new PitcherWorkloadService(pitcherAppearanceService)
 const gameLineupService = new GameLineupService(mlbRosterService, pitcherWorkloadService)
+const teamRatingRepository = new TeamRatingRepository(defaultBaseDataDir)
+const teamRatingService = new TeamRatingService(teamRatingRepository)
 const mlbGameBundleService = new MlbGameBundleService(
     mlbRosterService,
     gameLineupService,
     playerRatingService,
     pitchEnvironmentTargetService,
-    playerStatService
+    playerStatService,
+    baseballSavantService,
+    teamRatingService
 )
 
 async function exportPlayerRatings(season: number, baseDataDir = defaultBaseDataDir): Promise<any[]> {

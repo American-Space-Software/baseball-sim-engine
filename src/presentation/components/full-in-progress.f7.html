@@ -82,12 +82,17 @@ import Boxscore from "./boxscore.f7.html"
 import GameState from "./game-state.f7.html"
 import LineScore from "./linescore.f7.html"
 
+import {
+    BoxscoreService
+} from "../services/boxscore-service.js"
+
+const boxscoreService = new BoxscoreService()
+
 export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $update }) => {
 
     let gameWebService = props.gamewebservice
     let gameViewService = props.gameviewservice
     let gameMessageService = props.gamemessageservice
-    let boxscoreService = props.boxscoreservice
     let game = props.game
     let fieldImageUrl = props.fieldimageurl
     let getPlayerImageUrl = props.getplayerimageurl
@@ -99,6 +104,7 @@ export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $upda
     let pauseCallback = props.pausecallback
     let resumeCallback = props.resumecallback
     let simToEndCallback = props.simtoendcallback
+    let registerPageAfterInCallback = props.registerpageafterincallback
 
     let gameViewModel = game ? gameWebService.getGameViewModel(game) : undefined
     let messagesComponent
@@ -166,6 +172,12 @@ export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $upda
         })
     }
 
+    const scrollMessagesToBottom = () => {
+        if (messagesComponent) {
+            messagesComponent.scroll(0)
+        }
+    }
+
     const syncMessages = async (allMessages, showDelay) => {
         if (!messagesComponent) {
             return
@@ -187,15 +199,18 @@ export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $upda
                 messagesComponent.clear()
             }
 
+            if (!showDelay) {
+                messagesComponent.addMessages(sync.messages)
+                return
+            }
+
             for (const message of sync.messages) {
                 if (version !== messageSyncVersion) {
                     return
                 }
 
-                if (showDelay) {
-                    messagesComponent.showTyping()
-                    await delay(500)
-                }
+                messagesComponent.showTyping()
+                await delay(500)
 
                 if (version !== messageSyncVersion) {
                     return
@@ -207,6 +222,8 @@ export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $upda
         })
 
         await messageSyncQueue
+
+        scrollMessagesToBottom()
     }
 
     const syncGameUi = async showDelay => {
@@ -228,6 +245,7 @@ export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $upda
         pauseCallback = props.pausecallback
         resumeCallback = props.resumecallback
         simToEndCallback = props.simtoendcallback
+        registerPageAfterInCallback = props.registerpageafterincallback
 
         if (props.game === syncedGame) {
             return
@@ -241,7 +259,6 @@ export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $upda
     }
 
     const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
-    const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
 
     $onMounted(async () => {
         if (!game) {
@@ -250,16 +267,14 @@ export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $upda
 
         updateGameViewModel()
         await $update()
-        await nextFrame()
-        await nextFrame()
 
         messagesComponent = getMessagesComponent()
 
-        await syncGameUi(false)
-
-        if (messagesComponent) {
-            messagesComponent.scroll(0)
+        if (registerPageAfterInCallback) {
+            registerPageAfterInCallback(scrollMessagesToBottom)
         }
+
+        await syncGameUi(false)
     })
 
     $onUpdated(async () => {
@@ -268,6 +283,11 @@ export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $upda
 
     $onBeforeUnmount(() => {
         messageSyncVersion++
+
+        if (registerPageAfterInCallback) {
+            registerPageAfterInCallback(undefined)
+        }
+
         closeAllPopups()
     })
 

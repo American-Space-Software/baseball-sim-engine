@@ -51,18 +51,6 @@ import type {
     GamePlaybackUpdate
 } from "./services/game-playback-service.js"
 
-import {
-    GameSimulationService
-} from "./services/game-simulation-service.js"
-
-import type {
-    SimOptions,
-    SimPartialResult,
-    SimPartialSummary,
-    SimPlayerSummary,
-    SimResult,
-    SimSummary
-} from "./services/game-simulation-service.js"
 
 import {
     TeamComponentService
@@ -101,7 +89,6 @@ export {
     BoxscoreService,
     GameMessageService,
     GamePlaybackService,
-    GameSimulationService,
     TeamComponentService,
 
     LineScoreComponent,
@@ -131,12 +118,5 @@ export type {
     GamePlaybackComplete,
     GamePlaybackOptions,
     GamePlaybackState,
-    GamePlaybackUpdate,
-
-    SimOptions,
-    SimPartialResult,
-    SimPartialSummary,
-    SimPlayerSummary,
-    SimResult,
-    SimSummary
+    GamePlaybackUpdate
 }

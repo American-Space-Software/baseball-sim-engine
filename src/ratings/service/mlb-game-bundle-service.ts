@@ -1,5 +1,6 @@
 import { queries } from "baseball-database"
-import type { PitchEnvironmentTarget, Player } from "../../sim/service/interfaces.js"
+import type { PitchEnvironmentTarget, Player, StadiumEnvironment } from "../../sim/service/interfaces.js"
+import { BaseballSavantService } from "./baseball-savant-service.js"
 import { GameLineupService } from "./game-lineup-service.js"
 import type { TeamBundle } from "./game-lineup-service.js"
 import { MlbRosterService } from "./mlb-roster-service.js"
@@ -8,10 +9,14 @@ import { PitchEnvironmentTargetService } from "./pitch-environment-target-servic
 import { PlayerRatingService } from "./player-rating-service.js"
 import { PlayerStatService } from "./player-stat-service.js"
 import type { PlayerStats } from "./player-stat-service.js"
+import { TeamRatingService } from "./team-rating-service.js"
+import type { TeamRating } from "../repository/team-rating-repository.js"
+
+const TEAM_RATING_ADVANTAGE_PER_100_RATING_POINTS = 0.00
 
 class MlbGameBundleService {
 
-    public constructor(private readonly mlbRosterService: MlbRosterService, private readonly gameLineupService: GameLineupService, private readonly playerRatingService: PlayerRatingService, private readonly pitchEnvironmentTargetService: PitchEnvironmentTargetService, private readonly playerStatService: PlayerStatService) {}
+    public constructor(private readonly mlbRosterService: MlbRosterService, private readonly gameLineupService: GameLineupService, private readonly playerRatingService: PlayerRatingService, private readonly pitchEnvironmentTargetService: PitchEnvironmentTargetService, private readonly playerStatService: PlayerStatService, private readonly baseballSavantService: BaseballSavantService, private readonly teamRatingService: TeamRatingService) {}
 
     public async build(gameDate: string): Promise<MlbDailyBundle> {
         this.validateGameDate(gameDate)
@@ -27,10 +32,16 @@ class MlbGameBundleService {
 
         await this.mlbRosterService.syncRosters(gameDate)
 
-        const [teams, pitchEnvironmentTarget] = await Promise.all([
+        const [teams, pitchEnvironmentTarget, teamRatings] = await Promise.all([
             this.mlbRosterService.getTeams(season),
-            this.pitchEnvironmentTargetService.getForDate(gameDate)
+            this.pitchEnvironmentTargetService.getForDate(gameDate),
+            this.teamRatingService.getRatingsForDate(gameDate)
         ])
+
+        const stadiumEnvironments = await this.baseballSavantService.getStadiumEnvironments(
+            season,
+            teams
+        )
 
         const games = (scheduleDate?.games ?? []).map(scheduledGame => {
             const gamePk = Number(scheduledGame?.gamePk)
@@ -82,6 +93,9 @@ class MlbGameBundleService {
                     throw new Error(`Roster for ${game.homeTeam.abbrev} was not found for game ${game.gamePk}.`)
                 }
 
+                const awayTeamRating = teamRatings.teams[String(game.awayTeam.id)]
+                const homeTeamRating = teamRatings.teams[String(game.homeTeam.id)]
+
                 const [away, home] = await Promise.all([
                     this.gameLineupService.build(gameDate, game.awayTeam, awayRoster, ratings, game.gamePk),
                     this.gameLineupService.build(gameDate, game.homeTeam, homeRoster, ratings, game.gamePk)
@@ -89,8 +103,13 @@ class MlbGameBundleService {
 
                 return {
                     gamePk: game.gamePk,
-                    away: this.addPlayerStats(away, season, statsByPlayerId),
-                    home: this.addPlayerStats(home, season, statsByPlayerId)
+                    away: this.addTeamRating(this.addPlayerStats(away, season, statsByPlayerId), awayTeamRating),
+                    home: this.addTeamRating(this.addPlayerStats(home, season, statsByPlayerId), homeTeamRating),
+                    homeFieldAdvantage: this.getHomeFieldAdvantage(
+                        pitchEnvironmentTarget,
+                        awayTeamRating,
+                        homeTeamRating
+                    )
                 }
             })
         )
@@ -98,6 +117,7 @@ class MlbGameBundleService {
         return {
             date: gameDate,
             pitchEnvironmentTarget,
+            stadiumEnvironments,
             games: bundles
         }
     }
@@ -115,6 +135,23 @@ class MlbGameBundleService {
             ...bundle,
             playerStats: bundle.players.map(player => this.buildPlayerStats(player, season, statsByPlayerId.get(player._id)))
         }
+    }
+
+    private addTeamRating(bundle: MlbTeamBundle, teamRating: TeamRating | undefined): MlbTeamBundle {
+        return {
+            ...bundle,
+            teamRating
+        }
+    }
+
+    private getHomeFieldAdvantage(_pitchEnvironmentTarget: PitchEnvironmentTarget, awayTeamRating: TeamRating | undefined, homeTeamRating: TeamRating | undefined): number {
+        if (!awayTeamRating || !homeTeamRating) {
+            return 0
+        }
+
+        const ratingDifference = homeTeamRating.rating - awayTeamRating.rating
+
+        return ratingDifference / 100 * TEAM_RATING_ADVANTAGE_PER_100_RATING_POINTS
     }
 
     private buildPlayerStats(player: Player, season: number, stats?: PlayerStats): MlbPlayerStats {
@@ -199,17 +236,20 @@ interface MlbPlayerStats {
 
 interface MlbTeamBundle extends TeamBundle {
     playerStats: MlbPlayerStats[]
+    teamRating?: TeamRating
 }
 
 interface MlbGameBundle {
     gamePk: number
     away: MlbTeamBundle
     home: MlbTeamBundle
+    homeFieldAdvantage: number
 }
 
 interface MlbDailyBundle {
     date: string
     pitchEnvironmentTarget: PitchEnvironmentTarget
+    stadiumEnvironments: StadiumEnvironment[]
     games: MlbGameBundle[]
 }
 

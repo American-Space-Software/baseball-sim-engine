@@ -1678,25 +1678,43 @@ class FallbackGameLineupProvider extends BaseGameLineupProvider {
                 remainingPositions
             )
 
-            const player = this.findBestPositionPlayer(
+            let player = this.findBestPositionPlayer(
                 players,
                 used,
                 position
             )
 
             if (!player) {
-                const availablePlayers = players
+                player = players
                     .filter(candidate =>
                         !this.isPitcher(candidate) &&
                         !used.has(candidate._id)
                     )
-                    .map(candidate =>
-                        `${candidate._id}:${candidate.primaryPosition}`
-                    )
-                    .join(", ")
+                    .map(candidate => ({
+                        player: candidate,
+                        remainingFits: remainingPositions
+                            .filter(remainingPosition =>
+                                remainingPosition !== position
+                            )
+                            .filter(remainingPosition =>
+                                this.playerCanPlay(
+                                    candidate,
+                                    remainingPosition
+                                )
+                            )
+                            .length
+                    }))
+                    .sort((a, b) =>
+                        a.remainingFits - b.remainingFits ||
+                        a.player._id.localeCompare(
+                            b.player._id
+                        )
+                    )[0]?.player
+            }
 
+            if (!player) {
                 throw new Error(
-                    `Unable to fill position ${position}. Remaining position players: ${availablePlayers}`
+                    `Unable to fill position ${position} for ${mlbTeam.abbrev}.`
                 )
             }
 

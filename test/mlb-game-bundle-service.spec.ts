@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, it } from "mocha"
 
 import { queries } from "baseball-database"
 
-import type { PitchEnvironmentTarget } from "../src/sim/service/interfaces.js"
+import type { PitchEnvironmentTarget, StadiumEnvironment } from "../src/sim/service/interfaces.js"
 
 import { MlbGameBundleService } from "../src/ratings/service/mlb-game-bundle-service.js"
 
@@ -16,6 +16,8 @@ import type { TeamBundle } from "../src/ratings/service/game-lineup-service.js"
 import type { MlbRosterEntry, MlbTeam } from "../src/ratings/service/mlb-roster-service.js"
 
 import type { GeneratedPlayerRatings } from "../src/ratings/service/player-rating-service.js"
+
+import type { TeamRatingSnapshot } from "../src/ratings/repository/team-rating-repository.js"
 
 class MlbGameBundleServiceTestHarness {
 
@@ -48,6 +50,57 @@ class MlbGameBundleServiceTestHarness {
         avgRating: 100,
         season: 2026
     } as PitchEnvironmentTarget
+
+    public readonly teamRatings: TeamRatingSnapshot = {
+        date: "2026-07-08",
+        teams: {
+            "134": {
+                rating: 1510,
+                rd: 24,
+                vol: 0.06
+            },
+            "143": {
+                rating: 1490,
+                rd: 24,
+                vol: 0.06
+            },
+            "147": {
+                rating: 1520,
+                rd: 23,
+                vol: 0.06
+            },
+            "111": {
+                rating: 1480,
+                rd: 23,
+                vol: 0.06
+            }
+        }
+    }
+
+    public readonly stadiumEnvironments: StadiumEnvironment[] = [
+        {
+            team: "PIT",
+            venue: "PNC Park",
+            yearRange: "2024-2026",
+            singles: 1.01,
+            doubles: 1.02,
+            triples: 1.03,
+            hr: 0.97,
+            walks: 0.99,
+            strikeouts: 1.01
+        },
+        {
+            team: "PHI",
+            venue: "Citizens Bank Park",
+            yearRange: "2024-2026",
+            singles: 1.00,
+            doubles: 0.98,
+            triples: 0.95,
+            hr: 1.06,
+            walks: 1.01,
+            strikeouts: 0.99
+        }
+    ]
 
     public readonly buildCalls: {
         gameDate: string
@@ -210,6 +263,28 @@ class MlbGameBundleServiceTestHarness {
             this.pitchEnvironmentTarget
     }
 
+    public readonly baseballSavantService = {
+        getStadiumEnvironments: async (_season: number, teams: MlbTeam[]): Promise<StadiumEnvironment[]> => {
+            assert.equal(
+                teams,
+                this.teams
+            )
+
+            return this.stadiumEnvironments
+        }
+    }
+
+    public readonly teamRatingService = {
+        getRatingsForDate: async (gameDate: string): Promise<TeamRatingSnapshot> => {
+            assert.equal(
+                gameDate,
+                this.gameDate
+            )
+
+            return this.teamRatings
+        }
+    }
+
     public createBundle(team: MlbTeam): TeamBundle {
         return {
             team: {
@@ -231,7 +306,15 @@ class MlbGameBundleServiceTestHarness {
     }
 
     public createService(): MlbGameBundleService {
-        return new MlbGameBundleService(this.mlbRosterService as any, this.gameLineupService as any, this.playerRatingService as any, this.pitchEnvironmentTargetService as any, this.playerStatService as any)
+        return new MlbGameBundleService(
+            this.mlbRosterService as any,
+            this.gameLineupService as any,
+            this.playerRatingService as any,
+            this.pitchEnvironmentTargetService as any,
+            this.playerStatService as any,
+            this.baseballSavantService as any,
+            this.teamRatingService as any
+        )
     }
 
 }
@@ -348,6 +431,8 @@ describe("MlbGameBundleService", function () {
 
         assert.deepEqual(result.pitchEnvironmentTarget, harness.pitchEnvironmentTarget)
 
+        assert.deepEqual(result.stadiumEnvironments, harness.stadiumEnvironments)
+
         assert.equal(result.games.length, 2)
 
         assert.equal(result.games[0].gamePk, 1001)
@@ -356,11 +441,16 @@ describe("MlbGameBundleService", function () {
 
         assert.equal(result.games[0].home.team._id, "143")
 
+        assert.deepEqual(result.games[0].away.teamRating, harness.teamRatings.teams["134"])
+        assert.deepEqual(result.games[0].home.teamRating, harness.teamRatings.teams["143"])
         assert.equal(result.games[1].gamePk, 1002)
 
         assert.equal(result.games[1].away.team._id, "147")
 
         assert.equal(result.games[1].home.team._id, "111")
+
+        assert.deepEqual(result.games[1].away.teamRating, harness.teamRatings.teams["147"])
+        assert.deepEqual(result.games[1].home.teamRating, harness.teamRatings.teams["111"])
     })
 
     it("loads every game roster before building ratings", async function () {
@@ -567,6 +657,8 @@ describe("MlbGameBundleService", function () {
 
         assert.deepEqual(result.pitchEnvironmentTarget, harness.pitchEnvironmentTarget)
 
+        assert.deepEqual(result.stadiumEnvironments, harness.stadiumEnvironments)
+
         assert.deepEqual(result.games, [])
 
         assert.equal(harness.buildCalls.length, 0)
@@ -631,7 +723,9 @@ describe("MlbGameBundleService", function () {
                     throw new Error("Pitch environment target unavailable.")
                 }
             } as any,
-            harness.playerStatService as any
+            harness.playerStatService as any,
+            harness.baseballSavantService as any,
+            harness.teamRatingService as any
         )
 
         queries.getSchedule = (() => ({
@@ -643,6 +737,58 @@ describe("MlbGameBundleService", function () {
         })) as unknown as typeof queries.getSchedule
 
         await assert.rejects(failingService.build(harness.gameDate), /Pitch environment target unavailable/)
+    })
+
+    it("throws when stadium environments cannot be loaded", async function () {
+        const failingService = new MlbGameBundleService(
+            harness.mlbRosterService as any,
+            harness.gameLineupService as any,
+            harness.playerRatingService as any,
+            harness.pitchEnvironmentTargetService as any,
+            harness.playerStatService as any,
+            {
+                getStadiumEnvironments: async (_season: number, _teams: MlbTeam[]) => {
+                    throw new Error("Stadium environments unavailable.")
+                }
+            } as any,
+            harness.teamRatingService as any
+        )
+
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: []
+            }
+        })) as unknown as typeof queries.getSchedule
+
+        await assert.rejects(failingService.build(harness.gameDate), /Stadium environments unavailable/)
+    })
+
+    it("throws when team ratings cannot be loaded", async function () {
+        const failingService = new MlbGameBundleService(
+            harness.mlbRosterService as any,
+            harness.gameLineupService as any,
+            harness.playerRatingService as any,
+            harness.pitchEnvironmentTargetService as any,
+            harness.playerStatService as any,
+            harness.baseballSavantService as any,
+            {
+                getRatingsForDate: async () => {
+                    throw new Error("Team ratings unavailable.")
+                }
+            } as any
+        )
+
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: []
+            }
+        })) as unknown as typeof queries.getSchedule
+
+        await assert.rejects(failingService.build(harness.gameDate), /Team ratings unavailable/)
     })
 
 })

@@ -367,7 +367,10 @@ class GameViewService {
             return ""
         }
 
-        return `${this.getPitchResultDescription(pitch)} - ${pitch.count.balls}-${pitch.count.strikes} - ${pitch.quality.velocity?.toFixed(1)} MPH ${this.playByPlayService.getPitchTypeFull(pitch.type)}`
+        const balls = pitch.count?.balls ?? 0
+        const strikes = pitch.count?.strikes ?? 0
+
+        return `${this.getPitchResultDescription(pitch)} - ${balls}-${strikes} - ${pitch.quality.velocity?.toFixed(1)} MPH ${this.playByPlayService.getPitchTypeFull(pitch.type)}`
     }
 
     public getInPlayHeader(pitch: Pitch): string {

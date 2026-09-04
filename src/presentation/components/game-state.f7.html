@@ -590,13 +590,13 @@
           <div class="list inset list-strong list-dividers-ios">
             <ul>
               <li>
-                ${paused ? $h`
+                ${props.paused === true ? $h`
                   <a href="#" class="list-button popover-close" @click=${resume}>Resume</a>
                 ` : $h`
                   <a href="#" class="list-button popover-close" @click=${pause}>Pause</a>
                 `}
               </li>
-              ${paused ? $h`
+              ${props.paused === true ? $h`
                 <li>
                   <a href="#" class="list-button popover-close" @click=${advance}>Next Pitch</a>
                 </li>
@@ -677,7 +677,6 @@ export default (props, { $h }) => {
     let getPlayerHref = props.getplayerhref
     let getBoxscoreHref = props.getboxscorehref
     let getGameLogHref = props.getgameloghref
-    let paused = props.paused === true
     let advanceCallback = props.advancecallback
     let pauseCallback = props.pausecallback
     let resumeCallback = props.resumecallback
