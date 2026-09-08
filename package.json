@@ -84,7 +84,7 @@
     "framework7": "9.1.2"
   },
   "dependencies": {
-    "baseball-database": "1.2.2",
+    "baseball-database": "1.2.4",
     "better-sqlite3": "13.0.2",
     "glicko2": "1.2.2"
   }

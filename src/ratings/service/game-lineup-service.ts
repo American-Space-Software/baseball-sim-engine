@@ -201,17 +201,12 @@ class GameLineupService {
             )
         }
 
-        const fullName =
-            entry.fullName ||
-            player.fullName ||
-            `${player.firstName} ${player.lastName}`.trim()
-
         return {
-            _id: String(rated.playerId),
+            _id: String(entry.playerId),
             firstName: player.firstName,
             lastName: player.lastName,
-            fullName,
-            displayName: fullName,
+            fullName: player.fullName,
+            displayName: player.fullName,
             primaryPosition: entry.position,
             throws: this.toHandedness(
                 player.throws

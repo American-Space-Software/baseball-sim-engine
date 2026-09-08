@@ -16,7 +16,7 @@ let gamePlayers = new GamePlayers()
 let runnerService = new RunnerService(simRolls)
 let gameInfo = new GameInfo(gamePlayers)
 let substitutionService = new SubstitutionService()
-        
+let statService = new StatService()
 
 let defaultPitchEnvironmentTarget = defaultPitchEnvironmentTargetJson as unknown as PitchEnvironmentTarget
 let simService = new SimService(rollChartService, simRolls, runnerService, gameInfo, substitutionService, defaultPitchEnvironmentTarget)
@@ -24,6 +24,7 @@ let simService = new SimService(rollChartService, simRolls, runnerService, gameI
 
 export {
   simService,
+  statService,
   SimService,
   StatService,
   RollChartService,
