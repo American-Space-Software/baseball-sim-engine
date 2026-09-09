@@ -64,16 +64,12 @@ class PlayerRatingService {
         const startedAt = Date.now()
 
         const selectedPlayerIds = this.getSelectedPlayerIds(season, filterPlayerIds)
-
         const storedRatings = await this.playerRatingsRepository.read(gameDate)
-
         const ratingsByPlayerId = new Map(storedRatings.map(rating => [ String(rating.playerId), rating ]))
-
         const missingPlayerIds = new Set(Array.from(selectedPlayerIds).filter(playerId => !ratingsByPlayerId.has(playerId)))
 
         if (missingPlayerIds.size > 0) {
             const generatedRatings = this.buildGeneratedPlayerRatingsForDate(season, gameDate, pitchEnvironment, missingPlayerIds)
-
             for (const playerId of missingPlayerIds) {
                 const generated =
                     generatedRatings.get(playerId) ??
@@ -81,10 +77,9 @@ class PlayerRatingService {
 
                 ratingsByPlayerId.set(playerId, this.buildPlayerRatingsRow(gameDate, generated))
             }
-
-            await this.playerRatingsRepository.write(gameDate, Array.from(ratingsByPlayerId.values()).sort((a, b) => String(a.playerId).localeCompare(String(b.playerId))))
+            const sortedRatings = Array.from(ratingsByPlayerId.values()).sort((a, b) => String(a.playerId).localeCompare(String(b.playerId)))
+            await this.playerRatingsRepository.write(gameDate, sortedRatings)
         }
-
         const ratings = new Map<string, GeneratedPlayerRatings>()
 
         for (const playerId of selectedPlayerIds) {
@@ -353,9 +348,7 @@ class PlayerRatingService {
         console.log(
             `Initializing rating inputs for ${selectedPlayerIds.size} players through ${gameDate}.`
         )
-
         state.careerInputs = this.getCareerInputs(state.season, gameDate, selectedPlayerIds)
-
         state.last162Inputs = this.toInputMap(this.playerRatingInputRepository.getLastAppearances(gameDate, this.getLast162Window().maximumAppearances ?? 162, selectedPlayerIds))
 
         state.recentInputsByWindow.clear()
@@ -380,7 +373,6 @@ class PlayerRatingService {
     private advanceState(state: PlayerRatingState, gameDate: string, selectedPlayerIds: Set<string>): Set<string> {
         const startedAt = Date.now()
         const affectedPlayerIds = this.loadMissingPlayers(state, gameDate, selectedPlayerIds)
-
         const addedInputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(state.currentDate, gameDate, selectedPlayerIds))
 
         for (const [playerId, addedInput] of addedInputs) {
@@ -438,9 +430,7 @@ class PlayerRatingService {
         if (missingPlayerIds.size === 0) {
             return missingPlayerIds
         }
-
         const careerInputs = this.getCareerInputs(state.season, gameDate, missingPlayerIds)
-
         const last162Inputs = this.toInputMap(this.playerRatingInputRepository.getLastAppearances(gameDate, this.getLast162Window().maximumAppearances ?? 162, missingPlayerIds))
 
         this.replaceInputs(state.careerInputs, missingPlayerIds, careerInputs)
@@ -465,9 +455,7 @@ class PlayerRatingService {
     }
 
     private getCareerInputs(season: number, gameDate: string, playerIds: Set<string>): Map<string, PlayerRatingInput> {
-        const startedAt = Date.now()
         const careerInputs = new Map<string, PlayerRatingInput>()
-
         const seasonInputs = this.playerRatingSeasonInputRepository.getBeforeSeason(season, playerIds)
 
         for (const seasonInput of seasonInputs) {
@@ -475,7 +463,6 @@ class PlayerRatingService {
 
             careerInputs.set(seasonInput.playerId, existing ? this.addPlayerRatingInputs(existing, seasonInput.data) : structuredClone(seasonInput.data))
         }
-
         const currentSeasonInputs = this.playerRatingInputRepository.getForDateRange(
             `${season}-01-01`,
             gameDate,

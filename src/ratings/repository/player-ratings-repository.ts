@@ -24,7 +24,12 @@ class PlayerRatingsRepository {
         const filePath = this.getFilePath(gameDate)
 
         try {
-            const parsed = JSON.parse(await fs.promises.readFile(filePath, "utf8"))
+            const parsed = JSON.parse(
+                await fs.promises.readFile(
+                    filePath,
+                    "utf8"
+                )
+            )
 
             if (!Array.isArray(parsed)) {
                 throw new Error(`Historical player ratings file is not an array: ${filePath}`)

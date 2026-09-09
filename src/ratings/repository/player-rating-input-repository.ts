@@ -286,7 +286,10 @@ class PlayerRatingInputRepository {
                     player_rating_inputs.game_pk,
                     player_rating_inputs.player_id
                 FROM player_rating_inputs
+                INNER JOIN games
+                    ON games.game_pk = player_rating_inputs.game_pk
                 WHERE player_rating_inputs.game_date < @endDateExclusive
+                    AND games.game_type = 'R'
             `,
             {
                 endDateExclusive
@@ -300,63 +303,90 @@ class PlayerRatingInputRepository {
             return []
         }
 
-        const parameters: Record<string, string | number> = {
-            endDateExclusive,
-            appearanceCount
-        }
-
-        let requestedPlayers = ""
-
-        if (filterPlayerIds && filterPlayerIds.size > 0) {
-            parameters.playerIds = JSON.stringify(
-                Array.from(
-                    filterPlayerIds
-                ).map(Number)
+        const playerIds = filterPlayerIds && filterPlayerIds.size > 0
+            ? Array.from(
+                filterPlayerIds
+            ).map(Number)
+            : (
+                this.database.prepare(`
+                    SELECT DISTINCT
+                        player_rating_inputs.player_id AS playerId
+                    FROM player_rating_inputs
+                    INNER JOIN games
+                        ON games.game_pk = player_rating_inputs.game_pk
+                    WHERE player_rating_inputs.game_date < @endDateExclusive
+                        AND games.game_type = 'R'
+                    ORDER BY player_rating_inputs.player_id
+                `).all({
+                    endDateExclusive
+                }) as Array<{
+                    playerId: number
+                }>
+            ).map(row =>
+                row.playerId
             )
 
-            requestedPlayers = `
-                requested_players AS (
-                    SELECT
-                        CAST(value AS INTEGER) AS player_id
-                    FROM json_each(
-                        @playerIds
-                    )
-                ),
-            `
+        if (playerIds.length === 0) {
+            return []
         }
 
-        return this.getAggregatedInputs(
-            `
-                WITH
-                ${requestedPlayers}
-                ranked_inputs AS (
+        const results: PlayerRatingInput[] = []
+        const batchSize = 250
+
+        for (let batchStart = 0; batchStart < playerIds.length; batchStart += batchSize) {
+            const batch = playerIds.slice(
+                batchStart,
+                batchStart + batchSize
+            )
+
+            const parameters: Record<string, string | number> = {
+                endDateExclusive,
+                appearanceCount
+            }
+
+            const selectedInputsQuery = batch.map((playerId, index) => {
+                const parameter = `playerId${index}`
+
+                parameters[parameter] = playerId
+
+                return `
                     SELECT
-                        player_rating_inputs.game_pk,
-                        player_rating_inputs.player_id,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY player_rating_inputs.player_id
-                            ORDER BY
-                                player_rating_inputs.game_date DESC,
-                                player_rating_inputs.game_pk DESC
-                        ) AS appearance_number
-                    FROM player_rating_inputs
-                    ${
-                        filterPlayerIds && filterPlayerIds.size > 0
-                            ? `
-                                INNER JOIN requested_players
-                                    ON requested_players.player_id = player_rating_inputs.player_id
-                            `
-                            : ""
-                    }
-                    WHERE player_rating_inputs.game_date < @endDateExclusive
+                        limited_inputs.game_pk,
+                        limited_inputs.player_id
+                    FROM (
+                        SELECT
+                            player_rating_inputs.game_pk,
+                            player_rating_inputs.player_id
+                        FROM player_rating_inputs
+                        INNER JOIN games
+                            ON games.game_pk = player_rating_inputs.game_pk
+                        WHERE player_rating_inputs.player_id = @${parameter}
+                            AND player_rating_inputs.game_date < @endDateExclusive
+                            AND games.game_type = 'R'
+                        ORDER BY
+                            player_rating_inputs.game_date DESC,
+                            player_rating_inputs.game_pk DESC
+                        LIMIT @appearanceCount
+                    ) limited_inputs
+                `
+            }).join(`
+                UNION ALL
+            `)
+
+            results.push(
+                ...this.getAggregatedInputs(
+                    selectedInputsQuery,
+                    parameters
                 )
-                SELECT
-                    ranked_inputs.game_pk,
-                    ranked_inputs.player_id
-                FROM ranked_inputs
-                WHERE ranked_inputs.appearance_number <= @appearanceCount
-            `,
-            parameters
+            )
+        }
+
+        return results.sort((a, b) =>
+            Number(
+                a.playerId
+            ) - Number(
+                b.playerId
+            )
         )
     }
 
@@ -371,8 +401,11 @@ class PlayerRatingInputRepository {
                     player_rating_inputs.game_pk,
                     player_rating_inputs.player_id
                 FROM player_rating_inputs
+                INNER JOIN games
+                    ON games.game_pk = player_rating_inputs.game_pk
                 WHERE player_rating_inputs.game_date >= @startDate
                     AND player_rating_inputs.game_date < @endDateExclusive
+                    AND games.game_type = 'R'
             `,
             {
                 startDate,
@@ -387,8 +420,11 @@ class PlayerRatingInputRepository {
             SELECT DISTINCT
                 player_rating_inputs.player_id AS playerId
             FROM player_rating_inputs
+            INNER JOIN games
+                ON games.game_pk = player_rating_inputs.game_pk
             WHERE player_rating_inputs.game_date >= ?
                 AND player_rating_inputs.game_date < ?
+                AND games.game_type = 'R'
             ORDER BY player_rating_inputs.player_id
         `).all(
             `${season}-01-01`,

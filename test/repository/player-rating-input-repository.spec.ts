@@ -28,12 +28,21 @@ class PlayerRatingInputRepositoryTestHarness {
         this.database.exec(`
             CREATE TABLE games (
                 game_pk INTEGER PRIMARY KEY,
-                game_date TEXT NOT NULL
+                game_date TEXT NOT NULL,
+                game_type TEXT NOT NULL,
+                data TEXT NOT NULL
             );
 
             CREATE INDEX idx_games_game_date
                 ON games (
                     game_date
+                );
+
+            CREATE INDEX idx_games_game_type_date
+                ON games (
+                    game_type,
+                    game_date,
+                    game_pk
                 );
 
             CREATE TABLE player_appearances (
@@ -176,15 +185,21 @@ class PlayerRatingInputRepositoryTestHarness {
         this.database.prepare(`
             INSERT INTO games (
                 game_pk,
-                game_date
+                game_date,
+                game_type,
+                data
             )
             VALUES (
+                ?,
+                ?,
                 ?,
                 ?
             )
         `).run(
             templateGamePk,
-            "2000-01-01"
+            "2000-01-01",
+            "R",
+            this.getGameData("R")
         )
 
         this.repository.put(
@@ -239,14 +254,18 @@ class PlayerRatingInputRepositoryTestHarness {
                 )
                 INSERT INTO games (
                     game_pk,
-                    game_date
+                    game_date,
+                    game_type,
+                    data
                 )
                 SELECT
                     (seasons.season * 100000) + game_numbers.game_number,
                     printf(
                         '%04d-07-01',
                         seasons.season
-                    )
+                    ),
+                    'R',
+                    '{"gameData":{"game":{"type":"R"}}}'
                 FROM seasons
                 CROSS JOIN game_numbers;
             `)
@@ -356,6 +375,46 @@ class PlayerRatingInputRepositoryTestHarness {
 
     public close(): void {
         this.database.close()
+    }
+
+    public insertGame(gamePk: number, gameDate: string, gameType: string): void {
+        this.database.prepare(`
+            INSERT INTO games (
+                game_pk,
+                game_date,
+                game_type,
+                data
+            ) VALUES (
+                @gamePk,
+                @gameDate,
+                @gameType,
+                @data
+            )
+        `).run({
+            gamePk,
+            gameDate,
+            gameType,
+            data: this.getGameData(gameType)
+        })
+    }
+
+    public putPerformanceInput(gamePk: number, playerId: string): void {
+        this.repository.put(
+            gamePk,
+            this.buildPerformanceInput(
+                playerId
+            )
+        )
+    }
+
+    private getGameData(gameType: string): string {
+        return JSON.stringify({
+            gameData: {
+                game: {
+                    type: gameType
+                }
+            }
+        })
     }
 
     private buildPerformanceInput(playerId: string): PlayerRatingInput {
@@ -532,26 +591,36 @@ class PlayerRatingInputRepositoryTestHarness {
         const insertGame = this.database.prepare(`
             INSERT INTO games (
                 game_pk,
-                game_date
+                game_date,
+                game_type,
+                data
             ) VALUES (
                 @gamePk,
-                @gameDate
+                @gameDate,
+                @gameType,
+                @data
             )
         `)
 
         insertGame.run({
             gamePk: 1,
-            gameDate: "2026-04-01"
+            gameDate: "2026-04-01",
+            gameType: "R",
+            data: this.getGameData("R")
         })
 
         insertGame.run({
             gamePk: 2,
-            gameDate: "2026-04-10"
+            gameDate: "2026-04-10",
+            gameType: "R",
+            data: this.getGameData("R")
         })
 
         insertGame.run({
             gamePk: 3,
-            gameDate: "2026-05-01"
+            gameDate: "2026-05-01",
+            gameType: "R",
+            data: this.getGameData("R")
         })
 
         const insertAppearance = this.database.prepare(`
@@ -1404,6 +1473,154 @@ describe("PlayerRatingInputRepository", function () {
             1
         )
     })
+
+    it("stores postseason rating inputs but excludes them from career results", function () {
+        harness.insertGame(
+            4,
+            "2026-04-20",
+            "F"
+        )
+
+        harness.putPerformanceInput(
+            4,
+            harness.playerId
+        )
+
+        const stored = harness.repository.getByGame(
+            4
+        )
+
+        assert.equal(
+            stored.length,
+            1
+        )
+
+        assert.equal(
+            stored[0]?.playerId,
+            harness.playerId
+        )
+
+        const result = harness.repository.getCareer(
+            "2026-05-01",
+            new Set([
+                harness.playerId
+            ])
+        )[0]
+
+        assert.ok(result)
+
+        assert.equal(
+            result.hitting.games,
+            2
+        )
+
+        assert.equal(
+            result.hitting.pa,
+            2
+        )
+    })
+
+    it("excludes postseason games from date-range rating inputs", function () {
+        harness.insertGame(
+            4,
+            "2026-04-20",
+            "D"
+        )
+
+        harness.putPerformanceInput(
+            4,
+            harness.playerId
+        )
+
+        const result = harness.repository.getForDateRange(
+            "2026-04-15",
+            "2026-04-25",
+            new Set([
+                harness.playerId
+            ])
+        )
+
+        assert.deepEqual(
+            result,
+            []
+        )
+    })
+
+    it("does not let postseason games consume last-appearance slots", function () {
+        harness.insertGame(
+            4,
+            "2026-04-20",
+            "L"
+        )
+
+        harness.putPerformanceInput(
+            4,
+            harness.playerId
+        )
+
+        const result = harness.repository.getLastAppearances(
+            "2026-05-01",
+            1,
+            new Set([
+                harness.playerId
+            ])
+        )[0]
+
+        assert.ok(result)
+
+        assert.equal(
+            result.hitting.games,
+            1
+        )
+
+        assert.equal(
+            result.hitting.bb,
+            1
+        )
+
+        assert.equal(
+            result.hitting.hits,
+            0
+        )
+
+        assert.equal(
+            result.running.cs,
+            1
+        )
+    })
+
+    it("excludes postseason-only players from season player IDs", function () {
+        harness.insertGame(
+            4,
+            "2026-10-10",
+            "W"
+        )
+
+        harness.putPerformanceInput(
+            4,
+            "303"
+        )
+
+        const playerIds = harness.repository.getPlayerIdsForSeason(
+            2026
+        )
+
+        assert.equal(
+            playerIds.has("101"),
+            true
+        )
+
+        assert.equal(
+            playerIds.has("202"),
+            true
+        )
+
+        assert.equal(
+            playerIds.has("303"),
+            false
+        )
+    })
+
 })
 
 describe("PlayerRatingInputRepository performance diagnostics", function () {
@@ -1505,6 +1722,7 @@ describe("PlayerRatingInputRepository performance diagnostics", function () {
                 ON games.game_pk = player_rating_inputs.game_pk
             WHERE games.game_date >= @startDate
                 AND games.game_date < @endDateExclusive
+                AND games.game_type = 'R'
                 AND player_rating_inputs.player_id IN (${placeholders.join(", ")})
         `).all(
             parameters
@@ -1525,6 +1743,7 @@ describe("PlayerRatingInputRepository performance diagnostics", function () {
                 ON games.game_pk = player_rating_inputs.game_pk
             WHERE games.game_date >= @startDate
                 AND games.game_date < @endDateExclusive
+                AND games.game_type = 'R'
                 AND player_rating_inputs.player_id IN (${placeholders.join(", ")})
         `).get(
             parameters
@@ -1631,4 +1850,3 @@ describe("PlayerRatingInputRepository performance diagnostics", function () {
         )
     })
 })
-

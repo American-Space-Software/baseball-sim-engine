@@ -825,6 +825,7 @@ const createQuery = `
                     ON games.game_pk = player_rating_inputs.game_pk
                 WHERE games.game_date >= @startDate
                     AND games.game_date < @endDateExclusive
+                    AND games.game_type = 'R'
             ),
             player_totals AS (
                 SELECT

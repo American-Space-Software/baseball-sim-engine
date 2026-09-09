@@ -3,6 +3,7 @@ interface PlayerStatRow {
     gamePk?: number;
     playerId: string;
     gameDate?: string;
+    gameType?: string;
     season?: number;
     hittingTeamWins: number;
     hittingTeamLosses: number;

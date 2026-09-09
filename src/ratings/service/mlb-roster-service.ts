@@ -66,7 +66,7 @@ class MlbRosterService {
                     const abbrev = MLB_TEAM_ABBREVIATIONS.get(teamId)
 
                     if (!abbrev) {
-                        throw new Error(`MLB team abbreviation not configured for team ${teamId}.`)
+                        continue
                     }
 
                     teams.set(teamId, {

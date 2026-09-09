@@ -68,10 +68,29 @@ class MlbGameBundleService {
 
         const playerIds = new Set(rosterEntries.flatMap(roster => roster.entries.map(entry => String(entry.playerId))))
 
-        const [ratings, statsByPlayerId] = await Promise.all([
-            this.playerRatingService.buildPlayerRatingsForDate(season, gameDate, pitchEnvironmentTarget, playerIds),
-            Promise.resolve(this.playerStatService.getStats(gameDate, playerIds))
-        ])
+        const ratingsStartedAt = Date.now()
+
+        const ratings = await this.playerRatingService.buildPlayerRatingsForDate(
+            season,
+            gameDate,
+            pitchEnvironmentTarget,
+            playerIds
+        )
+
+        // console.log(
+        //     `[BUNDLE PERF] player ratings: ${ratings.size} players in ${Date.now() - ratingsStartedAt}ms.`
+        // )
+
+        // const statsStartedAt = Date.now()
+
+        const statsByPlayerId = this.playerStatService.getStats(
+            gameDate,
+            playerIds
+        )
+
+        // console.log(
+        //     `[BUNDLE PERF] player stats: ${statsByPlayerId.size} players in ${Date.now() - statsStartedAt}ms.`
+        // )
 
         const rosters = new Map(
             rosterEntries.map(roster => [

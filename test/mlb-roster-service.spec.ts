@@ -1,6 +1,10 @@
 import { strict as assert } from "assert"
 
-import { describe, it } from "mocha"
+import { before, describe, it } from "mocha"
+
+import {
+    downloadSeason
+} from "baseball-database"
 
 import { Position } from "baseball-sim-engine"
 
@@ -49,6 +53,12 @@ describe("MlbRosterService", function () {
         120000
     )
 
+    before(async function () {
+        await downloadSeason(
+            season
+        )
+    })
+
     it("loads real MLB teams from the stored schedule", async () => {
         const teams = await harness.service.getTeams(
             season
@@ -80,6 +90,10 @@ describe("MlbRosterService", function () {
 
     it("loads and maps the Pirates active roster for the selected date", async () => {
         const pirates = await harness.getPirates()
+
+        await harness.service.syncRosters(
+            gameDate
+        )
 
         const roster = await harness.service.getRoster(
             gameDate,

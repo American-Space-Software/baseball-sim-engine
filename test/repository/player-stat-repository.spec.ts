@@ -24,7 +24,8 @@ class PlayerStatRepositoryTestHarness {
             CREATE TABLE games (
                 game_pk INTEGER PRIMARY KEY,
                 data TEXT NOT NULL,
-                game_date TEXT NOT NULL
+                game_date TEXT NOT NULL,
+                game_type TEXT NOT NULL
             );
 
             CREATE TABLE player_appearances (
@@ -129,6 +130,7 @@ class PlayerStatRepositoryTestHarness {
         this.repository.create(1)
         this.repository.create(2)
         this.repository.create(3)
+        this.repository.create(4)
     }
 
     public close(): void {
@@ -139,8 +141,9 @@ class PlayerStatRepositoryTestHarness {
         this.insertGame(1, "2025-04-01", 2, 5, 201)
         this.insertGame(2, "2025-04-10", 4, 2, undefined, undefined, 201)
         this.insertGame(3, "2026-05-01", 3, 1, undefined, 201)
+        this.insertGame(4, "2025-10-05", 6, 1, 201, undefined, undefined, "D")
 
-        for (const gamePk of [1, 2, 3]) {
+        for (const gamePk of [1, 2, 3, 4]) {
             this.insertAppearance(gamePk, 101, 10, true, false, false)
             this.insertAppearance(gamePk, 201, 20, false, true, true)
         }
@@ -246,24 +249,47 @@ class PlayerStatRepositoryTestHarness {
 
         this.insertFieldingCredit(3, 0, 0, 0, 101, "f_assist", "C")
         this.insertFieldingCredit(3, 0, 1, 0, 101, "f_error", "C")
+
+        this.insertPlateAppearance(4, 0, 101, 201, "home_run", 4)
+        this.insertPitch(4, 0, 0, "X", false, true, true, 5, "fly_ball")
+
+        this.insertRunnerMovement({
+            gamePk: 4,
+            atBatIndex: 0,
+            runnerIndex: 0,
+            playIndex: 0,
+            runnerId: 101,
+            responsiblePitcherId: 201,
+            eventType: "home_run",
+            endBase: "score",
+            isOut: 0,
+            isScoringEvent: 1,
+            earned: 1
+        })
     }
 
-    private insertGame(gamePk: number, gameDate: string, homeRuns: number, awayRuns: number, winningPitcherId?: number, losingPitcherId?: number, savePitcherId?: number): void {
+    private insertGame(gamePk: number, gameDate: string, homeRuns: number, awayRuns: number, winningPitcherId?: number, losingPitcherId?: number, savePitcherId?: number, gameType = "R"): void {
         this.database.prepare(`
             INSERT INTO games (
                 game_pk,
                 data,
-                game_date
+                game_date,
+                game_type
             ) VALUES (
                 @gamePk,
                 @data,
-                @gameDate
+                @gameDate,
+                @gameType
             )
         `).run({
             gamePk,
             gameDate,
+            gameType,
             data: JSON.stringify({
                 gameData: {
+                    game: {
+                        type: gameType
+                    },
                     teams: {
                         home: { id: 10 },
                         away: { id: 20 }
@@ -477,6 +503,27 @@ describe("PlayerStatRepository", function () {
         assert.deepEqual(rows.map(row => row.playerId), [101, 201])
     })
 
+    it("materializes the game type", function () {
+        const rows = harness.database.prepare(`
+            SELECT
+                game_pk AS gamePk,
+                game_type AS gameType
+            FROM player_stats
+            WHERE player_id = 101
+            ORDER BY game_pk
+        `).all() as {
+            gamePk: number
+            gameType: string
+        }[]
+
+        assert.deepEqual(rows, [
+            { gamePk: 1, gameType: "R" },
+            { gamePk: 2, gameType: "R" },
+            { gamePk: 3, gameType: "R" },
+            { gamePk: 4, gameType: "D" }
+        ])
+    })
+
     it("materializes hitter counting stats", function () {
         const row = harness.database.prepare(`
             SELECT
@@ -684,7 +731,9 @@ describe("PlayerStatRepository", function () {
     it("replaces existing materialized stats when a game is created again", function () {
         harness.database.prepare(`
             UPDATE player_stats
-            SET hitting_hits = 999
+            SET
+                hitting_hits = 999,
+                game_type = 'D'
             WHERE game_pk = 1
                 AND player_id = 101
         `).run()
@@ -692,13 +741,21 @@ describe("PlayerStatRepository", function () {
         harness.repository.create(1)
 
         const row = harness.database.prepare(`
-            SELECT hitting_hits AS hittingHits
+            SELECT
+                hitting_hits AS hittingHits,
+                game_type AS gameType
             FROM player_stats
             WHERE game_pk = 1
                 AND player_id = 101
-        `).get() as { hittingHits: number }
+        `).get() as {
+            hittingHits: number
+            gameType: string
+        }
 
-        assert.equal(row.hittingHits, 1)
+        assert.deepEqual(row, {
+            hittingHits: 1,
+            gameType: "R"
+        })
     })
 
     it("returns career totals before the exclusive end date", function () {
@@ -791,6 +848,63 @@ describe("PlayerStatRepository", function () {
         const results = harness.repository.getCareer("2027-01-01", new Set(["9999"]))
 
         assert.deepEqual(results, [])
+    })
+
+    it("materializes postseason stats but excludes them from career totals", function () {
+        const postseasonRow = harness.database.prepare(`
+            SELECT
+                hitting_games AS hittingGames,
+                hitting_home_runs AS hittingHomeRuns,
+                hitting_rbi AS hittingRbi
+            FROM player_stats
+            WHERE game_pk = 4
+                AND player_id = 101
+        `).get() as {
+            hittingGames: number
+            hittingHomeRuns: number
+            hittingRbi: number
+        }
+
+        assert.deepEqual(
+            postseasonRow,
+            {
+                hittingGames: 1,
+                hittingHomeRuns: 1,
+                hittingRbi: 4
+            }
+        )
+
+        const result = harness.repository.getCareer(
+            "2027-01-01",
+            new Set([
+                harness.hitterId
+            ])
+        )[0]
+
+        assert.ok(result)
+        assert.equal(result.hittingGames, 3)
+        assert.equal(result.hittingHomeRuns, 1)
+        assert.equal(result.hittingRbi, 3)
+    })
+
+    it("excludes postseason stats from season totals", function () {
+        const results = harness.repository.getSeasons(
+            "2027-01-01",
+            new Set([
+                harness.hitterId
+            ])
+        )
+
+        assert.equal(results.length, 2)
+
+        const result = results.find(row =>
+            row.season === 2025
+        )
+
+        assert.ok(result)
+        assert.equal(result.hittingGames, 2)
+        assert.equal(result.hittingHomeRuns, 1)
+        assert.equal(result.hittingRbi, 3)
     })
 
     it("deletes materialized stats for a game", function () {

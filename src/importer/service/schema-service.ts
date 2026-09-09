@@ -160,6 +160,14 @@ class SchemaService {
                     game_pk DESC
                 );
 
+            CREATE INDEX IF NOT EXISTS idx_player_rating_inputs_player_game_date
+                ON player_rating_inputs (
+                    player_id,
+                    game_date DESC,
+                    game_pk DESC
+                );
+
+
             CREATE TABLE IF NOT EXISTS player_rating_season_inputs (
                 season INTEGER NOT NULL,
                 player_id INTEGER NOT NULL,
@@ -301,6 +309,7 @@ class SchemaService {
                 game_pk INTEGER NOT NULL,
                 player_id INTEGER NOT NULL,
                 game_date TEXT NOT NULL,
+                game_type TEXT NOT NULL,
 
                 hitting_team_wins INTEGER NOT NULL,
                 hitting_team_losses INTEGER NOT NULL,
@@ -411,12 +420,17 @@ class SchemaService {
                     game_pk
                 );
 
-            CREATE INDEX IF NOT EXISTS idx_player_stats_player_date
+            CREATE INDEX IF NOT EXISTS idx_player_stats_player_type_date
                 ON player_stats (
                     player_id,
+                    game_type,
                     game_date DESC,
                     game_pk DESC
                 );
+
+
+
+
         `)
     }
 

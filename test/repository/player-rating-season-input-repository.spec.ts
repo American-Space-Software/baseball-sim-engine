@@ -29,12 +29,21 @@ class PlayerRatingSeasonInputRepositoryTestHarness {
         this.database.exec(`
             CREATE TABLE games (
                 game_pk INTEGER PRIMARY KEY,
-                game_date TEXT NOT NULL
+                game_date TEXT NOT NULL,
+                game_type TEXT NOT NULL,
+                data TEXT NOT NULL
             );
 
             CREATE INDEX idx_games_game_date
                 ON games (
                     game_date
+                );
+
+            CREATE INDEX idx_games_game_type_date
+                ON games (
+                    game_type,
+                    game_date,
+                    game_pk
                 );
 
             CREATE TABLE player_appearances (
@@ -158,19 +167,31 @@ class PlayerRatingSeasonInputRepositoryTestHarness {
         )
     }
 
-    public putGame(gamePk: number, gameDate: string): void {
+    public putGame(gamePk: number, gameDate: string, gameType = "R"): void {
         this.database.prepare(`
             INSERT INTO games (
                 game_pk,
-                game_date
+                game_date,
+                game_type,
+                data
             )
             VALUES (
                 @gamePk,
-                @gameDate
+                @gameDate,
+                @gameType,
+                @data
             )
         `).run({
             gamePk,
-            gameDate
+            gameDate,
+            gameType,
+            data: JSON.stringify({
+                gameData: {
+                    game: {
+                        type: gameType
+                    }
+                }
+            })
         })
     }
 
@@ -426,14 +447,18 @@ class PlayerRatingSeasonInputRepositoryTestHarness {
                 )
                 INSERT INTO games (
                     game_pk,
-                    game_date
+                    game_date,
+                    game_type,
+                    data
                 )
                 SELECT
                     (seasons.season * 100000) + game_numbers.game_number,
                     printf(
                         '%04d-07-01',
                         seasons.season
-                    )
+                    ),
+                    'R',
+                    '{"gameData":{"game":{"type":"R"}}}'
                 FROM seasons
                 CROSS JOIN game_numbers;
             `)
@@ -687,6 +712,71 @@ describe("PlayerRatingSeasonInputRepository", function () {
         assert.equal(
             result.data.splits.hitting.vsL.exitVelocity,
             90
+        )
+    })
+
+    it("excludes postseason inputs when materializing a season", function () {
+        harness.putGame(
+            1,
+            "2025-04-01",
+            "R"
+        )
+
+        harness.putGame(
+            2,
+            "2025-10-01",
+            "F"
+        )
+
+        harness.putGame(
+            3,
+            "2025-10-10",
+            "D"
+        )
+
+        harness.putGame(
+            4,
+            "2025-10-20",
+            "L"
+        )
+
+        harness.putGame(
+            5,
+            "2025-10-30",
+            "W"
+        )
+
+        for (const gamePk of [1, 2, 3, 4, 5]) {
+            harness.putInput(
+                gamePk,
+                harness.buildInput(
+                    "101",
+                    10
+                )
+            )
+        }
+
+        harness.repository.create(
+            2025
+        )
+
+        const results = harness.repository.getBySeason(
+            2025
+        )
+
+        assert.equal(
+            results.length,
+            1
+        )
+
+        assert.equal(
+            results[0]?.data.hitting.games,
+            1
+        )
+
+        assert.equal(
+            results[0]?.data.hitting.pa,
+            10
         )
     })
 
@@ -1033,6 +1123,7 @@ describe("Player rating input performance diagnostics", function () {
                 ON games.game_pk = player_rating_inputs.game_pk
             WHERE games.game_date >= @startDate
                 AND games.game_date < @endDateExclusive
+                AND games.game_type = 'R'
                 AND player_rating_inputs.player_id IN (${placeholders.join(", ")})
         `).all(
             parameters
@@ -1053,6 +1144,7 @@ describe("Player rating input performance diagnostics", function () {
                 ON games.game_pk = player_rating_inputs.game_pk
             WHERE games.game_date >= @startDate
                 AND games.game_date < @endDateExclusive
+                AND games.game_type = 'R'
                 AND player_rating_inputs.player_id IN (${placeholders.join(", ")})
         `).get(
             parameters
@@ -1073,6 +1165,7 @@ describe("Player rating input performance diagnostics", function () {
                 ON player_rating_inputs.game_pk = games.game_pk
             WHERE games.game_date >= @startDate
                 AND games.game_date < @endDateExclusive
+                AND games.game_type = 'R'
                 AND player_rating_inputs.player_id IN (${placeholders.join(", ")})
         `).all(
             parameters
@@ -1093,6 +1186,7 @@ describe("Player rating input performance diagnostics", function () {
                 ON player_rating_inputs.game_pk = games.game_pk
             WHERE games.game_date >= @startDate
                 AND games.game_date < @endDateExclusive
+                AND games.game_type = 'R'
                 AND player_rating_inputs.player_id IN (${placeholders.join(", ")})
         `).get(
             parameters
@@ -1150,6 +1244,7 @@ describe("Player rating input performance diagnostics", function () {
                 ON games.game_pk = player_rating_inputs.game_pk
             WHERE games.game_date >= @startDate
                 AND games.game_date < @endDateExclusive
+                AND games.game_type = 'R'
                 AND player_rating_inputs.player_id IN (${placeholders.join(", ")})
             GROUP BY player_rating_inputs.player_id
         `).all(
@@ -1172,6 +1267,7 @@ describe("Player rating input performance diagnostics", function () {
                     ON games.game_pk = player_rating_inputs.game_pk
                 WHERE games.game_date >= @startDate
                     AND games.game_date < @endDateExclusive
+                    AND games.game_type = 'R'
                     AND player_rating_inputs.player_id IN (${placeholders.join(", ")})
             )
             SELECT
@@ -1267,4 +1363,3 @@ describe("Player rating input performance diagnostics", function () {
         )
     })
 })
-

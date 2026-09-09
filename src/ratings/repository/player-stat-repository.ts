@@ -8,6 +8,7 @@ interface PlayerStatRow {
     gamePk?: number
     playerId: string
     gameDate?: string
+    gameType?: string
     season?: number
 
     hittingTeamWins: number
@@ -134,6 +135,7 @@ class PlayerStatRepository {
                 ${aggregateColumns}
             FROM player_stats
             WHERE player_stats.game_date < @endDateExclusive
+                AND player_stats.game_type = 'R'
                 ${playerFilter}
             GROUP BY player_stats.player_id
             ORDER BY player_stats.player_id
@@ -167,6 +169,7 @@ class PlayerStatRepository {
                 ${aggregateColumns}
             FROM player_stats
             WHERE player_stats.game_date < @endDateExclusive
+                AND player_stats.game_type = 'R'
                 ${playerFilter}
             GROUP BY
                 player_stats.player_id,
@@ -330,6 +333,7 @@ const createQuery = `
     game_info AS (
         SELECT
             games.game_date,
+            games.game_type,
             CAST(json_extract(games.data, '$.gameData.teams.home.id') AS INTEGER) AS home_team_id,
             CAST(json_extract(games.data, '$.gameData.teams.away.id') AS INTEGER) AS away_team_id,
             CAST(json_extract(games.data, '$.liveData.linescore.teams.home.runs') AS INTEGER) AS home_runs,
@@ -615,6 +619,7 @@ const createQuery = `
         game_pk,
         player_id,
         game_date,
+        game_type,
 
         hitting_team_wins,
         hitting_team_losses,
@@ -709,6 +714,7 @@ const createQuery = `
         @gamePk,
         selected_players.player_id,
         game_info.game_date,
+        game_info.game_type,
 
         CASE
             WHEN COALESCE(hitting.games, 0) > 0
@@ -852,6 +858,7 @@ const createQuery = `
 
     ON CONFLICT(game_pk, player_id) DO UPDATE SET
         game_date = excluded.game_date,
+        game_type = excluded.game_type,
 
         hitting_team_wins = excluded.hitting_team_wins,
         hitting_team_losses = excluded.hitting_team_losses,

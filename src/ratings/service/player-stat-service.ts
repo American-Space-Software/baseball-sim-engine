@@ -19,7 +19,16 @@ class PlayerStatService {
     ) {}
 
     public getStats(endDateExclusive: string, filterPlayerIds?: Set<string>): Map<string, PlayerStats> {
+        const startedAt = Date.now()
+
+        const rowsStartedAt = Date.now()
         const rows = this.playerStatRepository.getSeasons(endDateExclusive, filterPlayerIds)
+
+        // console.log(
+        //     `[PLAYER STAT PERF] getSeasons(${endDateExclusive}): ${rows.length} rows in ${Date.now() - rowsStartedAt}ms.`
+        // )
+
+        const groupingStartedAt = Date.now()
         const rowsByPlayerId = new Map<string, PlayerStatRow[]>()
 
         for (const row of rows) {
@@ -32,16 +41,29 @@ class PlayerStatService {
             }
         }
 
+        // console.log(
+        //     `[PLAYER STAT PERF] group rows: ${rowsByPlayerId.size} players in ${Date.now() - groupingStartedAt}ms.`
+        // )
+
         const stats = new Map<string, PlayerStats>()
+        let playerLookupMilliseconds = 0
+        let aggregateMilliseconds = 0
+        let statBuildMilliseconds = 0
 
         for (const [playerId, playerRows] of rowsByPlayerId) {
+            const playerLookupStartedAt = Date.now()
             const player = queries.getPlayer(Number(playerId))
+            playerLookupMilliseconds += Date.now() - playerLookupStartedAt
 
             if (!player) {
                 throw new Error(`Player ${playerId} does not exist in baseball-database.`)
             }
 
+            const aggregateStartedAt = Date.now()
             const careerRow = this.aggregateRows(playerRows)
+            aggregateMilliseconds += Date.now() - aggregateStartedAt
+
+            const statBuildStartedAt = Date.now()
 
             stats.set(playerId, {
                 careerHitterStats: this.toHitterStatLine(careerRow),
@@ -59,7 +81,22 @@ class PlayerStatService {
                     stats: this.toPitcherStatLine(row)
                 }))
             })
+
+            statBuildMilliseconds += Date.now() - statBuildStartedAt
         }
+
+        // console.log(
+        //     `[PLAYER STAT PERF] queries.getPlayer: ${rowsByPlayerId.size} lookups in ${playerLookupMilliseconds}ms.`
+        // )
+        // console.log(
+        //     `[PLAYER STAT PERF] aggregateRows: ${rowsByPlayerId.size} players in ${aggregateMilliseconds}ms.`
+        // )
+        // console.log(
+        //     `[PLAYER STAT PERF] build stat lines: ${rowsByPlayerId.size} players in ${statBuildMilliseconds}ms.`
+        // )
+        // console.log(
+        //     `[PLAYER STAT PERF] getStats total: ${stats.size} players in ${Date.now() - startedAt}ms.`
+        // )
 
         return stats
     }
