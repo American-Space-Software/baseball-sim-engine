@@ -1,6 +1,6 @@
 {
   "name": "baseball-sim-engine",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "description": "A deterministic baseball simulation engine written in TypeScript. The engine runs in both Node.js and browser environments.",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,7 +22,7 @@
     "./presentation": {
       "types": "./dist/presentation.d.ts",
       "import": "./dist/presentation.js"
-    }    
+    }
   },
   "files": [
     "dist",
@@ -31,23 +31,19 @@
   ],
   "sideEffects": false,
   "scripts": {
-      "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
-      "test1": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/mlb-roster-service.spec.ts",
-
-      "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
-      "build:types": "tsc --project tsconfig.types.json",
-      "build": "npm run build:js && npm run build:types",
-      "build:dev": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts --watch",
-
-      "download": "node --env-file=.env ./dist/ratings.js download",
-      "download:all": "node --env-file=.env ./dist/ratings.js download all",
-      "generate:ratings": "node --env-file=.env ./dist/ratings.js generate ratings",
-
-      "generate:env": "node --env-file=.env ./dist/importer.js",
-
-      "rebuild:all": "node --env-file=.env --input-type=module -e \"const { downloadService } = await import('./dist/ratings.js'); downloadService.rebuildAllGames()\"",
-
-      "prepublishOnly": "npm run build"
+    "test": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 \"test/**/*.spec.ts\"",
+    "test1": "node --env-file=.env --loader ts-node/esm ./node_modules/mocha/bin/mocha --timeout 9999999999 test/baseball-savant-service.spec.ts",
+    "build:js": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts",
+    "build:types": "tsc --project tsconfig.types.json",
+    "build": "npm run build:js && npm run build:types",
+    "build:dev": "node --loader ts-node/esm ./node_modules/webpack/bin/webpack.js --config=webpack.ts --watch",
+    "download": "node --env-file=.env ./dist/ratings.js download",
+    "download:all": "node --env-file=.env ./dist/ratings.js download all",
+    "generate:ratings": "node --env-file=.env ./dist/ratings.js generate ratings",
+    "generate:env": "node --env-file=.env ./dist/importer.js",
+    "generate:version": "node --env-file=.env ./dist/version.js",
+    "rebuild:all": "node --env-file=.env --input-type=module -e \"const { downloadService } = await import('./dist/ratings.js'); downloadService.rebuildAllGames()\"",
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
@@ -87,5 +83,7 @@
     "baseball-database": "1.2.6",
     "better-sqlite3": "13.0.2",
     "glicko2": "1.2.2"
-  }
+  },
+  "simVersion": 1,
+  "simHash": "2bf44dafe1249ae95f8f02812e9e20fad70078549748847df2b9c2d6cafba20c"
 }
