@@ -21,8 +21,12 @@ let statService = new StatService()
 let defaultPitchEnvironmentTarget = defaultPitchEnvironmentTargetJson as unknown as PitchEnvironmentTarget
 let simService = new SimService(rollChartService, simRolls, runnerService, gameInfo, substitutionService, defaultPitchEnvironmentTarget)
 
+declare const SIM_VERSION: number
+
+const simVersion = SIM_VERSION
 
 export {
+  simVersion,
   simService,
   statService,
   SimService,

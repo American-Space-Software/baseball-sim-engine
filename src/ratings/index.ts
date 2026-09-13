@@ -22,9 +22,6 @@ import { PitcherAppearanceService } from "./service/pitcher-appearance-service.j
 import { PitcherWorkloadService } from "./service/pitcher-workload-service.js"
 import { PitcherAppearanceRepository } from "./repository/pitcher-appearance-repository.js"
 import { PitchEnvironmentTargetService } from "./service/pitch-environment-target-service.js"
-import { PlayerImportService } from "../importer/service/player-import-service.js"
-import { StatAccumulatorService } from "../importer/service/stat-accumulator-service.js"
-import { StatClassificationService } from "../importer/service/stat-classification-service.js"
 import { DownloaderService } from "./service/downloader-service.js"
 import { BaseballSavantService } from "./service/baseball-savant-service.js"
 import { TeamRatingService } from "./service/team-rating-service.js"
@@ -57,13 +54,8 @@ const playerStatService = new PlayerStatService(statService, playerStatRepositor
 const downloadService = new DownloadService(schemaService, playerRatingInputRepository, playerRatingSeasonInputRepository, playerStatRepository)
 const playerRatingService = new PlayerRatingService(playerRatingInputRepository, playerRatingSeasonInputRepository, playerRatingsRepository)
 
-const statClassificationService = new StatClassificationService()
-const statAccumulatorService = new StatAccumulatorService(statClassificationService)
-const playerImportService = new PlayerImportService(defaultBaseDataDir, statAccumulatorService)
-
 const pitchEnvironmentTargetService = new PitchEnvironmentTargetService(
     pitchEnvironmentTargetRepository,
-    playerImportService,
     downloadService
 )
 

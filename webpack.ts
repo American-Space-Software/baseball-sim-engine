@@ -36,6 +36,7 @@ if (
 }
 
 const VERSION = JSON.stringify(packageConfig.version)
+const SIM_VERSION = JSON.stringify(packageConfig.simVersion)
 
 const baseConfig = {
     mode: "production",
@@ -78,7 +79,8 @@ const baseConfig = {
     },
     plugins: [
         new webpack.DefinePlugin({
-            VERSION
+            VERSION,
+            SIM_VERSION
         })
     ]
 }

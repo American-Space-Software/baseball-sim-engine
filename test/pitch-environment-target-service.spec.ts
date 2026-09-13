@@ -7,12 +7,19 @@ import {
 } from "baseball-database"
 
 import type {
-    PitchEnvironmentTarget,
-    PlayerImportRaw
+    StatExport
+} from "baseball-database"
+
+import type {
+    PitchEnvironmentTarget
 } from "../src/sim/service/interfaces.js"
 
 import {
     PitchEnvironmentService
+} from "../src/importer/service/pitch-environment-service.js"
+
+import type {
+    PitchEnvironmentStats
 } from "../src/importer/service/pitch-environment-service.js"
 
 import {
@@ -24,40 +31,32 @@ import {
 } from "../src/ratings/service/pitch-environment-target-service.js"
 
 import {
-    PlayerImportService
-} from "../src/importer/service/player-import-service.js"
-
-import {
     DownloadService
 } from "../src/importer/service/download-service.js"
 
 
 describe("PitchEnvironmentTargetService", function () {
 
-    let originalBuilder: typeof PitchEnvironmentService.getPitchEnvironmentTargetForSeason
+    let originalGetStatExport: typeof queries.getStatExport
     let originalGetSchedule: typeof queries.getSchedule
     let originalGetGame: typeof queries.getGame
+    let originalGetStatsForStatExport: typeof PitchEnvironmentService.getPitchEnvironmentStatsForStatExport
+    let originalGetTargetForStats: typeof PitchEnvironmentService.getPitchEnvironmentTargetForStats
 
     beforeEach(function () {
-        originalBuilder =
-            PitchEnvironmentService.getPitchEnvironmentTargetForSeason
-
-        originalGetSchedule =
-            queries.getSchedule
-
-        originalGetGame =
-            queries.getGame
+        originalGetStatExport = queries.getStatExport
+        originalGetSchedule = queries.getSchedule
+        originalGetGame = queries.getGame
+        originalGetStatsForStatExport = PitchEnvironmentService.getPitchEnvironmentStatsForStatExport
+        originalGetTargetForStats = PitchEnvironmentService.getPitchEnvironmentTargetForStats
     })
 
     afterEach(function () {
-        PitchEnvironmentService.getPitchEnvironmentTargetForSeason =
-            originalBuilder
-
-        queries.getSchedule =
-            originalGetSchedule
-
-        queries.getGame =
-            originalGetGame
+        queries.getStatExport = originalGetStatExport
+        queries.getSchedule = originalGetSchedule
+        queries.getGame = originalGetGame
+        PitchEnvironmentService.getPitchEnvironmentStatsForStatExport = originalGetStatsForStatExport
+        PitchEnvironmentService.getPitchEnvironmentTargetForStats = originalGetTargetForStats
     })
 
 
@@ -67,7 +66,7 @@ describe("PitchEnvironmentTargetService", function () {
             0.0425
         )
 
-        let importCalls = 0
+        let statLoads = 0
         let writes = 0
         let syncCalls = 0
 
@@ -80,25 +79,20 @@ describe("PitchEnvironmentTargetService", function () {
             }
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async () => {
-                importCalls++
-
-                return new Map<string, PlayerImportRaw>()
-            },
-
-            clearCache: () => {}
-        }
-
         const downloadService = {
             syncSeason: async () => {
                 syncCalls++
             }
         }
 
+        queries.getStatExport = (() => {
+            statLoads++
+
+            return buildStatExport()
+        }) as typeof queries.getStatExport
+
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
             downloadService as unknown as DownloadService
         )
 
@@ -112,7 +106,7 @@ describe("PitchEnvironmentTargetService", function () {
         )
 
         assert.equal(
-            importCalls,
+            statLoads,
             0
         )
 
@@ -151,13 +145,6 @@ describe("PitchEnvironmentTargetService", function () {
                     target
                 })
             }
-        }
-
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                new Map<string, PlayerImportRaw>(),
-
-            clearCache: () => {}
         }
 
         const downloadService = {
@@ -210,19 +197,16 @@ describe("PitchEnvironmentTargetService", function () {
                 gamePk
             )
 
-            if (!score) {
-                return undefined
-            }
-
-            return buildStoredGame(
-                score[0],
-                score[1]
-            ) as any
+            return score
+                ? buildStoredGame(
+                    score[0],
+                    score[1]
+                ) as any
+                : undefined
         }) as typeof queries.getGame
 
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
             downloadService as unknown as DownloadService
         )
 
@@ -242,11 +226,6 @@ describe("PitchEnvironmentTargetService", function () {
             0.25
         )
 
-        assert.equal(
-            cached.homeFieldAdvantage,
-            0.25
-        )
-
         assert.deepEqual(
             writes,
             [
@@ -259,43 +238,20 @@ describe("PitchEnvironmentTargetService", function () {
     })
 
 
-    it("builds and stores the pitch environment with calculated home field advantage when no cached target exists", async function () {
-        const players = new Map<string, PlayerImportRaw>([
-            [
-                "1",
-                {
-                    playerId: "1"
-                } as PlayerImportRaw
-            ]
-        ])
-
-        const built = buildTarget(
-            105,
-            0.1
-        )
-
-        const reads: string[] = []
+    it("loads the previous 162 calendar days and stores the built target", async function () {
+        const statLoads: {
+            startDate: string
+            endDateExclusive: string
+        }[] = []
 
         const writes: {
             gameDate: string
             target: PitchEnvironmentTarget
         }[] = []
 
-        const importCalls: {
-            season: number
-            gameDate: string
-        }[] = []
-
-        const syncedSeasons: number[] = []
-
         const repository = {
-            read: async (gameDate: string) => {
-                reads.push(
-                    gameDate
-                )
-
-                return undefined
-            },
+            read: async () =>
+                undefined,
 
             write: async (gameDate: string, target: PitchEnvironmentTarget) => {
                 writes.push({
@@ -305,81 +261,48 @@ describe("PitchEnvironmentTargetService", function () {
             }
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async (season: number, gameDate: string) => {
-                importCalls.push({
-                    season,
-                    gameDate
-                })
+        const downloadService = createDownloadService()
 
-                return players
-            },
-
-            clearCache: () => {}
-        }
-
-        const downloadService = {
-            syncSeason: async (season: number) => {
-                syncedSeasons.push(
-                    season
-                )
-            }
-        }
-
-        queries.getSchedule = (() => ({
-            data: {
-                dates: [
-                    {
-                        games: [
-                            buildScheduledGame(
-                                1
-                            ),
-                            buildScheduledGame(
-                                2
-                            )
-                        ]
-                    }
-                ]
-            }
-        })) as unknown as typeof queries.getSchedule
-
-        queries.getGame = ((gamePk: number) => {
-            if (gamePk === 1) {
-                return buildStoredGame(
-                    5,
-                    3
-                ) as any
-            }
-
-            return buildStoredGame(
-                2,
-                4
-            ) as any
-        }) as typeof queries.getGame
-
-        const builderCalls: {
-            season: number
-            players: Map<string, PlayerImportRaw>
-            homeFieldAdvantage: number
-        }[] = []
-
-        PitchEnvironmentService.getPitchEnvironmentTargetForSeason = (
-            season: number,
-            builtPlayers: Map<string, PlayerImportRaw>,
-            homeFieldAdvantage: number
-        ): PitchEnvironmentTarget => {
-            builderCalls.push({
-                season,
-                players: builtPlayers,
-                homeFieldAdvantage
+        queries.getStatExport = ((startDate: string, endDateExclusive: string) => {
+            statLoads.push({
+                startDate,
+                endDateExclusive
             })
 
-            return built
+            return buildStatExport(
+                startDate
+            )
+        }) as typeof queries.getStatExport
+
+        PitchEnvironmentService.getPitchEnvironmentStatsForStatExport = () =>
+            buildStats(
+                100,
+                25
+            )
+
+        let builderStats: PitchEnvironmentStats | undefined
+        let builderSeason = 0
+        let builderHomeFieldAdvantage = 0
+
+        PitchEnvironmentService.getPitchEnvironmentTargetForStats = (
+            season: number,
+            stats: PitchEnvironmentStats,
+            homeFieldAdvantage: number
+        ): PitchEnvironmentTarget => {
+            builderSeason = season
+            builderStats = stats
+            builderHomeFieldAdvantage = homeFieldAdvantage
+
+            return buildTarget(
+                season,
+                homeFieldAdvantage
+            )
         }
+
+        setBalancedHomeFieldData()
 
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
             downloadService as unknown as DownloadService
         )
 
@@ -388,46 +311,32 @@ describe("PitchEnvironmentTargetService", function () {
         )
 
         assert.deepEqual(
-            reads,
-            [
-                "2026-08-21"
-            ]
-        )
-
-        assert.deepEqual(
-            importCalls,
+            statLoads,
             [
                 {
-                    season: 2026,
-                    gameDate: "2026-08-21"
+                    startDate: "2026-03-12",
+                    endDateExclusive: "2026-08-21"
                 }
             ]
         )
 
-        assert.deepEqual(
-            syncedSeasons,
-            [
-                2025
-            ]
-        )
-
         assert.equal(
-            builderCalls.length,
-            1
-        )
-
-        assert.equal(
-            builderCalls[0].season,
+            builderSeason,
             2026
         )
 
         assert.equal(
-            builderCalls[0].players,
-            players
+            builderStats?.hitterTotals.pa,
+            100
         )
 
         assert.equal(
-            builderCalls[0].homeFieldAdvantage,
+            builderStats?.hitterTotals.hits,
+            25
+        )
+
+        assert.equal(
+            builderHomeFieldAdvantage,
             0
         )
 
@@ -436,28 +345,286 @@ describe("PitchEnvironmentTargetService", function () {
             [
                 {
                     gameDate: "2026-08-21",
-                    target: built
+                    target: result
+                }
+            ]
+        )
+    })
+
+
+    it("advances a rolling window by subtracting the outgoing day and adding the incoming day", async function () {
+        const statLoads: {
+            startDate: string
+            endDateExclusive: string
+        }[] = []
+
+        const repository = {
+            read: async () =>
+                undefined,
+
+            write: async () => {}
+        }
+
+        const downloadService = createDownloadService()
+
+        queries.getStatExport = ((startDate: string, endDateExclusive: string) => {
+            statLoads.push({
+                startDate,
+                endDateExclusive
+            })
+
+            return buildStatExport(
+                startDate
+            )
+        }) as typeof queries.getStatExport
+
+        let statBuild = 0
+
+        PitchEnvironmentService.getPitchEnvironmentStatsForStatExport = () => {
+            statBuild++
+
+            if (statBuild === 1) {
+                return buildStats(
+                    100,
+                    25
+                )
+            }
+
+            if (statBuild === 2) {
+                return buildStats(
+                    5,
+                    1
+                )
+            }
+
+            return buildStats(
+                7,
+                2
+            )
+        }
+
+        const targets: {
+            pa: number
+            hits: number
+        }[] = []
+
+        PitchEnvironmentService.getPitchEnvironmentTargetForStats = (
+            season: number,
+            stats: PitchEnvironmentStats,
+            homeFieldAdvantage: number
+        ): PitchEnvironmentTarget => {
+            targets.push({
+                pa: stats.hitterTotals.pa,
+                hits: stats.hitterTotals.hits
+            })
+
+            return buildTarget(
+                season,
+                homeFieldAdvantage
+            )
+        }
+
+        setBalancedHomeFieldData()
+
+        const service = new PitchEnvironmentTargetService(
+            repository as unknown as PitchEnvironmentTargetRepository,
+            downloadService as unknown as DownloadService
+        )
+
+        await service.getForDate(
+            "2026-08-21"
+        )
+
+        await service.getForDate(
+            "2026-08-22"
+        )
+
+        assert.deepEqual(
+            statLoads,
+            [
+                {
+                    startDate: "2026-03-12",
+                    endDateExclusive: "2026-08-21"
+                },
+                {
+                    startDate: "2026-03-12",
+                    endDateExclusive: "2026-03-13"
+                },
+                {
+                    startDate: "2026-08-21",
+                    endDateExclusive: "2026-08-22"
                 }
             ]
         )
 
         assert.deepEqual(
-            result,
-            built
+            targets,
+            [
+                {
+                    pa: 100,
+                    hits: 25
+                },
+                {
+                    pa: 102,
+                    hits: 26
+                }
+            ]
+        )
+    })
+
+
+    it("rebuilds the full 162-day window when the requested date is not the next day", async function () {
+        const statLoads: {
+            startDate: string
+            endDateExclusive: string
+        }[] = []
+
+        const repository = {
+            read: async () =>
+                undefined,
+
+            write: async () => {}
+        }
+
+        queries.getStatExport = ((startDate: string, endDateExclusive: string) => {
+            statLoads.push({
+                startDate,
+                endDateExclusive
+            })
+
+            return buildStatExport(
+                startDate
+            )
+        }) as typeof queries.getStatExport
+
+        PitchEnvironmentService.getPitchEnvironmentStatsForStatExport = () =>
+            buildStats(
+                100,
+                25
+            )
+
+        PitchEnvironmentService.getPitchEnvironmentTargetForStats = (
+            season: number,
+            _stats: PitchEnvironmentStats,
+            homeFieldAdvantage: number
+        ): PitchEnvironmentTarget =>
+            buildTarget(
+                season,
+                homeFieldAdvantage
+            )
+
+        setBalancedHomeFieldData()
+
+        const service = new PitchEnvironmentTargetService(
+            repository as unknown as PitchEnvironmentTargetRepository,
+            createDownloadService() as unknown as DownloadService
+        )
+
+        await service.getForDate(
+            "2026-08-21"
+        )
+
+        await service.getForDate(
+            "2026-08-23"
+        )
+
+        assert.deepEqual(
+            statLoads,
+            [
+                {
+                    startDate: "2026-03-12",
+                    endDateExclusive: "2026-08-21"
+                },
+                {
+                    startDate: "2026-03-14",
+                    endDateExclusive: "2026-08-23"
+                }
+            ]
+        )
+    })
+
+
+    it("rebuilds the full window when forceRebuild is true and skips the cached target", async function () {
+        const cached = buildTarget(
+            100,
+            0.0425
+        )
+
+        let reads = 0
+        const statLoads: {
+            startDate: string
+            endDateExclusive: string
+        }[] = []
+
+        const repository = {
+            read: async () => {
+                reads++
+
+                return cached
+            },
+
+            write: async () => {}
+        }
+
+        queries.getStatExport = ((startDate: string, endDateExclusive: string) => {
+            statLoads.push({
+                startDate,
+                endDateExclusive
+            })
+
+            return buildStatExport(
+                startDate
+            )
+        }) as typeof queries.getStatExport
+
+        PitchEnvironmentService.getPitchEnvironmentStatsForStatExport = () =>
+            buildStats(
+                100,
+                25
+            )
+
+        PitchEnvironmentService.getPitchEnvironmentTargetForStats = (
+            season: number,
+            _stats: PitchEnvironmentStats,
+            homeFieldAdvantage: number
+        ): PitchEnvironmentTarget =>
+            buildTarget(
+                season,
+                homeFieldAdvantage
+            )
+
+        setBalancedHomeFieldData()
+
+        const service = new PitchEnvironmentTargetService(
+            repository as unknown as PitchEnvironmentTargetRepository,
+            createDownloadService() as unknown as DownloadService
+        )
+
+        await service.getForDate(
+            "2026-08-21",
+            {
+                forceRebuild: true
+            }
+        )
+
+        assert.equal(
+            reads,
+            0
+        )
+
+        assert.deepEqual(
+            statLoads,
+            [
+                {
+                    startDate: "2026-03-12",
+                    endDateExclusive: "2026-08-21"
+                }
+            ]
         )
     })
 
 
     it("reuses the calculated home field advantage for multiple dates in the same season", async function () {
-        const players = new Map<string, PlayerImportRaw>([
-            [
-                "1",
-                {
-                    playerId: "1"
-                } as PlayerImportRaw
-            ]
-        ])
-
         let syncCalls = 0
         let scheduleCalls = 0
         let gameCalls = 0
@@ -469,18 +636,13 @@ describe("PitchEnvironmentTargetService", function () {
             write: async () => {}
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                players,
-
-            clearCache: () => {}
-        }
-
         const downloadService = {
             syncSeason: async () => {
                 syncCalls++
             }
         }
+
+        setDefaultStatBuild()
 
         queries.getSchedule = (() => {
             scheduleCalls++
@@ -511,19 +673,8 @@ describe("PitchEnvironmentTargetService", function () {
                 : buildStoredGame(2, 4) as any
         }) as typeof queries.getGame
 
-        PitchEnvironmentService.getPitchEnvironmentTargetForSeason = (
-            season: number,
-            _players: Map<string, PlayerImportRaw>,
-            homeFieldAdvantage: number
-        ): PitchEnvironmentTarget =>
-            buildTarget(
-                season,
-                homeFieldAdvantage
-            )
-
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
             downloadService as unknown as DownloadService
         )
 
@@ -553,15 +704,6 @@ describe("PitchEnvironmentTargetService", function () {
 
 
     it("uses the requested season for home field advantage when the requested season is not current", async function () {
-        const players = new Map<string, PlayerImportRaw>([
-            [
-                "1",
-                {
-                    playerId: "1"
-                } as PlayerImportRaw
-            ]
-        ])
-
         const syncedSeasons: number[] = []
         let builderHomeFieldAdvantage = 0
 
@@ -572,13 +714,6 @@ describe("PitchEnvironmentTargetService", function () {
             write: async () => {}
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                players,
-
-            clearCache: () => {}
-        }
-
         const downloadService = {
             syncSeason: async (season: number) => {
                 syncedSeasons.push(
@@ -586,6 +721,8 @@ describe("PitchEnvironmentTargetService", function () {
                 )
             }
         }
+
+        setDefaultStatBuild()
 
         queries.getSchedule = ((season: number) => {
             assert.equal(
@@ -624,28 +761,28 @@ describe("PitchEnvironmentTargetService", function () {
                 3
             ])
 
-            return homeWins.has(gamePk)
+            return homeWins.has(
+                gamePk
+            )
                 ? buildStoredGame(5, 3) as any
                 : buildStoredGame(2, 4) as any
         }) as typeof queries.getGame
 
-        PitchEnvironmentService.getPitchEnvironmentTargetForSeason = (
-            _season: number,
-            _players: Map<string, PlayerImportRaw>,
+        PitchEnvironmentService.getPitchEnvironmentTargetForStats = (
+            season: number,
+            _stats: PitchEnvironmentStats,
             homeFieldAdvantage: number
         ): PitchEnvironmentTarget => {
-            builderHomeFieldAdvantage =
-                homeFieldAdvantage
+            builderHomeFieldAdvantage = homeFieldAdvantage
 
             return buildTarget(
-                100,
+                season,
                 homeFieldAdvantage
             )
         }
 
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
             downloadService as unknown as DownloadService
         )
 
@@ -667,16 +804,7 @@ describe("PitchEnvironmentTargetService", function () {
     })
 
 
-    it("ignores unfinished games when calculating home field advantage", async function () {
-        const players = new Map<string, PlayerImportRaw>([
-            [
-                "1",
-                {
-                    playerId: "1"
-                } as PlayerImportRaw
-            ]
-        ])
-
+    it("ignores unfinished and tied games when calculating home field advantage", async function () {
         let builderHomeFieldAdvantage = 0
 
         const repository = {
@@ -686,16 +814,7 @@ describe("PitchEnvironmentTargetService", function () {
             write: async () => {}
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                players,
-
-            clearCache: () => {}
-        }
-
-        const downloadService = {
-            syncSeason: async () => {}
-        }
+        setDefaultStatBuild()
 
         queries.getSchedule = (() => ({
             data: {
@@ -711,6 +830,9 @@ describe("PitchEnvironmentTargetService", function () {
                             ),
                             buildScheduledGame(
                                 3
+                            ),
+                            buildScheduledGame(
+                                4
                             )
                         ]
                     }
@@ -728,6 +850,13 @@ describe("PitchEnvironmentTargetService", function () {
 
             if (gamePk === 3) {
                 return buildStoredGame(
+                    4,
+                    4
+                ) as any
+            }
+
+            if (gamePk === 4) {
+                return buildStoredGame(
                     2,
                     4
                 ) as any
@@ -738,126 +867,22 @@ describe("PitchEnvironmentTargetService", function () {
             )
         }) as typeof queries.getGame
 
-        PitchEnvironmentService.getPitchEnvironmentTargetForSeason = (
-            _season: number,
-            _players: Map<string, PlayerImportRaw>,
+        PitchEnvironmentService.getPitchEnvironmentTargetForStats = (
+            season: number,
+            _stats: PitchEnvironmentStats,
             homeFieldAdvantage: number
         ): PitchEnvironmentTarget => {
-            builderHomeFieldAdvantage =
-                homeFieldAdvantage
+            builderHomeFieldAdvantage = homeFieldAdvantage
 
             return buildTarget(
-                100,
+                season,
                 homeFieldAdvantage
             )
         }
 
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
-        )
-
-        await service.getForDate(
-            "2026-08-21"
-        )
-
-        assert.equal(
-            builderHomeFieldAdvantage,
-            0
-        )
-    })
-
-
-    it("ignores tied completed games when calculating home field advantage", async function () {
-        const players = new Map<string, PlayerImportRaw>([
-            [
-                "1",
-                {
-                    playerId: "1"
-                } as PlayerImportRaw
-            ]
-        ])
-
-        let builderHomeFieldAdvantage = 0
-
-        const repository = {
-            read: async () =>
-                undefined,
-
-            write: async () => {}
-        }
-
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                players,
-
-            clearCache: () => {}
-        }
-
-        const downloadService = {
-            syncSeason: async () => {}
-        }
-
-        queries.getSchedule = (() => ({
-            data: {
-                dates: [
-                    {
-                        games: [
-                            buildScheduledGame(
-                                1
-                            ),
-                            buildScheduledGame(
-                                2
-                            ),
-                            buildScheduledGame(
-                                3
-                            )
-                        ]
-                    }
-                ]
-            }
-        })) as unknown as typeof queries.getSchedule
-
-        queries.getGame = ((gamePk: number) => {
-            if (gamePk === 1) {
-                return buildStoredGame(
-                    5,
-                    3
-                ) as any
-            }
-
-            if (gamePk === 2) {
-                return buildStoredGame(
-                    4,
-                    4
-                ) as any
-            }
-
-            return buildStoredGame(
-                2,
-                4
-            ) as any
-        }) as typeof queries.getGame
-
-        PitchEnvironmentService.getPitchEnvironmentTargetForSeason = (
-            _season: number,
-            _players: Map<string, PlayerImportRaw>,
-            homeFieldAdvantage: number
-        ): PitchEnvironmentTarget => {
-            builderHomeFieldAdvantage =
-                homeFieldAdvantage
-
-            return buildTarget(
-                100,
-                homeFieldAdvantage
-            )
-        }
-
-        const service = new PitchEnvironmentTargetService(
-            repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
+            createDownloadService() as unknown as DownloadService
         )
 
         await service.getForDate(
@@ -872,15 +897,6 @@ describe("PitchEnvironmentTargetService", function () {
 
 
     it("throws when a completed game is missing from baseball-database", async function () {
-        const players = new Map<string, PlayerImportRaw>([
-            [
-                "1",
-                {
-                    playerId: "1"
-                } as PlayerImportRaw
-            ]
-        ])
-
         const repository = {
             read: async () =>
                 undefined,
@@ -888,16 +904,7 @@ describe("PitchEnvironmentTargetService", function () {
             write: async () => {}
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                players,
-
-            clearCache: () => {}
-        }
-
-        const downloadService = {
-            syncSeason: async () => {}
-        }
+        setDefaultStatBuild()
 
         queries.getSchedule = (() => ({
             data: {
@@ -919,8 +926,7 @@ describe("PitchEnvironmentTargetService", function () {
 
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
+            createDownloadService() as unknown as DownloadService
         )
 
         await assert.rejects(
@@ -933,15 +939,6 @@ describe("PitchEnvironmentTargetService", function () {
 
 
     it("throws when no completed games are available for home field calculation", async function () {
-        const players = new Map<string, PlayerImportRaw>([
-            [
-                "1",
-                {
-                    playerId: "1"
-                } as PlayerImportRaw
-            ]
-        ])
-
         const repository = {
             read: async () =>
                 undefined,
@@ -949,16 +946,7 @@ describe("PitchEnvironmentTargetService", function () {
             write: async () => {}
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                players,
-
-            clearCache: () => {}
-        }
-
-        const downloadService = {
-            syncSeason: async () => {}
-        }
+        setDefaultStatBuild()
 
         queries.getSchedule = (() => ({
             data: {
@@ -977,8 +965,7 @@ describe("PitchEnvironmentTargetService", function () {
 
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
+            createDownloadService() as unknown as DownloadService
         )
 
         await assert.rejects(
@@ -990,129 +977,7 @@ describe("PitchEnvironmentTargetService", function () {
     })
 
 
-    it("rebuilds the target when forceRebuild is true", async function () {
-        const cached = buildTarget(
-            100,
-            0.0425
-        )
-
-        const rebuilt = buildTarget(
-            110,
-            0
-        )
-
-        let reads = 0
-        let imports = 0
-        let writes = 0
-        let syncs = 0
-
-        const repository = {
-            read: async () => {
-                reads++
-
-                return cached
-            },
-
-            write: async (_gameDate: string, target: PitchEnvironmentTarget) => {
-                writes++
-
-                assert.deepEqual(
-                    target,
-                    rebuilt
-                )
-            }
-        }
-
-        const playerImportService = {
-            buildCorePlayerImports: async () => {
-                imports++
-
-                return new Map<string, PlayerImportRaw>([
-                    [
-                        "1",
-                        {
-                            playerId: "1"
-                        } as PlayerImportRaw
-                    ]
-                ])
-            },
-
-            clearCache: () => {}
-        }
-
-        const downloadService = {
-            syncSeason: async () => {
-                syncs++
-            }
-        }
-
-        queries.getSchedule = (() => ({
-            data: {
-                dates: [
-                    {
-                        games: [
-                            buildScheduledGame(
-                                1
-                            ),
-                            buildScheduledGame(
-                                2
-                            )
-                        ]
-                    }
-                ]
-            }
-        })) as unknown as typeof queries.getSchedule
-
-        queries.getGame = ((gamePk: number) =>
-            gamePk === 1
-                ? buildStoredGame(5, 3) as any
-                : buildStoredGame(2, 4) as any
-        ) as typeof queries.getGame
-
-        PitchEnvironmentService.getPitchEnvironmentTargetForSeason = () =>
-            rebuilt
-
-        const service = new PitchEnvironmentTargetService(
-            repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
-        )
-
-        const result = await service.getForDate(
-            "2026-08-21",
-            {
-                forceRebuild: true
-            }
-        )
-
-        assert.equal(
-            reads,
-            0
-        )
-
-        assert.equal(
-            imports,
-            1
-        )
-
-        assert.equal(
-            syncs,
-            1
-        )
-
-        assert.equal(
-            writes,
-            1
-        )
-
-        assert.deepEqual(
-            result,
-            rebuilt
-        )
-    })
-
-
-    it("throws when no backward-looking player imports are available", async function () {
+    it("throws when no backward-looking pitch environment statistics are available", async function () {
         const repository = {
             read: async () =>
                 undefined,
@@ -1120,28 +985,26 @@ describe("PitchEnvironmentTargetService", function () {
             write: async () => {}
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                new Map<string, PlayerImportRaw>(),
+        queries.getStatExport = (() =>
+            buildStatExport()
+        ) as typeof queries.getStatExport
 
-            clearCache: () => {}
-        }
-
-        const downloadService = {
-            syncSeason: async () => {}
-        }
+        PitchEnvironmentService.getPitchEnvironmentStatsForStatExport = () =>
+            buildStats(
+                0,
+                0
+            )
 
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
+            createDownloadService() as unknown as DownloadService
         )
 
         await assert.rejects(
             service.getForDate(
                 "2026-08-21"
             ),
-            /No backward-looking player imports were available for 2026-08-21/
+            /No backward-looking pitch-environment statistics were available for 2026-08-21/
         )
     })
 
@@ -1159,21 +1022,9 @@ describe("PitchEnvironmentTargetService", function () {
             write: async () => {}
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                new Map<string, PlayerImportRaw>(),
-
-            clearCache: () => {}
-        }
-
-        const downloadService = {
-            syncSeason: async () => {}
-        }
-
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
+            createDownloadService() as unknown as DownloadService
         )
 
         await assert.rejects(
@@ -1193,48 +1044,10 @@ describe("PitchEnvironmentTargetService", function () {
             write: async () => {}
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                new Map<string, PlayerImportRaw>([
-                    [
-                        "1",
-                        {
-                            playerId: "1"
-                        } as PlayerImportRaw
-                    ]
-                ]),
+        setDefaultStatBuild()
+        setBalancedHomeFieldData()
 
-            clearCache: () => {}
-        }
-
-        const downloadService = {
-            syncSeason: async () => {}
-        }
-
-        queries.getSchedule = (() => ({
-            data: {
-                dates: [
-                    {
-                        games: [
-                            buildScheduledGame(
-                                1
-                            ),
-                            buildScheduledGame(
-                                2
-                            )
-                        ]
-                    }
-                ]
-            }
-        })) as unknown as typeof queries.getSchedule
-
-        queries.getGame = ((gamePk: number) =>
-            gamePk === 1
-                ? buildStoredGame(5, 3) as any
-                : buildStoredGame(2, 4) as any
-        ) as typeof queries.getGame
-
-        PitchEnvironmentService.getPitchEnvironmentTargetForSeason = () => ({
+        PitchEnvironmentService.getPitchEnvironmentTargetForStats = () => ({
             ...buildTarget(
                 100,
                 0
@@ -1250,8 +1063,7 @@ describe("PitchEnvironmentTargetService", function () {
 
         const service = new PitchEnvironmentTargetService(
             repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
+            createDownloadService() as unknown as DownloadService
         )
 
         await assert.rejects(
@@ -1263,62 +1075,11 @@ describe("PitchEnvironmentTargetService", function () {
     })
 
 
-    it("clears the player import cache", function () {
-        const clearedSeasons: Array<number | undefined> = []
-
-        const repository = {
-            read: async () =>
-                undefined,
-
-            write: async () => {}
-        }
-
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                new Map<string, PlayerImportRaw>(),
-
-            clearCache: (season?: number) => {
-                clearedSeasons.push(
-                    season
-                )
-            }
-        }
-
-        const downloadService = {
-            syncSeason: async () => {}
-        }
-
-        const service = new PitchEnvironmentTargetService(
-            repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
-        )
-
-        service.clearImportCache(
-            2026
-        )
-
-        service.clearImportCache()
-
-        assert.deepEqual(
-            clearedSeasons,
-            [
-                2026,
-                undefined
-            ]
-        )
-    })
-
-
-    it("clears the cached home field advantage for the requested season", async function () {
-        const players = new Map<string, PlayerImportRaw>([
-            [
-                "1",
-                {
-                    playerId: "1"
-                } as PlayerImportRaw
-            ]
-        ])
+    it("clears the rolling stats state and cached home field advantage", async function () {
+        const statLoads: {
+            startDate: string
+            endDateExclusive: string
+        }[] = []
 
         let syncCalls = 0
 
@@ -1329,19 +1090,125 @@ describe("PitchEnvironmentTargetService", function () {
             write: async () => {}
         }
 
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                players,
-
-            clearCache: () => {}
-        }
-
         const downloadService = {
             syncSeason: async () => {
                 syncCalls++
             }
         }
 
+        queries.getStatExport = ((startDate: string, endDateExclusive: string) => {
+            statLoads.push({
+                startDate,
+                endDateExclusive
+            })
+
+            return buildStatExport(
+                startDate
+            )
+        }) as typeof queries.getStatExport
+
+        PitchEnvironmentService.getPitchEnvironmentStatsForStatExport = () =>
+            buildStats(
+                100,
+                25
+            )
+
+        PitchEnvironmentService.getPitchEnvironmentTargetForStats = (
+            season: number,
+            _stats: PitchEnvironmentStats,
+            homeFieldAdvantage: number
+        ): PitchEnvironmentTarget =>
+            buildTarget(
+                season,
+                homeFieldAdvantage
+            )
+
+        setBalancedHomeFieldData()
+
+        const service = new PitchEnvironmentTargetService(
+            repository as unknown as PitchEnvironmentTargetRepository,
+            downloadService as unknown as DownloadService
+        )
+
+        await service.getForDate(
+            "2024-08-21"
+        )
+
+        service.clearImportCache(
+            2024
+        )
+
+        await service.getForDate(
+            "2024-08-22"
+        )
+
+        assert.equal(
+            syncCalls,
+            2
+        )
+
+        assert.deepEqual(
+            statLoads,
+            [
+                {
+                    startDate: "2024-03-12",
+                    endDateExclusive: "2024-08-21"
+                },
+                {
+                    startDate: "2024-03-13",
+                    endDateExclusive: "2024-08-22"
+                }
+            ]
+        )
+    })
+
+
+    it("throws for an invalid game date", async function () {
+        const repository = {
+            read: async () =>
+                undefined,
+
+            write: async () => {}
+        }
+
+        const service = new PitchEnvironmentTargetService(
+            repository as unknown as PitchEnvironmentTargetRepository,
+            createDownloadService() as unknown as DownloadService
+        )
+
+        await assert.rejects(
+            service.getForDate(
+                "2026-02-30"
+            ),
+            /Invalid pitch-environment game date: 2026-02-30/
+        )
+    })
+
+
+    function setDefaultStatBuild(): void {
+        queries.getStatExport = (() =>
+            buildStatExport()
+        ) as typeof queries.getStatExport
+
+        PitchEnvironmentService.getPitchEnvironmentStatsForStatExport = () =>
+            buildStats(
+                100,
+                25
+            )
+
+        PitchEnvironmentService.getPitchEnvironmentTargetForStats = (
+            season: number,
+            _stats: PitchEnvironmentStats,
+            homeFieldAdvantage: number
+        ): PitchEnvironmentTarget =>
+            buildTarget(
+                season,
+                homeFieldAdvantage
+            )
+    }
+
+
+    function setBalancedHomeFieldData(): void {
         queries.getSchedule = (() => ({
             data: {
                 dates: [
@@ -1364,84 +1231,41 @@ describe("PitchEnvironmentTargetService", function () {
                 ? buildStoredGame(5, 3) as any
                 : buildStoredGame(2, 4) as any
         ) as typeof queries.getGame
-
-        PitchEnvironmentService.getPitchEnvironmentTargetForSeason = (
-            season: number,
-            _players: Map<string, PlayerImportRaw>,
-            homeFieldAdvantage: number
-        ): PitchEnvironmentTarget =>
-            buildTarget(
-                season,
-                homeFieldAdvantage
-            )
-
-        const service = new PitchEnvironmentTargetService(
-            repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
-        )
-
-        await service.getForDate(
-            "2024-08-21"
-        )
-
-        await service.getForDate(
-            "2024-08-22"
-        )
-
-        service.clearImportCache(
-            2024
-        )
-
-        await service.getForDate(
-            "2024-08-23"
-        )
-
-        assert.equal(
-            syncCalls,
-            2
-        )
-    })
+    }
 
 
-    it("throws for an invalid game date", async function () {
-        const repository = {
-            read: async () =>
-                undefined,
+    function buildStats(pa: number, hits: number): PitchEnvironmentStats {
+        const stats = PitchEnvironmentService.createPitchEnvironmentStats()
 
-            write: async () => {}
-        }
+        stats.hitterTotals.pa = pa
+        stats.hitterTotals.hits = hits
 
-        const playerImportService = {
-            buildCorePlayerImports: async () =>
-                new Map<string, PlayerImportRaw>(),
-
-            clearCache: () => {}
-        }
-
-        const downloadService = {
-            syncSeason: async () => {}
-        }
-
-        const service = new PitchEnvironmentTargetService(
-            repository as unknown as PitchEnvironmentTargetRepository,
-            playerImportService as unknown as PlayerImportService,
-            downloadService as unknown as DownloadService
-        )
-
-        await assert.rejects(
-            service.getForDate(
-                "2026-02-30"
-            ),
-            /Invalid pitch-environment game date: 2026-02-30/
-        )
-    })
+        return stats
+    }
 
 
-    function buildTarget(avgRating: number, homeFieldAdvantage: number): PitchEnvironmentTarget {
+    function buildStatExport(gameDate = "2026-08-20"): StatExport {
         return {
-            avgRating,
-            season: 2026,
+            games: [
+                {
+                    gamePk: 1,
+                    gameDate
+                }
+            ],
+            appearances: [],
+            plateAppearances: [],
+            pitches: [],
+            runnerMovements: [],
+            fieldingCredits: [],
+            defensiveEvents: []
+        } as unknown as StatExport
+    }
+
+
+    function buildTarget(season: number, homeFieldAdvantage: number): PitchEnvironmentTarget {
+        return {
+            avgRating: 100,
+            season,
             homeFieldAdvantage,
 
             importReference: {
@@ -1488,6 +1312,13 @@ describe("PitchEnvironmentTargetService", function () {
                 }
             }
         }
+    }
+
+
+    function createDownloadService(): DownloadService {
+        return {
+            syncSeason: async () => {}
+        } as unknown as DownloadService
     }
 
 })

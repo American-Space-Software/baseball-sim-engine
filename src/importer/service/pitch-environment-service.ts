@@ -1,22 +1,44 @@
 import { Position } from "../../sim/service/enums.js"
-import {  HitResultCount, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchResultCount, PitchTypeMovementStat, PlayerImportRaw,  } from "../../sim/service/interfaces.js"
+import { HitResultCount, PitchEnvironmentTarget, PitchEnvironmentTuning, PitchResultCount, PitchTypeMovementStat, PlayerImportRaw } from "../../sim/service/interfaces.js"
 import { SimService } from "../../sim/service/sim-service.js"
 import { StatService } from "../../sim/service/stat-service.js"
-import { v4 as uuidv4 } from 'uuid'
+import { v4 as uuidv4 } from "uuid"
 import { BaselineGameService } from "./baseline-game-service.js"
+import { StatAccumulatorService } from "./stat-accumulator-service.js"
+import { StatClassificationService } from "./stat-classification-service.js"
 import { clamp, safeDiv } from "../util.js"
 
+import type { StatExport } from "baseball-database"
 
+
+interface PitchEnvironmentStats {
+    hitterTotals: any
+    pitcherTotals: any
+    runningTotals: any
+    fieldingTotals: any
+    splitHittingTotals: any
+    splitPitchingTotals: any
+    inZoneByCountSeed: { balls: number, strikes: number, inZone: number, total: number }[]
+    behaviorByCountSeed: { balls: number, strikes: number, zonePitches: number, chasePitches: number, zoneSwings: number, chaseSwings: number, zoneContact: number, chaseContact: number, zoneMisses: number, chaseMisses: number, zoneFouls: number, chaseFouls: number, zoneBallsInPlay: number, chaseBallsInPlay: number }[]
+    inZoneByCountMap: Map<string, { balls: number, strikes: number, inZone: number, total: number }>
+    behaviorByCountMap: Map<string, { balls: number, strikes: number, zonePitches: number, chasePitches: number, zoneSwings: number, chaseSwings: number, zoneContact: number, chaseContact: number, zoneMisses: number, chaseMisses: number, zoneFouls: number, chaseFouls: number, zoneBallsInPlay: number, chaseBallsInPlay: number }>
+    outcomeByEvLaMap: Map<string, { evBin: number, laBin: number, count: number, out: number, single: number, double: number, triple: number, hr: number }>
+    xyByTrajectoryMap: Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", xBin: number, yBin: number, count: number }>
+    positionSeeds: Record<Position, number>
+    hittingPhysicsTotals: any
+    pitchingPhysicsTotals: any
+}
 
 class PitchEnvironmentService {
 
-    constructor(
+    public constructor(
         private simService: SimService, 
         private statService: StatService,
         private baselineGameService:BaselineGameService
     ) { }
 
-    static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>, homeFieldAdvantage: number): PitchEnvironmentTarget {
+
+    public static getPitchEnvironmentTargetForSeason(season: number, players: Map<string, PlayerImportRaw>, homeFieldAdvantage: number): PitchEnvironmentTarget {
         const allPlayers = Array.from(players.values())
 
         if (allPlayers.length === 0) {
@@ -27,10 +49,106 @@ class PitchEnvironmentService {
             throw new Error(`Invalid home field advantage for season ${season}: ${homeFieldAdvantage}`)
         }
 
+        return this.getPitchEnvironmentTargetForStats(
+            season,
+            this.getPitchEnvironmentStatsForPlayers(players),
+            homeFieldAdvantage
+        )
+    }
 
-        const round = (num: number, digits: number): number => Number(num.toFixed(digits))
-        const scaleTo = (value: number, fromDenominator: number, toDenominator: number): number => Math.round(safeDiv(value * toDenominator, fromDenominator))
+    public static getPitchEnvironmentStatsForPlayers(players: Map<string, PlayerImportRaw>): PitchEnvironmentStats {
+        const stats = this.createPitchEnvironmentStats()
 
+        for (const player of players.values()) {
+            this.accumulatePitchEnvironmentStatsForPlayer(
+                player,
+                stats
+            )
+        }
+
+        return stats
+    }
+
+    public static getPitchEnvironmentStatsForStatExport(season: number, statExport: StatExport): PitchEnvironmentStats {
+        const playerId = "1"
+        const normalized = structuredClone(statExport)
+
+        for (const appearance of normalized.appearances) {
+            ;(appearance as any).playerId = 1
+        }
+
+        for (const plateAppearance of normalized.plateAppearances) {
+            ;(plateAppearance as any).batterId = 1
+            ;(plateAppearance as any).pitcherId = 1
+        }
+
+        for (const pitch of normalized.pitches) {
+            if ("batterId" in pitch) {
+                ;(pitch as any).batterId = 1
+            }
+
+            if ("pitcherId" in pitch) {
+                ;(pitch as any).pitcherId = 1
+            }
+        }
+
+        for (const runnerMovement of normalized.runnerMovements) {
+            ;(runnerMovement as any).runnerId = 1
+
+            if ((runnerMovement as any).responsiblePitcherId !== null && (runnerMovement as any).responsiblePitcherId !== undefined) {
+                ;(runnerMovement as any).responsiblePitcherId = 1
+            }
+        }
+
+        for (const fieldingCredit of normalized.fieldingCredits) {
+            ;(fieldingCredit as any).playerId = 1
+        }
+
+        for (const defensiveEvent of normalized.defensiveEvents) {
+            ;(defensiveEvent as any).playerId = 1
+        }
+
+        const players = new Map<string, PlayerImportRaw>()
+        const statAccumulatorService = new StatAccumulatorService(
+            new StatClassificationService()
+        )
+
+        statAccumulatorService.accumulateStatExportsIntoPlayerImports(
+            season,
+            [
+                {
+                    date: normalized.games[0]?.gameDate ?? `${season}-01-01`,
+                    statExport: normalized
+                }
+            ],
+            [
+                {
+                    playerId,
+                    gamePks: normalized.games.map(game =>
+                        Number(game.gamePk)
+                    )
+                }
+            ],
+            players
+        )
+
+        const player = players.get(playerId)
+
+        if (!player) {
+            return this.createPitchEnvironmentStats()
+        }
+
+        return this.getPitchEnvironmentStatsForPlayers(
+            new Map([
+                [
+                    playerId,
+                    player
+                ]
+            ])
+        )
+    }
+
+    public static createPitchEnvironmentStats(): PitchEnvironmentStats {
         const hitterTotals = {
             games: 0,
             pa: 0,
@@ -242,13 +360,184 @@ class PitchEnvironmentService {
             byPitchType: {} as Record<string, { count: number, totalVelocity: number, totalVelocitySquared: number, avgVelocity: number, totalHorizontalBreak: number, totalHorizontalBreakSquared: number, avgHorizontalBreak: number, totalVerticalBreak: number, totalVerticalBreakSquared: number, avgVerticalBreak: number }>
         }
 
-        for (const player of allPlayers) {
-            this.accumulatePitchEnvironmentTotalsForPlayer(player, hitterTotals, pitcherTotals, runningTotals, fieldingTotals, splitHittingTotals, splitPitchingTotals)
-            this.accumulatePitchEnvironmentCountBuckets(player, inZoneByCountMap, behaviorByCountMap)
-            this.accumulatePitchEnvironmentBattedBallBuckets(player, outcomeByEvLaMap, xyByTrajectoryMap)
-            this.accumulatePitchEnvironmentPhysics(player, hittingPhysicsTotals, pitchingPhysicsTotals)
-            this.accumulatePitchEnvironmentPositionSeeds(player, positionSeeds)
+        return {
+            hitterTotals,
+            pitcherTotals,
+            runningTotals,
+            fieldingTotals,
+            splitHittingTotals,
+            splitPitchingTotals,
+            inZoneByCountSeed,
+            behaviorByCountSeed,
+            inZoneByCountMap,
+            behaviorByCountMap,
+            outcomeByEvLaMap,
+            xyByTrajectoryMap,
+            positionSeeds,
+            hittingPhysicsTotals,
+            pitchingPhysicsTotals
         }
+    }
+
+    private static accumulatePitchEnvironmentStatsForPlayer(player: PlayerImportRaw, stats: PitchEnvironmentStats): void {
+        this.accumulatePitchEnvironmentTotalsForPlayer(
+            player,
+            stats.hitterTotals,
+            stats.pitcherTotals,
+            stats.runningTotals,
+            stats.fieldingTotals,
+            stats.splitHittingTotals,
+            stats.splitPitchingTotals
+        )
+
+        this.accumulatePitchEnvironmentCountBuckets(
+            player,
+            stats.inZoneByCountMap,
+            stats.behaviorByCountMap
+        )
+
+        this.accumulatePitchEnvironmentBattedBallBuckets(
+            player,
+            stats.outcomeByEvLaMap,
+            stats.xyByTrajectoryMap
+        )
+
+        this.accumulatePitchEnvironmentPhysics(
+            player,
+            stats.hittingPhysicsTotals,
+            stats.pitchingPhysicsTotals
+        )
+
+        this.accumulatePitchEnvironmentPositionSeeds(
+            player,
+            stats.positionSeeds
+        )
+    }
+
+    public static addPitchEnvironmentStats(target: PitchEnvironmentStats, source: PitchEnvironmentStats): void {
+        this.applyPitchEnvironmentStats(target, source, 1)
+    }
+
+    public static subtractPitchEnvironmentStats(target: PitchEnvironmentStats, source: PitchEnvironmentStats): void {
+        this.applyPitchEnvironmentStats(target, source, -1)
+    }
+
+    public static clonePitchEnvironmentStats(stats: PitchEnvironmentStats): PitchEnvironmentStats {
+        return structuredClone(stats)
+    }
+
+    private static applyPitchEnvironmentStats(target: PitchEnvironmentStats, source: PitchEnvironmentStats, multiplier: 1 | -1): void {
+        this.applyNumericObject(target.hitterTotals, source.hitterTotals, multiplier)
+        this.applyNumericObject(target.pitcherTotals, source.pitcherTotals, multiplier)
+        this.applyNumericObject(target.runningTotals, source.runningTotals, multiplier)
+        this.applyNumericObject(target.fieldingTotals, source.fieldingTotals, multiplier)
+        this.applyNumericObject(target.splitHittingTotals, source.splitHittingTotals, multiplier)
+        this.applyNumericObject(target.splitPitchingTotals, source.splitPitchingTotals, multiplier)
+        this.applyNumericObject(target.positionSeeds, source.positionSeeds, multiplier)
+        this.applyNumericObject(target.hittingPhysicsTotals, source.hittingPhysicsTotals, multiplier)
+        this.applyNumericObject(target.pitchingPhysicsTotals, source.pitchingPhysicsTotals, multiplier)
+
+        this.applyBucketMap(target.inZoneByCountMap, source.inZoneByCountMap, multiplier)
+        this.applyBucketMap(target.behaviorByCountMap, source.behaviorByCountMap, multiplier)
+        this.applyBucketMap(target.outcomeByEvLaMap, source.outcomeByEvLaMap, multiplier)
+        this.applyBucketMap(target.xyByTrajectoryMap, source.xyByTrajectoryMap, multiplier)
+
+        target.inZoneByCountSeed = Array.from(target.inZoneByCountMap.values())
+        target.behaviorByCountSeed = Array.from(target.behaviorByCountMap.values())
+    }
+
+    private static applyNumericObject(target: any, source: any, multiplier: 1 | -1): void {
+        for (const [key, value] of Object.entries(source ?? {})) {
+            if (typeof value === "number") {
+                if (key.startsWith("avg")) {
+                    continue
+                }
+
+                const current = Number(target[key] ?? 0)
+                target[key] = current + (value * multiplier)
+                continue
+            }
+
+            if (!value || typeof value !== "object" || Array.isArray(value) || value instanceof Map) {
+                continue
+            }
+
+            if (!target[key] || typeof target[key] !== "object") {
+                target[key] = {}
+            }
+
+            this.applyNumericObject(
+                target[key],
+                value,
+                multiplier
+            )
+        }
+    }
+
+    private static applyBucketMap(target: Map<string, any>, source: Map<string, any>, multiplier: 1 | -1): void {
+        for (const [key, sourceBucket] of source.entries()) {
+            let targetBucket = target.get(key)
+
+            if (!targetBucket) {
+                targetBucket = structuredClone(sourceBucket)
+
+                for (const [field, value] of Object.entries(targetBucket)) {
+                    if (typeof value === "number") {
+                        targetBucket[field] = 0
+                    }
+                }
+
+                target.set(
+                    key,
+                    targetBucket
+                )
+            }
+
+            for (const [field, value] of Object.entries(sourceBucket)) {
+                if (
+                    typeof value !== "number" ||
+                    field === "balls" ||
+                    field === "strikes" ||
+                    field === "evBin" ||
+                    field === "laBin" ||
+                    field === "xBin" ||
+                    field === "yBin"
+                ) {
+                    continue
+                }
+
+                const current = Number(targetBucket[field] ?? 0)
+                targetBucket[field] = current + (value * multiplier)
+            }
+
+        }
+    }
+
+    public static getPitchEnvironmentTargetForStats(season: number, stats: PitchEnvironmentStats, homeFieldAdvantage: number): PitchEnvironmentTarget {
+        const {
+            hitterTotals,
+            pitcherTotals,
+            runningTotals,
+            fieldingTotals,
+            splitHittingTotals,
+            splitPitchingTotals,
+            inZoneByCountSeed,
+            behaviorByCountSeed,
+            outcomeByEvLaMap,
+            xyByTrajectoryMap,
+            positionSeeds
+        } = stats
+
+        const hittingPhysicsTotals = structuredClone(
+            stats.hittingPhysicsTotals
+        )
+
+        const pitchingPhysicsTotals = structuredClone(
+            stats.pitchingPhysicsTotals
+        )
+
+        const round = (num: number, digits: number): number => Number(num.toFixed(digits))
+        const scaleTo = (value: number, fromDenominator: number, toDenominator: number): number => Math.round(safeDiv(value * toDenominator, fromDenominator))
 
         this.finalizePitchEnvironmentPhysicsTotals(hittingPhysicsTotals, pitchingPhysicsTotals)
 
@@ -693,7 +982,6 @@ class PitchEnvironmentService {
 
         return target
     }
-
     private static finalizeBattedBallModels(outcomeByEvLaMap: Map<string, { evBin: number, laBin: number, count: number, out: number, single: number, double: number, triple: number, hr: number }>, xyByTrajectoryMap: Map<string, { trajectory: "groundBall" | "flyBall" | "lineDrive" | "popup", xBin: number, yBin: number, count: number }>, trajectoryPhysics: any): { evLaModel: any, outcomeModel: any, sprayModel: any, depthModel: any } {
         const outcomeBuckets = Array.from(outcomeByEvLaMap.values())
         const xyBuckets = Array.from(xyByTrajectoryMap.values())
@@ -1719,4 +2007,8 @@ class PitchEnvironmentService {
 
 export {
     PitchEnvironmentService
+}
+
+export type {
+    PitchEnvironmentStats
 }

@@ -2,40 +2,59 @@ import {
     queries
 } from "baseball-database"
 
-import {
-    PitchEnvironmentService
-} from "../../importer/service/pitch-environment-service.js"
-
-import {
-    PlayerImportService
-} from "../../importer/service/player-import-service.js"
-
-import {
-    DownloadService
-} from "../../importer/service/download-service.js"
+import type {
+    StatExport
+} from "baseball-database"
 
 import type {
     PitchEnvironmentTarget
 } from "../../sim/service/interfaces.js"
 
 import {
+    PitchEnvironmentService
+} from "../../importer/service/pitch-environment-service.js"
+
+import type {
+    PitchEnvironmentStats
+} from "../../importer/service/pitch-environment-service.js"
+
+import {
+    DownloadService
+} from "../../importer/service/download-service.js"
+
+import {
     PitchEnvironmentTargetRepository
 } from "../repository/pitch-environment-target-repository.js"
+
+
+interface PitchEnvironmentTargetOptions {
+    forceRebuild?: boolean
+}
+
+
+interface PitchEnvironmentState {
+    season: number
+    startDate: string
+    endDateExclusive: string
+    stats: PitchEnvironmentStats
+}
 
 
 class PitchEnvironmentTargetService {
 
     private readonly homeFieldAdvantageCache = new Map<number, number>()
+    private state?: PitchEnvironmentState
 
-    public constructor(
-        private readonly pitchEnvironmentTargetRepository: PitchEnvironmentTargetRepository,
-        private readonly playerImportService: PlayerImportService,
-        private readonly downloadService: DownloadService
-    ) {}
+    public constructor(private readonly pitchEnvironmentTargetRepository: PitchEnvironmentTargetRepository, private readonly downloadService: DownloadService) {}
 
     public async getForDate(gameDate: string, options: PitchEnvironmentTargetOptions = {}): Promise<PitchEnvironmentTarget> {
-        const season = this.getSeason(
-            gameDate
+        this.validateGameDate(gameDate)
+
+        const season = Number(
+            gameDate.slice(
+                0,
+                4
+            )
         )
 
         if (!options.forceRebuild) {
@@ -44,14 +63,14 @@ class PitchEnvironmentTargetService {
             )
 
             if (cached) {
-                if (Number(cached.homeFieldAdvantage ?? 0) === 0) {
-                    cached.homeFieldAdvantage = await this.getSeasonHomeFieldAdvantage(
-                        this.getHomeFieldReferenceSeason(season)
+                if (cached.homeFieldAdvantage === 0) {
+                    cached.homeFieldAdvantage = await this.getHomeFieldAdvantage(
+                        season
                     )
 
                     this.validateTarget(
-                        cached,
-                        gameDate
+                        gameDate,
+                        cached
                     )
 
                     await this.pitchEnvironmentTargetRepository.write(
@@ -60,8 +79,8 @@ class PitchEnvironmentTargetService {
                     )
                 } else {
                     this.validateTarget(
-                        cached,
-                        gameDate
+                        gameDate,
+                        cached
                     )
                 }
 
@@ -69,30 +88,29 @@ class PitchEnvironmentTargetService {
             }
         }
 
-        const players = await this.playerImportService.buildCorePlayerImports(
+        const stats = this.getPitchEnvironmentStats(
             season,
-            gameDate
+            gameDate,
+            options.forceRebuild === true
         )
 
-        if (players.size === 0) {
-            throw new Error(
-                `No backward-looking player imports were available for ${gameDate}.`
-            )
+        if (Number(stats.hitterTotals?.pa ?? 0) <= 0) {
+            throw new Error(`No backward-looking pitch-environment statistics were available for ${gameDate}`)
         }
 
-        const homeFieldAdvantage = await this.getSeasonHomeFieldAdvantage(
-            this.getHomeFieldReferenceSeason(season)
+        const homeFieldAdvantage = await this.getHomeFieldAdvantage(
+            season
         )
 
-        const target = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(
+        const target = PitchEnvironmentService.getPitchEnvironmentTargetForStats(
             season,
-            players,
+            stats,
             homeFieldAdvantage
         )
 
         this.validateTarget(
-            target,
-            gameDate
+            gameDate,
+            target
         )
 
         await this.pitchEnvironmentTargetRepository.write(
@@ -104,9 +122,12 @@ class PitchEnvironmentTargetService {
     }
 
     public clearImportCache(season?: number): void {
-        this.playerImportService.clearCache(
-            season
-        )
+        if (
+            season === undefined ||
+            this.state?.season === season
+        ) {
+            this.state = undefined
+        }
 
         if (season === undefined) {
             this.homeFieldAdvantageCache.clear()
@@ -114,19 +135,109 @@ class PitchEnvironmentTargetService {
         }
 
         this.homeFieldAdvantageCache.delete(
-            this.getHomeFieldReferenceSeason(season)
+            this.getHomeFieldAdvantageSeason(
+                season
+            )
         )
     }
 
-    private getHomeFieldReferenceSeason(season: number): number {
-        const currentSeason = new Date().getUTCFullYear()
+    private getPitchEnvironmentStats(season: number, gameDate: string, forceRebuild: boolean): PitchEnvironmentStats {
+        const startDate = this.addDays(
+            gameDate,
+            -162
+        )
 
-        return season === currentSeason
-            ? season - 1
-            : season
+        if (
+            !forceRebuild &&
+            this.state &&
+            this.state.season === season &&
+            this.addDays(
+                this.state.endDateExclusive,
+                1
+            ) === gameDate
+        ) {
+            const outgoingEndDate = this.addDays(
+                this.state.startDate,
+                1
+            )
+
+            const outgoingStats = this.getPitchEnvironmentStatsForDateRange(
+                season,
+                this.state.startDate,
+                outgoingEndDate
+            )
+
+            const incomingStats = this.getPitchEnvironmentStatsForDateRange(
+                season,
+                this.state.endDateExclusive,
+                gameDate
+            )
+
+            const stats = PitchEnvironmentService.clonePitchEnvironmentStats(
+                this.state.stats
+            )
+
+            PitchEnvironmentService.subtractPitchEnvironmentStats(
+                stats,
+                outgoingStats
+            )
+
+            PitchEnvironmentService.addPitchEnvironmentStats(
+                stats,
+                incomingStats
+            )
+
+            this.state = {
+                season,
+                startDate,
+                endDateExclusive: gameDate,
+                stats
+            }
+
+            return PitchEnvironmentService.clonePitchEnvironmentStats(
+                stats
+            )
+        }
+
+        const stats = this.getPitchEnvironmentStatsForDateRange(
+            season,
+            startDate,
+            gameDate
+        )
+
+        this.state = {
+            season,
+            startDate,
+            endDateExclusive: gameDate,
+            stats
+        }
+
+        return PitchEnvironmentService.clonePitchEnvironmentStats(
+            stats
+        )
     }
 
-    private async getSeasonHomeFieldAdvantage(season: number): Promise<number> {
+    private getPitchEnvironmentStatsForDateRange(season: number, startDate: string, endDateExclusive: string): PitchEnvironmentStats {
+        const statExport = queries.getStatExport(
+            startDate,
+            endDateExclusive
+        ) as StatExport
+
+        if ((statExport.games ?? []).length === 0) {
+            return PitchEnvironmentService.createPitchEnvironmentStats()
+        }
+
+        return PitchEnvironmentService.getPitchEnvironmentStatsForStatExport(
+            season,
+            statExport
+        )
+    }
+
+    private async getHomeFieldAdvantage(requestedSeason: number): Promise<number> {
+        const season = this.getHomeFieldAdvantageSeason(
+            requestedSeason
+        )
+
         const cached = this.homeFieldAdvantageCache.get(
             season
         )
@@ -144,64 +255,47 @@ class PitchEnvironmentTargetService {
         )
 
         if (!schedule) {
-            throw new Error(
-                `Schedule ${season} was not found after synchronization.`
-            )
+            throw new Error(`MLB schedule not found for home-field calculation in ${season}`)
         }
 
         let homeWins = 0
         let awayWins = 0
 
-        for (const date of schedule.data?.dates ?? []) {
-            for (const scheduledGame of date?.games ?? []) {
-                const gamePk = Number(
-                    scheduledGame?.gamePk
-                )
-
-                if (
-                    !gamePk ||
-                    !this.isCompletedScheduleGame(scheduledGame)
-                ) {
+        for (const date of schedule.data.dates ?? []) {
+            for (const scheduledGame of date.games ?? []) {
+                if (!this.isCompleteGame(scheduledGame)) {
                     continue
                 }
 
-                const storedGame = queries.getGame(
+                const gamePk = Number(
+                    scheduledGame.gamePk
+                )
+
+                const game = queries.getGame(
                     gamePk
                 )
 
-                if (!storedGame) {
-                    throw new Error(
-                        `Completed game ${gamePk} was not found in baseball-database.`
-                    )
+                if (!game) {
+                    throw new Error(`Completed game ${gamePk} was not found in baseball-database`)
                 }
 
-                const homeScore = Number(
-                    storedGame.data
-                        ?.liveData
-                        ?.linescore
-                        ?.teams
-                        ?.home
-                        ?.runs
+                const homeRuns = Number(
+                    game.data?.liveData?.linescore?.teams?.home?.runs
                 )
 
-                const awayScore = Number(
-                    storedGame.data
-                        ?.liveData
-                        ?.linescore
-                        ?.teams
-                        ?.away
-                        ?.runs
+                const awayRuns = Number(
+                    game.data?.liveData?.linescore?.teams?.away?.runs
                 )
 
                 if (
-                    !Number.isFinite(homeScore) ||
-                    !Number.isFinite(awayScore) ||
-                    homeScore === awayScore
+                    !Number.isFinite(homeRuns) ||
+                    !Number.isFinite(awayRuns) ||
+                    homeRuns === awayRuns
                 ) {
                     continue
                 }
 
-                if (homeScore > awayScore) {
+                if (homeRuns > awayRuns) {
                     homeWins++
                 } else {
                     awayWins++
@@ -209,18 +303,13 @@ class PitchEnvironmentTargetService {
             }
         }
 
-        const completedGames =
-            homeWins +
-            awayWins
+        const decisions = homeWins + awayWins
 
-        if (completedGames === 0) {
-            throw new Error(
-                `No completed games were found for home-field calculation in ${season}.`
-            )
+        if (decisions === 0) {
+            throw new Error(`No completed games were found for home-field calculation in ${season}`)
         }
 
-        const homeFieldAdvantage =
-            homeWins / completedGames - 0.5
+        const homeFieldAdvantage = (homeWins / decisions) - 0.5
 
         this.homeFieldAdvantageCache.set(
             season,
@@ -230,31 +319,45 @@ class PitchEnvironmentTargetService {
         return homeFieldAdvantage
     }
 
-    private isCompletedScheduleGame(game: any): boolean {
-        const abstractState = String(
-            game?.status?.abstractGameState ?? ""
-        )
+    private getHomeFieldAdvantageSeason(requestedSeason: number): number {
+        const currentSeason = new Date().getUTCFullYear()
 
-        const detailedState = String(
-            game?.status?.detailedState ?? ""
-        )
-
-        const codedState = String(
-            game?.status?.codedGameState ?? ""
-        )
-
-        return abstractState === "Final" ||
-            codedState === "F" ||
-            detailedState === "Final" ||
-            detailedState === "Game Over" ||
-            detailedState === "Completed Early"
+        return requestedSeason === currentSeason
+            ? requestedSeason - 1
+            : requestedSeason
     }
 
-    private getSeason(gameDate: string): number {
+    private isCompleteGame(game: any): boolean {
+        const status = game?.status
+
+        return status?.abstractGameState === "Final" ||
+            status?.detailedState === "Final" ||
+            status?.codedGameState === "F"
+    }
+
+    private validateTarget(gameDate: string, target: PitchEnvironmentTarget): void {
+        if (
+            !Number.isFinite(target.avgRating) ||
+            target.avgRating <= 0
+        ) {
+            throw new Error(`Pitch environment target has an invalid avgRating for ${gameDate}`)
+        }
+
+        if (
+            !Number.isFinite(target.importReference?.hitter?.pa) ||
+            target.importReference.hitter.pa <= 0
+        ) {
+            throw new Error(`Pitch environment target has no hitter plate appearances for ${gameDate}`)
+        }
+
+        if (!Number.isFinite(target.homeFieldAdvantage)) {
+            throw new Error(`Pitch environment target has an invalid homeFieldAdvantage for ${gameDate}`)
+        }
+    }
+
+    private validateGameDate(gameDate: string): void {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(gameDate)) {
-            throw new Error(
-                `Invalid pitch-environment game date: ${gameDate}.`
-            )
+            throw new Error(`Invalid pitch-environment game date: ${gameDate}`)
         }
 
         const parsed = new Date(
@@ -265,62 +368,26 @@ class PitchEnvironmentTargetService {
             Number.isNaN(parsed.getTime()) ||
             parsed.toISOString().slice(0, 10) !== gameDate
         ) {
-            throw new Error(
-                `Invalid pitch-environment game date: ${gameDate}.`
-            )
-        }
-
-        return Number(
-            gameDate.slice(
-                0,
-                4
-            )
-        )
-    }
-
-    private validateTarget(target: PitchEnvironmentTarget, gameDate: string): void {
-        if (
-            !target ||
-            typeof target !== "object"
-        ) {
-            throw new Error(
-                `Pitch environment target is empty for ${gameDate}.`
-            )
-        }
-
-        if (
-            !Number.isFinite(
-                Number(target.avgRating)
-            ) ||
-            Number(target.avgRating) <= 0
-        ) {
-            throw new Error(
-                `Pitch environment target has an invalid avgRating for ${gameDate}.`
-            )
-        }
-
-        const hitterPlateAppearances = Number(
-            target.importReference
-                ?.hitter
-                ?.pa ??
-            0
-        )
-
-        if (
-            !Number.isFinite(hitterPlateAppearances) ||
-            hitterPlateAppearances <= 0
-        ) {
-            throw new Error(
-                `Pitch environment target has no hitter plate appearances for ${gameDate}.`
-            )
+            throw new Error(`Invalid pitch-environment game date: ${gameDate}`)
         }
     }
 
-}
+    private addDays(value: string, days: number): string {
+        const date = new Date(
+            `${value}T12:00:00.000Z`
+        )
 
+        date.setUTCDate(
+            date.getUTCDate() +
+            days
+        )
 
-interface PitchEnvironmentTargetOptions {
-    forceRebuild?: boolean
+        return date.toISOString().slice(
+            0,
+            10
+        )
+    }
+
 }
 
 
