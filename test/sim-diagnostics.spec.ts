@@ -6,30 +6,50 @@ import path from "path"
 import seedrandom from "seedrandom"
 
 import {
-    StatService,
-    simService,
     BaseResult,
     Contact,
+    DefenseHitResult,
+    DefenseOutResult,
+    PitchCall,
     PlayResult,
     Position,
     ShallowDeep,
-    ThrowResult,
-    PitchCall,
-    SimService,
-    DefenseOutResult,
-    DefenseHitResult
-} from "../src/sim/index.js"
+    ThrowResult
+} from "../src/sim/service/enums.js"
+
+import {
+    GameInfo,
+    GamePlayers,
+    SimRolls,
+    SimService
+} from "../src/sim/service/sim-service.js"
+
+import {
+    RollChartService
+} from "../src/sim/service/roll-chart-service.js"
+
+import {
+    RunnerService
+} from "../src/sim/service/runner-service.js"
+
+import {
+    StatService
+} from "../src/sim/service/stat-service.js"
+
+import {
+    SubstitutionService
+} from "../src/sim/service/substitution-service.js"
 
 import type {
-    PitchEnvironmentTarget,
     Game,
     GamePlayer,
+    PitchEnvironmentTarget,
+    PitchZone,
+    RollChart,
     RunnerEvent,
     RunnerResult,
-    RollChart,
-    PitchZone,
     StadiumEnvironment
-} from "../src/sim/index.js"
+} from "../src/sim/service/interfaces.js"
 
 
 import type {
@@ -39,7 +59,6 @@ import type {
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
-import { GameInfo } from "../src/sim/service/sim-service.js"
 
 const season = 2025
 const baseDataDir = process.env.DATA_DIR ?? "data"
@@ -55,6 +74,13 @@ const pitchEnvironment = JSON.parse(
     )
 ) as PitchEnvironmentTarget
 
+const rollChartService = new RollChartService()
+const simRolls = new SimRolls(rollChartService)
+const gamePlayers = new GamePlayers()
+const runnerService = new RunnerService(simRolls)
+const gameInfo = new GameInfo(gamePlayers)
+const substitutionService = new SubstitutionService()
+const simService = new SimService(rollChartService, simRolls, runnerService, gameInfo, substitutionService, pitchEnvironment)
 const statService = new StatService()
 const baselineGameService = new BaselineGameService(simService)
 const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
@@ -5294,29 +5320,3 @@ if (toRun.includes(DiagnosticTest.TUNING_SENSITIVITY)) {
 
     })
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

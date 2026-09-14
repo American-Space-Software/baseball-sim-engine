@@ -152,119 +152,7 @@ class PlayerRatingInputRepository {
     public getByGame(gamePk: number): PlayerRatingInput[] {
         const rows = this.database.prepare(`
             SELECT
-                player_rating_inputs.player_id AS playerId,
-                player_rating_inputs.hitting_games AS hittingGames,
-                player_rating_inputs.hitting_pa AS hittingPa,
-                player_rating_inputs.hitting_ab AS hittingAb,
-                player_rating_inputs.hitting_hits AS hittingHits,
-                player_rating_inputs.hitting_doubles AS hittingDoubles,
-                player_rating_inputs.hitting_triples AS hittingTriples,
-                player_rating_inputs.hitting_home_runs AS hittingHomeRuns,
-                player_rating_inputs.hitting_bb AS hittingBb,
-                player_rating_inputs.hitting_so AS hittingSo,
-                player_rating_inputs.hitting_hbp AS hittingHbp,
-                player_rating_inputs.hitting_ground_balls AS hittingGroundBalls,
-                player_rating_inputs.hitting_fly_balls AS hittingFlyBalls,
-                player_rating_inputs.hitting_line_drives AS hittingLineDrives,
-                player_rating_inputs.hitting_popups AS hittingPopups,
-                player_rating_inputs.hitting_pitches_seen AS hittingPitchesSeen,
-                player_rating_inputs.hitting_balls_seen AS hittingBallsSeen,
-                player_rating_inputs.hitting_strikes_seen AS hittingStrikesSeen,
-                player_rating_inputs.hitting_swings AS hittingSwings,
-                player_rating_inputs.hitting_swing_at_balls AS hittingSwingAtBalls,
-                player_rating_inputs.hitting_swing_at_strikes AS hittingSwingAtStrikes,
-                player_rating_inputs.hitting_called_strikes AS hittingCalledStrikes,
-                player_rating_inputs.hitting_swinging_strikes AS hittingSwingingStrikes,
-                player_rating_inputs.hitting_in_zone_pitches AS hittingInZonePitches,
-                player_rating_inputs.hitting_in_zone_contact AS hittingInZoneContact,
-                player_rating_inputs.hitting_out_zone_contact AS hittingOutZoneContact,
-                player_rating_inputs.hitting_fouls AS hittingFouls,
-                player_rating_inputs.hitting_balls_in_play AS hittingBallsInPlay,
-                player_rating_inputs.hitting_exit_velocity_count AS hittingExitVelocityCount,
-                player_rating_inputs.hitting_total_exit_velocity AS hittingTotalExitVelocity,
-                player_rating_inputs.pitching_games AS pitchingGames,
-                player_rating_inputs.pitching_starts AS pitchingStarts,
-                player_rating_inputs.pitching_batters_faced AS pitchingBattersFaced,
-                player_rating_inputs.pitching_outs AS pitchingOuts,
-                player_rating_inputs.pitching_hits_allowed AS pitchingHitsAllowed,
-                player_rating_inputs.pitching_doubles_allowed AS pitchingDoublesAllowed,
-                player_rating_inputs.pitching_triples_allowed AS pitchingTriplesAllowed,
-                player_rating_inputs.pitching_home_runs_allowed AS pitchingHomeRunsAllowed,
-                player_rating_inputs.pitching_bb_allowed AS pitchingBbAllowed,
-                player_rating_inputs.pitching_so AS pitchingSo,
-                player_rating_inputs.pitching_hbp_allowed AS pitchingHbpAllowed,
-                player_rating_inputs.pitching_ground_balls_allowed AS pitchingGroundBallsAllowed,
-                player_rating_inputs.pitching_fly_balls_allowed AS pitchingFlyBallsAllowed,
-                player_rating_inputs.pitching_line_drives_allowed AS pitchingLineDrivesAllowed,
-                player_rating_inputs.pitching_popups_allowed AS pitchingPopupsAllowed,
-                player_rating_inputs.pitching_pitches_thrown AS pitchingPitchesThrown,
-                player_rating_inputs.pitching_balls_thrown AS pitchingBallsThrown,
-                player_rating_inputs.pitching_strikes_thrown AS pitchingStrikesThrown,
-                player_rating_inputs.pitching_swings_induced AS pitchingSwingsInduced,
-                player_rating_inputs.pitching_swing_at_balls_allowed AS pitchingSwingAtBallsAllowed,
-                player_rating_inputs.pitching_swing_at_strikes_allowed AS pitchingSwingAtStrikesAllowed,
-                player_rating_inputs.pitching_in_zone_contact_allowed AS pitchingInZoneContactAllowed,
-                player_rating_inputs.pitching_out_zone_contact_allowed AS pitchingOutZoneContactAllowed,
-                player_rating_inputs.pitching_fouls_allowed AS pitchingFoulsAllowed,
-                player_rating_inputs.pitching_balls_in_play_allowed AS pitchingBallsInPlayAllowed,
-                player_rating_inputs.fielding_errors AS fieldingErrors,
-                player_rating_inputs.fielding_assists AS fieldingAssists,
-                player_rating_inputs.fielding_putouts AS fieldingPutouts,
-                player_rating_inputs.fielding_double_plays AS fieldingDoublePlays,
-                player_rating_inputs.fielding_outfield_assists AS fieldingOutfieldAssists,
-                player_rating_inputs.fielding_catcher_caught_stealing AS fieldingCatcherCaughtStealing,
-                player_rating_inputs.fielding_catcher_stolen_bases_allowed AS fieldingCatcherStolenBasesAllowed,
-                player_rating_inputs.fielding_passed_balls AS fieldingPassedBalls,
-                player_rating_inputs.running_sb AS runningSb,
-                player_rating_inputs.running_cs AS runningCs,
-                player_rating_inputs.running_sb_attempts AS runningSbAttempts,
-                player_rating_inputs.hitting_vs_l_pa AS hittingVsLPa,
-                player_rating_inputs.hitting_vs_l_ab AS hittingVsLAb,
-                player_rating_inputs.hitting_vs_l_hits AS hittingVsLHits,
-                player_rating_inputs.hitting_vs_l_doubles AS hittingVsLDoubles,
-                player_rating_inputs.hitting_vs_l_triples AS hittingVsLTriples,
-                player_rating_inputs.hitting_vs_l_home_runs AS hittingVsLHomeRuns,
-                player_rating_inputs.hitting_vs_l_bb AS hittingVsLBb,
-                player_rating_inputs.hitting_vs_l_so AS hittingVsLSo,
-                player_rating_inputs.hitting_vs_l_hbp AS hittingVsLHbp,
-                player_rating_inputs.hitting_vs_l_exit_velocity_count AS hittingVsLExitVelocityCount,
-                player_rating_inputs.hitting_vs_l_total_exit_velocity AS hittingVsLTotalExitVelocity,
-                player_rating_inputs.hitting_vs_r_pa AS hittingVsRPa,
-                player_rating_inputs.hitting_vs_r_ab AS hittingVsRAb,
-                player_rating_inputs.hitting_vs_r_hits AS hittingVsRHits,
-                player_rating_inputs.hitting_vs_r_doubles AS hittingVsRDoubles,
-                player_rating_inputs.hitting_vs_r_triples AS hittingVsRTriples,
-                player_rating_inputs.hitting_vs_r_home_runs AS hittingVsRHomeRuns,
-                player_rating_inputs.hitting_vs_r_bb AS hittingVsRBb,
-                player_rating_inputs.hitting_vs_r_so AS hittingVsRSo,
-                player_rating_inputs.hitting_vs_r_hbp AS hittingVsRHbp,
-                player_rating_inputs.hitting_vs_r_exit_velocity_count AS hittingVsRExitVelocityCount,
-                player_rating_inputs.hitting_vs_r_total_exit_velocity AS hittingVsRTotalExitVelocity,
-                player_rating_inputs.pitching_vs_l_batters_faced AS pitchingVsLBattersFaced,
-                player_rating_inputs.pitching_vs_l_outs AS pitchingVsLOuts,
-                player_rating_inputs.pitching_vs_l_runs_allowed AS pitchingVsLRunsAllowed,
-                player_rating_inputs.pitching_vs_l_earned_runs_allowed AS pitchingVsLEarnedRunsAllowed,
-                player_rating_inputs.pitching_vs_l_hits_allowed AS pitchingVsLHitsAllowed,
-                player_rating_inputs.pitching_vs_l_doubles_allowed AS pitchingVsLDoublesAllowed,
-                player_rating_inputs.pitching_vs_l_triples_allowed AS pitchingVsLTriplesAllowed,
-                player_rating_inputs.pitching_vs_l_home_runs_allowed AS pitchingVsLHomeRunsAllowed,
-                player_rating_inputs.pitching_vs_l_bb_allowed AS pitchingVsLBbAllowed,
-                player_rating_inputs.pitching_vs_l_so AS pitchingVsLSo,
-                player_rating_inputs.pitching_vs_l_hbp_allowed AS pitchingVsLHbpAllowed,
-                player_rating_inputs.pitching_vs_r_batters_faced AS pitchingVsRBattersFaced,
-                player_rating_inputs.pitching_vs_r_outs AS pitchingVsROuts,
-                player_rating_inputs.pitching_vs_r_runs_allowed AS pitchingVsRRunsAllowed,
-                player_rating_inputs.pitching_vs_r_earned_runs_allowed AS pitchingVsREarnedRunsAllowed,
-                player_rating_inputs.pitching_vs_r_hits_allowed AS pitchingVsRHitsAllowed,
-                player_rating_inputs.pitching_vs_r_doubles_allowed AS pitchingVsRDoublesAllowed,
-                player_rating_inputs.pitching_vs_r_triples_allowed AS pitchingVsRTriplesAllowed,
-                player_rating_inputs.pitching_vs_r_home_runs_allowed AS pitchingVsRHomeRunsAllowed,
-                player_rating_inputs.pitching_vs_r_bb_allowed AS pitchingVsRBbAllowed,
-                player_rating_inputs.pitching_vs_r_so AS pitchingVsRSo,
-                player_rating_inputs.pitching_vs_r_hbp_allowed AS pitchingVsRHbpAllowed,
-                player_rating_inputs.pitch_types AS pitchTypes,
-                player_rating_inputs.games_at_position AS gamesAtPosition,
-                player_rating_inputs.innings_at_position AS inningsAtPosition
+                ${inputColumns}
             FROM player_rating_inputs
             WHERE player_rating_inputs.game_pk = ?
             ORDER BY player_rating_inputs.player_id
@@ -286,10 +174,8 @@ class PlayerRatingInputRepository {
                     player_rating_inputs.game_pk,
                     player_rating_inputs.player_id
                 FROM player_rating_inputs
-                INNER JOIN games
-                    ON games.game_pk = player_rating_inputs.game_pk
-                WHERE player_rating_inputs.game_date < @endDateExclusive
-                    AND games.game_type = 'R'
+                WHERE player_rating_inputs.game_type = 'R'
+                    AND player_rating_inputs.game_date < @endDateExclusive
             `,
             {
                 endDateExclusive
@@ -304,18 +190,14 @@ class PlayerRatingInputRepository {
         }
 
         const playerIds = filterPlayerIds && filterPlayerIds.size > 0
-            ? Array.from(
-                filterPlayerIds
-            ).map(Number)
+            ? Array.from(filterPlayerIds).map(Number)
             : (
                 this.database.prepare(`
                     SELECT DISTINCT
                         player_rating_inputs.player_id AS playerId
                     FROM player_rating_inputs
-                    INNER JOIN games
-                        ON games.game_pk = player_rating_inputs.game_pk
-                    WHERE player_rating_inputs.game_date < @endDateExclusive
-                        AND games.game_type = 'R'
+                    WHERE player_rating_inputs.game_type = 'R'
+                        AND player_rating_inputs.game_date < @endDateExclusive
                     ORDER BY player_rating_inputs.player_id
                 `).all({
                     endDateExclusive
@@ -331,14 +213,13 @@ class PlayerRatingInputRepository {
         }
 
         const results: PlayerRatingInput[] = []
-        const batchSize = 250
+        const batchSize = 40
 
         for (let batchStart = 0; batchStart < playerIds.length; batchStart += batchSize) {
             const batch = playerIds.slice(
                 batchStart,
                 batchStart + batchSize
             )
-
             const parameters: Record<string, string | number> = {
                 endDateExclusive,
                 appearanceCount
@@ -351,18 +232,14 @@ class PlayerRatingInputRepository {
 
                 return `
                     SELECT
-                        limited_inputs.game_pk,
-                        limited_inputs.player_id
+                        limited_inputs.*
                     FROM (
                         SELECT
-                            player_rating_inputs.game_pk,
-                            player_rating_inputs.player_id
+                            player_rating_inputs.*
                         FROM player_rating_inputs
-                        INNER JOIN games
-                            ON games.game_pk = player_rating_inputs.game_pk
                         WHERE player_rating_inputs.player_id = @${parameter}
+                            AND player_rating_inputs.game_type = 'R'
                             AND player_rating_inputs.game_date < @endDateExclusive
-                            AND games.game_type = 'R'
                         ORDER BY
                             player_rating_inputs.game_date DESC,
                             player_rating_inputs.game_pk DESC
@@ -373,10 +250,47 @@ class PlayerRatingInputRepository {
                 UNION ALL
             `)
 
+            const rows = this.database.prepare(`
+                WITH selected_inputs AS (
+                    ${selectedInputsQuery}
+                )
+                SELECT
+                    input.player_id AS playerId,
+                    ${aggregateColumns},
+                    '{}' AS pitchTypes,
+                    '{}' AS gamesAtPosition,
+                    '{}' AS inningsAtPosition,
+                    GROUP_CONCAT(
+                        NULLIF(
+                            input.pitch_types,
+                            '{}'
+                        ),
+                        CHAR(30)
+                    ) AS pitchTypeRows,
+                    GROUP_CONCAT(
+                        NULLIF(
+                            input.games_at_position,
+                            '{}'
+                        ),
+                        CHAR(30)
+                    ) AS gamesAtPositionRows,
+                    GROUP_CONCAT(
+                        NULLIF(
+                            input.innings_at_position,
+                            '{}'
+                        ),
+                        CHAR(30)
+                    ) AS inningsAtPositionRows
+                FROM selected_inputs input
+                GROUP BY input.player_id
+                ORDER BY input.player_id
+            `).all(
+                parameters
+            ) as PlayerRatingAggregatedRow[]
+
             results.push(
-                ...this.getAggregatedInputs(
-                    selectedInputsQuery,
-                    parameters
+                ...this.mapAggregatedRows(
+                    rows
                 )
             )
         }
@@ -401,11 +315,9 @@ class PlayerRatingInputRepository {
                     player_rating_inputs.game_pk,
                     player_rating_inputs.player_id
                 FROM player_rating_inputs
-                INNER JOIN games
-                    ON games.game_pk = player_rating_inputs.game_pk
-                WHERE player_rating_inputs.game_date >= @startDate
+                WHERE player_rating_inputs.game_type = 'R'
+                    AND player_rating_inputs.game_date >= @startDate
                     AND player_rating_inputs.game_date < @endDateExclusive
-                    AND games.game_type = 'R'
             `,
             {
                 startDate,
@@ -420,11 +332,9 @@ class PlayerRatingInputRepository {
             SELECT DISTINCT
                 player_rating_inputs.player_id AS playerId
             FROM player_rating_inputs
-            INNER JOIN games
-                ON games.game_pk = player_rating_inputs.game_pk
-            WHERE player_rating_inputs.game_date >= ?
+            WHERE player_rating_inputs.game_type = 'R'
+                AND player_rating_inputs.game_date >= ?
                 AND player_rating_inputs.game_date < ?
-                AND games.game_type = 'R'
             ORDER BY player_rating_inputs.player_id
         `).all(
             `${season}-01-01`,
@@ -446,6 +356,7 @@ class PlayerRatingInputRepository {
                 game_pk,
                 player_id,
                 game_date,
+                game_type,
                 hitting_games,
                 hitting_pa,
                 hitting_ab,
@@ -567,6 +478,11 @@ class PlayerRatingInputRepository {
                     FROM games
                     WHERE games.game_pk = @gamePk
                 ),
+                (
+                    SELECT games.game_type
+                    FROM games
+                    WHERE games.game_pk = @gamePk
+                ),
                 @hittingGames,
                 @hittingPa,
                 @hittingAb,
@@ -682,6 +598,7 @@ class PlayerRatingInputRepository {
             )
             ON CONFLICT(game_pk, player_id) DO UPDATE SET
                 game_date = excluded.game_date,
+                game_type = excluded.game_type,
                 hitting_games = excluded.hitting_games,
                 hitting_pa = excluded.hitting_pa,
                 hitting_ab = excluded.hitting_ab,
@@ -971,6 +888,13 @@ class PlayerRatingInputRepository {
             parameters
         ) as PlayerRatingAggregatedRow[]
 
+        return this.mapAggregatedRows(
+            rows,
+            filterPlayerIds
+        )
+    }
+
+    private mapAggregatedRows(rows: PlayerRatingAggregatedRow[], filterPlayerIds?: Set<string>): PlayerRatingInput[] {
         return rows
             .filter(row =>
                 !filterPlayerIds ||
@@ -1281,6 +1205,122 @@ class PlayerRatingInputRepository {
 
 
 }
+
+const inputColumns = `
+player_rating_inputs.player_id AS playerId,
+                player_rating_inputs.hitting_games AS hittingGames,
+                player_rating_inputs.hitting_pa AS hittingPa,
+                player_rating_inputs.hitting_ab AS hittingAb,
+                player_rating_inputs.hitting_hits AS hittingHits,
+                player_rating_inputs.hitting_doubles AS hittingDoubles,
+                player_rating_inputs.hitting_triples AS hittingTriples,
+                player_rating_inputs.hitting_home_runs AS hittingHomeRuns,
+                player_rating_inputs.hitting_bb AS hittingBb,
+                player_rating_inputs.hitting_so AS hittingSo,
+                player_rating_inputs.hitting_hbp AS hittingHbp,
+                player_rating_inputs.hitting_ground_balls AS hittingGroundBalls,
+                player_rating_inputs.hitting_fly_balls AS hittingFlyBalls,
+                player_rating_inputs.hitting_line_drives AS hittingLineDrives,
+                player_rating_inputs.hitting_popups AS hittingPopups,
+                player_rating_inputs.hitting_pitches_seen AS hittingPitchesSeen,
+                player_rating_inputs.hitting_balls_seen AS hittingBallsSeen,
+                player_rating_inputs.hitting_strikes_seen AS hittingStrikesSeen,
+                player_rating_inputs.hitting_swings AS hittingSwings,
+                player_rating_inputs.hitting_swing_at_balls AS hittingSwingAtBalls,
+                player_rating_inputs.hitting_swing_at_strikes AS hittingSwingAtStrikes,
+                player_rating_inputs.hitting_called_strikes AS hittingCalledStrikes,
+                player_rating_inputs.hitting_swinging_strikes AS hittingSwingingStrikes,
+                player_rating_inputs.hitting_in_zone_pitches AS hittingInZonePitches,
+                player_rating_inputs.hitting_in_zone_contact AS hittingInZoneContact,
+                player_rating_inputs.hitting_out_zone_contact AS hittingOutZoneContact,
+                player_rating_inputs.hitting_fouls AS hittingFouls,
+                player_rating_inputs.hitting_balls_in_play AS hittingBallsInPlay,
+                player_rating_inputs.hitting_exit_velocity_count AS hittingExitVelocityCount,
+                player_rating_inputs.hitting_total_exit_velocity AS hittingTotalExitVelocity,
+                player_rating_inputs.pitching_games AS pitchingGames,
+                player_rating_inputs.pitching_starts AS pitchingStarts,
+                player_rating_inputs.pitching_batters_faced AS pitchingBattersFaced,
+                player_rating_inputs.pitching_outs AS pitchingOuts,
+                player_rating_inputs.pitching_hits_allowed AS pitchingHitsAllowed,
+                player_rating_inputs.pitching_doubles_allowed AS pitchingDoublesAllowed,
+                player_rating_inputs.pitching_triples_allowed AS pitchingTriplesAllowed,
+                player_rating_inputs.pitching_home_runs_allowed AS pitchingHomeRunsAllowed,
+                player_rating_inputs.pitching_bb_allowed AS pitchingBbAllowed,
+                player_rating_inputs.pitching_so AS pitchingSo,
+                player_rating_inputs.pitching_hbp_allowed AS pitchingHbpAllowed,
+                player_rating_inputs.pitching_ground_balls_allowed AS pitchingGroundBallsAllowed,
+                player_rating_inputs.pitching_fly_balls_allowed AS pitchingFlyBallsAllowed,
+                player_rating_inputs.pitching_line_drives_allowed AS pitchingLineDrivesAllowed,
+                player_rating_inputs.pitching_popups_allowed AS pitchingPopupsAllowed,
+                player_rating_inputs.pitching_pitches_thrown AS pitchingPitchesThrown,
+                player_rating_inputs.pitching_balls_thrown AS pitchingBallsThrown,
+                player_rating_inputs.pitching_strikes_thrown AS pitchingStrikesThrown,
+                player_rating_inputs.pitching_swings_induced AS pitchingSwingsInduced,
+                player_rating_inputs.pitching_swing_at_balls_allowed AS pitchingSwingAtBallsAllowed,
+                player_rating_inputs.pitching_swing_at_strikes_allowed AS pitchingSwingAtStrikesAllowed,
+                player_rating_inputs.pitching_in_zone_contact_allowed AS pitchingInZoneContactAllowed,
+                player_rating_inputs.pitching_out_zone_contact_allowed AS pitchingOutZoneContactAllowed,
+                player_rating_inputs.pitching_fouls_allowed AS pitchingFoulsAllowed,
+                player_rating_inputs.pitching_balls_in_play_allowed AS pitchingBallsInPlayAllowed,
+                player_rating_inputs.fielding_errors AS fieldingErrors,
+                player_rating_inputs.fielding_assists AS fieldingAssists,
+                player_rating_inputs.fielding_putouts AS fieldingPutouts,
+                player_rating_inputs.fielding_double_plays AS fieldingDoublePlays,
+                player_rating_inputs.fielding_outfield_assists AS fieldingOutfieldAssists,
+                player_rating_inputs.fielding_catcher_caught_stealing AS fieldingCatcherCaughtStealing,
+                player_rating_inputs.fielding_catcher_stolen_bases_allowed AS fieldingCatcherStolenBasesAllowed,
+                player_rating_inputs.fielding_passed_balls AS fieldingPassedBalls,
+                player_rating_inputs.running_sb AS runningSb,
+                player_rating_inputs.running_cs AS runningCs,
+                player_rating_inputs.running_sb_attempts AS runningSbAttempts,
+                player_rating_inputs.hitting_vs_l_pa AS hittingVsLPa,
+                player_rating_inputs.hitting_vs_l_ab AS hittingVsLAb,
+                player_rating_inputs.hitting_vs_l_hits AS hittingVsLHits,
+                player_rating_inputs.hitting_vs_l_doubles AS hittingVsLDoubles,
+                player_rating_inputs.hitting_vs_l_triples AS hittingVsLTriples,
+                player_rating_inputs.hitting_vs_l_home_runs AS hittingVsLHomeRuns,
+                player_rating_inputs.hitting_vs_l_bb AS hittingVsLBb,
+                player_rating_inputs.hitting_vs_l_so AS hittingVsLSo,
+                player_rating_inputs.hitting_vs_l_hbp AS hittingVsLHbp,
+                player_rating_inputs.hitting_vs_l_exit_velocity_count AS hittingVsLExitVelocityCount,
+                player_rating_inputs.hitting_vs_l_total_exit_velocity AS hittingVsLTotalExitVelocity,
+                player_rating_inputs.hitting_vs_r_pa AS hittingVsRPa,
+                player_rating_inputs.hitting_vs_r_ab AS hittingVsRAb,
+                player_rating_inputs.hitting_vs_r_hits AS hittingVsRHits,
+                player_rating_inputs.hitting_vs_r_doubles AS hittingVsRDoubles,
+                player_rating_inputs.hitting_vs_r_triples AS hittingVsRTriples,
+                player_rating_inputs.hitting_vs_r_home_runs AS hittingVsRHomeRuns,
+                player_rating_inputs.hitting_vs_r_bb AS hittingVsRBb,
+                player_rating_inputs.hitting_vs_r_so AS hittingVsRSo,
+                player_rating_inputs.hitting_vs_r_hbp AS hittingVsRHbp,
+                player_rating_inputs.hitting_vs_r_exit_velocity_count AS hittingVsRExitVelocityCount,
+                player_rating_inputs.hitting_vs_r_total_exit_velocity AS hittingVsRTotalExitVelocity,
+                player_rating_inputs.pitching_vs_l_batters_faced AS pitchingVsLBattersFaced,
+                player_rating_inputs.pitching_vs_l_outs AS pitchingVsLOuts,
+                player_rating_inputs.pitching_vs_l_runs_allowed AS pitchingVsLRunsAllowed,
+                player_rating_inputs.pitching_vs_l_earned_runs_allowed AS pitchingVsLEarnedRunsAllowed,
+                player_rating_inputs.pitching_vs_l_hits_allowed AS pitchingVsLHitsAllowed,
+                player_rating_inputs.pitching_vs_l_doubles_allowed AS pitchingVsLDoublesAllowed,
+                player_rating_inputs.pitching_vs_l_triples_allowed AS pitchingVsLTriplesAllowed,
+                player_rating_inputs.pitching_vs_l_home_runs_allowed AS pitchingVsLHomeRunsAllowed,
+                player_rating_inputs.pitching_vs_l_bb_allowed AS pitchingVsLBbAllowed,
+                player_rating_inputs.pitching_vs_l_so AS pitchingVsLSo,
+                player_rating_inputs.pitching_vs_l_hbp_allowed AS pitchingVsLHbpAllowed,
+                player_rating_inputs.pitching_vs_r_batters_faced AS pitchingVsRBattersFaced,
+                player_rating_inputs.pitching_vs_r_outs AS pitchingVsROuts,
+                player_rating_inputs.pitching_vs_r_runs_allowed AS pitchingVsRRunsAllowed,
+                player_rating_inputs.pitching_vs_r_earned_runs_allowed AS pitchingVsREarnedRunsAllowed,
+                player_rating_inputs.pitching_vs_r_hits_allowed AS pitchingVsRHitsAllowed,
+                player_rating_inputs.pitching_vs_r_doubles_allowed AS pitchingVsRDoublesAllowed,
+                player_rating_inputs.pitching_vs_r_triples_allowed AS pitchingVsRTriplesAllowed,
+                player_rating_inputs.pitching_vs_r_home_runs_allowed AS pitchingVsRHomeRunsAllowed,
+                player_rating_inputs.pitching_vs_r_bb_allowed AS pitchingVsRBbAllowed,
+                player_rating_inputs.pitching_vs_r_so AS pitchingVsRSo,
+                player_rating_inputs.pitching_vs_r_hbp_allowed AS pitchingVsRHbpAllowed,
+                player_rating_inputs.pitch_types AS pitchTypes,
+                player_rating_inputs.games_at_position AS gamesAtPosition,
+                player_rating_inputs.innings_at_position AS inningsAtPosition
+`
 
 const aggregateColumns = `
     SUM(input.hitting_games) AS hittingGames,
@@ -1876,6 +1916,7 @@ const createQuery = `
                 game_pk,
                 player_id,
                 game_date,
+                game_type,
                 hitting_games,
                 hitting_pa,
                 hitting_ab,
@@ -1994,6 +2035,11 @@ const createQuery = `
                 selected_players.player_id,
                 (
                     SELECT games.game_date
+                    FROM games
+                    WHERE games.game_pk = @gamePk
+                ),
+                (
+                    SELECT games.game_type
                     FROM games
                     WHERE games.game_pk = @gamePk
                 ),
@@ -2144,6 +2190,7 @@ const createQuery = `
                 AND pitching_vs_r.split = 'vsR'
             ON CONFLICT(game_pk, player_id) DO UPDATE SET
                 game_date = excluded.game_date,
+                game_type = excluded.game_type,
                 hitting_games = excluded.hitting_games,
                 hitting_pa = excluded.hitting_pa,
                 hitting_ab = excluded.hitting_ab,

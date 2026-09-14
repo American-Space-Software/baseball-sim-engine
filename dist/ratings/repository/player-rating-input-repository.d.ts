@@ -13,6 +13,7 @@ declare class PlayerRatingInputRepository {
     put(gamePk: number, input: PlayerRatingInput): void;
     deleteByGame(gamePk: number): void;
     private getAggregatedInputs;
+    private mapAggregatedRows;
     private aggregatePitchTypes;
     private aggregateNumericMaps;
     private mapRow;

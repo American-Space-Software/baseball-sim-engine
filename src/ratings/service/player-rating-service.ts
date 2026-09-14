@@ -372,47 +372,98 @@ class PlayerRatingService {
 
     private advanceState(state: PlayerRatingState, gameDate: string, selectedPlayerIds: Set<string>): Set<string> {
         const startedAt = Date.now()
-        const affectedPlayerIds = this.loadMissingPlayers(state, gameDate, selectedPlayerIds)
+        const missingPlayerIds = this.loadMissingPlayers(state, gameDate, selectedPlayerIds)
+        const affectedPlayerIds = new Set(missingPlayerIds)
+        const last162AffectedPlayerIds = new Set<string>()
         const addedInputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(state.currentDate, gameDate, selectedPlayerIds))
 
         for (const [playerId, addedInput] of addedInputs) {
             affectedPlayerIds.add(playerId)
 
+            if (missingPlayerIds.has(playerId)) {
+                continue
+            }
+
             const existingCareerInput = state.careerInputs.get(playerId)
 
             state.careerInputs.set(playerId, existingCareerInput ? this.addPlayerRatingInputs(existingCareerInput, addedInput) : structuredClone(addedInput))
+
+            last162AffectedPlayerIds.add(playerId)
+        }
+
+        if (last162AffectedPlayerIds.size > 0) {
+            const refreshedLast162Inputs = this.toInputMap(this.playerRatingInputRepository.getLastAppearances(gameDate, this.getLast162Window().maximumAppearances ?? 162, last162AffectedPlayerIds))
+
+            this.replaceInputs(state.last162Inputs, last162AffectedPlayerIds, refreshedLast162Inputs)
         }
 
         for (const window of this.getRecentWindows()) {
             const previousRange = PlayerRatingService.getWindowDateRange(state.currentDate, window)
-
             const currentRange = PlayerRatingService.getWindowDateRange(gameDate, window)
+            const windowInputs = state.recentInputsByWindow.get(window.name) ?? new Map<string, PlayerRatingInput>()
 
-            for (const changedRange of this.getChangedDateRanges(previousRange, currentRange)) {
-                const changedInputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(changedRange.startDate, changedRange.endDateExclusive, selectedPlayerIds))
+            if (
+                currentRange.startDate >= previousRange.endDateExclusive ||
+                previousRange.startDate >= currentRange.endDateExclusive
+            ) {
+                const refreshPlayerIds = new Set(Array.from(selectedPlayerIds).filter(playerId => !missingPlayerIds.has(playerId)))
+                const refreshedInputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(currentRange.startDate, currentRange.endDateExclusive, refreshPlayerIds))
 
-                this.addPlayerIds(affectedPlayerIds, changedInputs)
-            }
-        }
+                for (const playerId of refreshPlayerIds) {
+                    if (windowInputs.has(playerId) || refreshedInputs.has(playerId)) {
+                        affectedPlayerIds.add(playerId)
+                    }
+                }
 
-        if (affectedPlayerIds.size > 0) {
-            const refreshedLast162Inputs = this.toInputMap(this.playerRatingInputRepository.getLastAppearances(gameDate, this.getLast162Window().maximumAppearances ?? 162, affectedPlayerIds))
-
-            this.replaceInputs(state.last162Inputs, affectedPlayerIds, refreshedLast162Inputs)
-
-            for (const window of this.getRecentWindows()) {
-                const dateRange = PlayerRatingService.getWindowDateRange(gameDate, window)
-
-                const refreshedInputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(dateRange.startDate, dateRange.endDateExclusive, affectedPlayerIds))
-
-                const windowInputs =
-                    state.recentInputsByWindow.get(window.name) ??
-                    new Map<string, PlayerRatingInput>()
-
-                this.replaceInputs(windowInputs, affectedPlayerIds, refreshedInputs)
-
+                this.replaceInputs(windowInputs, refreshPlayerIds, refreshedInputs)
                 state.recentInputsByWindow.set(window.name, windowInputs)
+
+                continue
             }
+
+            if (previousRange.startDate < currentRange.startDate) {
+                const removedInputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(previousRange.startDate, currentRange.startDate, selectedPlayerIds))
+
+                for (const [playerId, removedInput] of removedInputs) {
+                    if (missingPlayerIds.has(playerId)) {
+                        continue
+                    }
+
+                    const existingInput = windowInputs.get(playerId)
+
+                    if (!existingInput) {
+                        continue
+                    }
+
+                    affectedPlayerIds.add(playerId)
+
+                    const updatedInput = this.subtractPlayerRatingInputs(existingInput, removedInput)
+
+                    if (this.hasAnyHistory(updatedInput)) {
+                        windowInputs.set(playerId, updatedInput)
+                    } else {
+                        windowInputs.delete(playerId)
+                    }
+                }
+            }
+
+            if (previousRange.endDateExclusive < currentRange.endDateExclusive) {
+                const newlyIncludedInputs = this.toInputMap(this.playerRatingInputRepository.getForDateRange(previousRange.endDateExclusive, currentRange.endDateExclusive, selectedPlayerIds))
+
+                for (const [playerId, addedInput] of newlyIncludedInputs) {
+                    if (missingPlayerIds.has(playerId)) {
+                        continue
+                    }
+
+                    affectedPlayerIds.add(playerId)
+
+                    const existingInput = windowInputs.get(playerId)
+
+                    windowInputs.set(playerId, existingInput ? this.addPlayerRatingInputs(existingInput, addedInput) : structuredClone(addedInput))
+                }
+            }
+
+            state.recentInputsByWindow.set(window.name, windowInputs)
         }
 
         console.log(
@@ -586,6 +637,68 @@ class PlayerRatingService {
         return structuredClone(existing ?? added)
     }
 
+    private subtractPlayerRatingInputs(existing: PlayerRatingInput, removed: PlayerRatingInput): PlayerRatingInput {
+        const result = this.subtractRatingValues(existing, removed, []) as PlayerRatingInput
+
+        result.playerId = existing.playerId
+
+        this.finalizePlayerRatingInput(result)
+
+        return result
+    }
+
+    private subtractRatingValues(existing: any, removed: any, path: string[]): any {
+        if (typeof existing === "number" || typeof removed === "number") {
+            const existingValue = Number(existing ?? 0)
+            const removedValue = Number(removed ?? 0)
+
+            if (
+                path.at(-1)?.startsWith("avg") ||
+                path.at(-1) === "exitVelocity"
+            ) {
+                return existingValue
+            }
+
+            return Math.max(0, existingValue - removedValue)
+        }
+
+        if (Array.isArray(existing) || Array.isArray(removed)) {
+            return structuredClone(existing ?? [])
+        }
+
+        if (
+            existing &&
+            typeof existing === "object" ||
+            removed &&
+            typeof removed === "object"
+        ) {
+            const result: Record<string, any> = {}
+            const keys = new Set([
+                ...Object.keys(existing ?? {}),
+                ...Object.keys(removed ?? {})
+            ])
+
+            for (const key of keys) {
+                result[key] = this.subtractRatingValues(existing?.[key], removed?.[key], [...path, key])
+            }
+
+            return result
+        }
+
+        return structuredClone(existing)
+    }
+
+    private hasAnyHistory(playerInput: PlayerRatingInput): boolean {
+        return Number(playerInput.hitting.games ?? 0) > 0 ||
+            Number(playerInput.hitting.pa ?? 0) > 0 ||
+            Number(playerInput.pitching.games ?? 0) > 0 ||
+            Number(playerInput.pitching.battersFaced ?? 0) > 0 ||
+            Number(playerInput.pitching.outs ?? 0) > 0 ||
+            Number(playerInput.fielding.errors ?? 0) > 0 ||
+            Number(playerInput.fielding.assists ?? 0) > 0 ||
+            Number(playerInput.fielding.putouts ?? 0) > 0
+    }
+
     private finalizePlayerRatingInput(playerInput: PlayerRatingInput): void {
         const exitVelocity = playerInput.hitting.exitVelocity
 
@@ -650,59 +763,6 @@ class PlayerRatingService {
 
     private getRecentWindows(): RatingWindow[] {
         return ratingWindows.filter(window => window.minimumDaysAgo !== undefined && window.maximumDaysAgo !== undefined)
-    }
-
-    private getChangedDateRanges(previousRange: RatingDateRange, currentRange: RatingDateRange): RatingDateRange[] {
-        if (
-            previousRange.startDate === currentRange.startDate &&
-            previousRange.endDateExclusive === currentRange.endDateExclusive
-        ) {
-            return []
-        }
-
-        if (
-            currentRange.startDate >= previousRange.endDateExclusive ||
-            previousRange.startDate >= currentRange.endDateExclusive
-        ) {
-            return [
-                previousRange,
-                currentRange
-            ]
-        }
-
-        const ranges: RatingDateRange[] = []
-
-        if (previousRange.startDate < currentRange.startDate) {
-            ranges.push({
-                startDate: previousRange.startDate,
-                endDateExclusive: currentRange.startDate
-            })
-        } else if (currentRange.startDate < previousRange.startDate) {
-            ranges.push({
-                startDate: currentRange.startDate,
-                endDateExclusive: previousRange.startDate
-            })
-        }
-
-        if (previousRange.endDateExclusive < currentRange.endDateExclusive) {
-            ranges.push({
-                startDate: previousRange.endDateExclusive,
-                endDateExclusive: currentRange.endDateExclusive
-            })
-        } else if (currentRange.endDateExclusive < previousRange.endDateExclusive) {
-            ranges.push({
-                startDate: currentRange.endDateExclusive,
-                endDateExclusive: previousRange.endDateExclusive
-            })
-        }
-
-        return ranges.filter(range => range.startDate < range.endDateExclusive)
-    }
-
-    private addPlayerIds(target: Set<string>, inputs: Map<string, PlayerRatingInput>): void {
-        for (const playerId of inputs.keys()) {
-            target.add(String(playerId))
-        }
     }
 
     private static buildPlayerRatings(pitchEnvironment: PitchEnvironmentTarget, playerInput: PlayerRatingInput): GeneratedPlayerRatings {

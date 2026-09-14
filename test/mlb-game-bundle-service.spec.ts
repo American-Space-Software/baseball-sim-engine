@@ -48,7 +48,11 @@ class MlbGameBundleServiceTestHarness {
 
     public readonly pitchEnvironmentTarget = {
         avgRating: 100,
-        season: 2026
+        season: 2026,
+        pitchEnvironmentTuning: {
+            _id: "test-tuning",
+            tuning: {}
+        }
     } as PitchEnvironmentTarget
 
     public readonly teamRatings: TeamRatingSnapshot = {
@@ -258,11 +262,6 @@ class MlbGameBundleServiceTestHarness {
         ]
     }
 
-    public readonly pitchEnvironmentTargetService = {
-        getForDate: async (_gameDate: string): Promise<PitchEnvironmentTarget> =>
-            this.pitchEnvironmentTarget
-    }
-
     public readonly baseballSavantService = {
         getStadiumEnvironments: async (_season: number, teams: MlbTeam[]): Promise<StadiumEnvironment[]> => {
             assert.equal(
@@ -305,15 +304,15 @@ class MlbGameBundleServiceTestHarness {
         } as unknown as TeamBundle
     }
 
-    public createService(): MlbGameBundleService {
+    public createService(baseDataDir: string): MlbGameBundleService {
         return new MlbGameBundleService(
             this.mlbRosterService as any,
             this.gameLineupService as any,
             this.playerRatingService as any,
-            this.pitchEnvironmentTargetService as any,
             this.playerStatService as any,
             this.baseballSavantService as any,
-            this.teamRatingService as any
+            this.teamRatingService as any,
+            baseDataDir
         )
     }
 
@@ -324,7 +323,6 @@ describe("MlbGameBundleService", function () {
     let harness: MlbGameBundleServiceTestHarness
     let service: MlbGameBundleService
     let originalGetSchedule: typeof queries.getSchedule
-    let originalDataDir: string | undefined
     let dataDir: string
 
     beforeEach(function () {
@@ -332,14 +330,10 @@ describe("MlbGameBundleService", function () {
 
         for (const team of harness.teams) {
             harness.rosters.set(team.id, harness.createRoster(team))
-
             harness.bundles.set(team.id, harness.createBundle(team))
         }
 
-        service = harness.createService()
-
         originalGetSchedule = queries.getSchedule
-        originalDataDir = process.env.DATA_DIR
 
         dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mlb-game-bundle-service-"))
 
@@ -350,19 +344,17 @@ describe("MlbGameBundleService", function () {
             }
         )
 
-        fs.writeFileSync(path.join(dataDir, "2026", "_pitch_environment_target.json"), JSON.stringify(harness.pitchEnvironmentTarget), "utf8")
+        fs.writeFileSync(
+            path.join(dataDir, "2026", "_pitch_environment_target.json"),
+            JSON.stringify(harness.pitchEnvironmentTarget),
+            "utf8"
+        )
 
-        process.env.DATA_DIR = dataDir
+        service = harness.createService(dataDir)
     })
 
     afterEach(function () {
         queries.getSchedule = originalGetSchedule
-
-        if (originalDataDir === undefined) {
-            delete process.env.DATA_DIR
-        } else {
-            process.env.DATA_DIR = originalDataDir
-        }
 
         fs.rmSync(
             dataDir,
@@ -714,18 +706,8 @@ describe("MlbGameBundleService", function () {
     })
 
     it("throws when the pitch environment target cannot be loaded", async function () {
-        const failingService = new MlbGameBundleService(
-            harness.mlbRosterService as any,
-            harness.gameLineupService as any,
-            harness.playerRatingService as any,
-            {
-                getForDate: async () => {
-                    throw new Error("Pitch environment target unavailable.")
-                }
-            } as any,
-            harness.playerStatService as any,
-            harness.baseballSavantService as any,
-            harness.teamRatingService as any
+        fs.rmSync(
+            path.join(dataDir, "2026", "_pitch_environment_target.json")
         )
 
         queries.getSchedule = (() => ({
@@ -736,7 +718,61 @@ describe("MlbGameBundleService", function () {
             }
         })) as unknown as typeof queries.getSchedule
 
-        await assert.rejects(failingService.build(harness.gameDate), /Pitch environment target unavailable/)
+        await assert.rejects(
+            service.build(harness.gameDate),
+            /Pitch environment target not found/
+        )
+    })
+
+    it("throws when the pitch environment target season does not match the requested season", async function () {
+        fs.writeFileSync(
+            path.join(dataDir, "2026", "_pitch_environment_target.json"),
+            JSON.stringify({
+                ...harness.pitchEnvironmentTarget,
+                season: 2025
+            }),
+            "utf8"
+        )
+
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: []
+            }
+        })) as unknown as typeof queries.getSchedule
+
+        await assert.rejects(
+            service.build(harness.gameDate),
+            /Pitch environment target season 2025 does not match requested season 2026/
+        )
+    })
+
+    it("throws when the pitch environment target has no tuning", async function () {
+        const target = {
+            ...harness.pitchEnvironmentTarget
+        } as any
+
+        delete target.pitchEnvironmentTuning
+
+        fs.writeFileSync(
+            path.join(dataDir, "2026", "_pitch_environment_target.json"),
+            JSON.stringify(target),
+            "utf8"
+        )
+
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: []
+            }
+        })) as unknown as typeof queries.getSchedule
+
+        await assert.rejects(
+            service.build(harness.gameDate),
+            /Pitch environment target has no tuning for season 2026/
+        )
     })
 
     it("throws when stadium environments cannot be loaded", async function () {
@@ -744,14 +780,14 @@ describe("MlbGameBundleService", function () {
             harness.mlbRosterService as any,
             harness.gameLineupService as any,
             harness.playerRatingService as any,
-            harness.pitchEnvironmentTargetService as any,
             harness.playerStatService as any,
             {
                 getStadiumEnvironments: async (_season: number, _teams: MlbTeam[]) => {
                     throw new Error("Stadium environments unavailable.")
                 }
             } as any,
-            harness.teamRatingService as any
+            harness.teamRatingService as any,
+            dataDir
         )
 
         queries.getSchedule = (() => ({
@@ -770,14 +806,14 @@ describe("MlbGameBundleService", function () {
             harness.mlbRosterService as any,
             harness.gameLineupService as any,
             harness.playerRatingService as any,
-            harness.pitchEnvironmentTargetService as any,
             harness.playerStatService as any,
             harness.baseballSavantService as any,
             {
                 getRatingsForDate: async () => {
                     throw new Error("Team ratings unavailable.")
                 }
-            } as any
+            } as any,
+            dataDir
         )
 
         queries.getSchedule = (() => ({

@@ -1,6 +1,6 @@
-import { SimService } from "../../sim/index.js";
 import { Position } from "../../sim/service/enums.js";
 import { Game, HitResultCount, Lineup, PitchEnvironmentTarget, PitchResultCount, Player, StadiumEnvironment } from "../../sim/service/interfaces.js";
+import { SimService } from "../../sim/service/sim-service.js";
 declare class BaselineGameService {
     private simService;
     constructor(simService: SimService);

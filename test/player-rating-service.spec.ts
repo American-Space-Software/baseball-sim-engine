@@ -1198,6 +1198,495 @@ describe("PlayerRatingService", function () {
         })
 
 
+
+        it("advances recent windows using only the entering and leaving date slices", async function () {
+            const requestedLastAppearances: any[] = []
+            const requestedRanges: any[] = []
+
+            const inputRepository = {
+                getPlayerIdsForSeason: () => new Set([
+                    "1"
+                ]),
+
+                getLastAppearances: (endDateExclusive: string, appearanceCount: number, playerIds?: Set<string>) => {
+                    requestedLastAppearances.push({
+                        endDateExclusive,
+                        appearanceCount,
+                        playerIds: Array.from(playerIds ?? [])
+                    })
+
+                    return [
+                        buildImport(
+                            "1",
+                            110
+                        )
+                    ]
+                },
+
+                getForDateRange: (startDate: string, endDateExclusive: string, playerIds?: Set<string>) => {
+                    requestedRanges.push({
+                        startDate,
+                        endDateExclusive,
+                        playerIds: Array.from(playerIds ?? [])
+                    })
+
+                    if (
+                        startDate === "2026-01-01" &&
+                        endDateExclusive === "2026-07-20"
+                    ) {
+                        return []
+                    }
+
+                    return [
+                        buildImport(
+                            "1",
+                            10
+                        )
+                    ]
+                }
+            }
+
+            const seasonInputRepository = {
+                getBeforeSeason: () => [
+                    {
+                        season: 2025,
+                        playerId: "1",
+                        data: buildImport(
+                            "1",
+                            100
+                        ),
+                        metadata: {}
+                    }
+                ]
+            }
+
+            const ratingsRepository = {
+                read: async () => [],
+                write: async () => {}
+            }
+
+            queries.getPlayer = (() => ({
+                playerId: 1,
+                firstName: "Test",
+                lastName: "Player",
+                fullName: "Test Player",
+                primaryPosition: "1B",
+                birthDate: "2000-01-01",
+                throws: "R",
+                bats: "R"
+            })) as unknown as typeof queries.getPlayer
+
+            const service = new PlayerRatingService(
+                inputRepository as unknown as PlayerRatingInputRepository,
+                seasonInputRepository as unknown as PlayerRatingSeasonInputRepository,
+                ratingsRepository as unknown as PlayerRatingsRepository
+            )
+
+            const ratingService = PlayerRatingService as any
+            const originalBuildPlayerRatings = ratingService.buildPlayerRatings
+
+            ratingService.buildPlayerRatings = (_environment: PitchEnvironmentTarget, playerInput: any) =>
+                buildRatings(
+                    playerInput.playerId,
+                    playerInput.value
+                )
+
+            try {
+                await service.buildPlayerRatingsForDate(
+                    2026,
+                    "2026-07-20",
+                    pitchEnvironment,
+                    new Set([
+                        "1"
+                    ])
+                )
+
+                requestedLastAppearances.length = 0
+                requestedRanges.length = 0
+
+                await service.buildPlayerRatingsForDate(
+                    2026,
+                    "2026-07-21",
+                    pitchEnvironment,
+                    new Set([
+                        "1"
+                    ])
+                )
+
+                assert.deepEqual(
+                    requestedLastAppearances,
+                    [
+                        {
+                            endDateExclusive: "2026-07-21",
+                            appearanceCount: 162,
+                            playerIds: [
+                                "1"
+                            ]
+                        }
+                    ]
+                )
+
+                assert.deepEqual(
+                    requestedRanges,
+                    [
+                        {
+                            startDate: "2026-07-20",
+                            endDateExclusive: "2026-07-21",
+                            playerIds: [
+                                "1"
+                            ]
+                        },
+                        {
+                            startDate: "2026-06-20",
+                            endDateExclusive: "2026-06-21",
+                            playerIds: [
+                                "1"
+                            ]
+                        },
+                        {
+                            startDate: "2026-07-05",
+                            endDateExclusive: "2026-07-06",
+                            playerIds: [
+                                "1"
+                            ]
+                        },
+                        {
+                            startDate: "2026-07-05",
+                            endDateExclusive: "2026-07-06",
+                            playerIds: [
+                                "1"
+                            ]
+                        },
+                        {
+                            startDate: "2026-07-13",
+                            endDateExclusive: "2026-07-14",
+                            playerIds: [
+                                "1"
+                            ]
+                        },
+                        {
+                            startDate: "2026-07-13",
+                            endDateExclusive: "2026-07-14",
+                            playerIds: [
+                                "1"
+                            ]
+                        },
+                        {
+                            startDate: "2026-07-20",
+                            endDateExclusive: "2026-07-21",
+                            playerIds: [
+                                "1"
+                            ]
+                        }
+                    ]
+                )
+
+                assert.equal(
+                    requestedRanges.some(call =>
+                        call.startDate === "2026-06-21" &&
+                        call.endDateExclusive === "2026-07-06"
+                    ),
+                    false
+                )
+
+                assert.equal(
+                    requestedRanges.some(call =>
+                        call.startDate === "2026-07-06" &&
+                        call.endDateExclusive === "2026-07-14"
+                    ),
+                    false
+                )
+
+                assert.equal(
+                    requestedRanges.some(call =>
+                        call.startDate === "2026-07-14" &&
+                        call.endDateExclusive === "2026-07-21"
+                    ),
+                    false
+                )
+            } finally {
+                ratingService.buildPlayerRatings =
+                    originalBuildPlayerRatings
+            }
+        })
+
+
+        it("refreshes last-162 only for players with newly added appearances", async function () {
+            const requestedLastAppearances: any[] = []
+            let advancing = false
+
+            const inputRepository = {
+                getPlayerIdsForSeason: () => new Set([
+                    "1",
+                    "2"
+                ]),
+
+                getLastAppearances: (endDateExclusive: string, appearanceCount: number, playerIds?: Set<string>) => {
+                    requestedLastAppearances.push({
+                        endDateExclusive,
+                        appearanceCount,
+                        playerIds: Array.from(playerIds ?? [])
+                    })
+
+                    return Array.from(playerIds ?? []).map(playerId =>
+                        buildImport(
+                            playerId,
+                            100
+                        )
+                    )
+                },
+
+                getForDateRange: (startDate: string, endDateExclusive: string, playerIds?: Set<string>) => {
+                    if (
+                        advancing &&
+                        startDate === "2026-07-20" &&
+                        endDateExclusive === "2026-07-21"
+                    ) {
+                        return [
+                            buildImport(
+                                "1",
+                                10
+                            )
+                        ]
+                    }
+
+                    if (advancing) {
+                        return []
+                    }
+
+                    if (startDate === "2026-01-01") {
+                        return []
+                    }
+
+                    return Array.from(playerIds ?? []).map(playerId =>
+                        buildImport(
+                            playerId,
+                            100
+                        )
+                    )
+                }
+            }
+
+            const seasonInputRepository = {
+                getBeforeSeason: (_season: number, playerIds?: Set<string>) =>
+                    Array.from(playerIds ?? []).map(playerId => ({
+                        season: 2025,
+                        playerId,
+                        data: buildImport(
+                            playerId,
+                            100
+                        ),
+                        metadata: {}
+                    }))
+            }
+
+            const ratingsRepository = {
+                read: async () => [],
+                write: async () => {}
+            }
+
+            queries.getPlayer = ((playerId: number) => ({
+                playerId,
+                firstName: "Test",
+                lastName: `Player ${playerId}`,
+                fullName: `Test Player ${playerId}`,
+                primaryPosition: "1B",
+                birthDate: "2000-01-01",
+                throws: "R",
+                bats: "R"
+            })) as typeof queries.getPlayer
+
+            const service = new PlayerRatingService(
+                inputRepository as unknown as PlayerRatingInputRepository,
+                seasonInputRepository as unknown as PlayerRatingSeasonInputRepository,
+                ratingsRepository as unknown as PlayerRatingsRepository
+            )
+
+            const ratingService = PlayerRatingService as any
+            const originalBuildPlayerRatings = ratingService.buildPlayerRatings
+
+            ratingService.buildPlayerRatings = (_environment: PitchEnvironmentTarget, playerInput: any) =>
+                buildRatings(
+                    playerInput.playerId,
+                    playerInput.value
+                )
+
+            try {
+                await service.buildPlayerRatingsForDate(
+                    2026,
+                    "2026-07-20",
+                    pitchEnvironment,
+                    new Set([
+                        "1",
+                        "2"
+                    ])
+                )
+
+                requestedLastAppearances.length = 0
+                advancing = true
+
+                await service.buildPlayerRatingsForDate(
+                    2026,
+                    "2026-07-21",
+                    pitchEnvironment,
+                    new Set([
+                        "1",
+                        "2"
+                    ])
+                )
+
+                assert.deepEqual(
+                    requestedLastAppearances,
+                    [
+                        {
+                            endDateExclusive: "2026-07-21",
+                            appearanceCount: 162,
+                            playerIds: [
+                                "1"
+                            ]
+                        }
+                    ]
+                )
+            } finally {
+                ratingService.buildPlayerRatings =
+                    originalBuildPlayerRatings
+            }
+        })
+
+
+        it("does not add the newest range twice when a player is first loaded during an advance", async function () {
+            const inputRepository = {
+                getPlayerIdsForSeason: () => new Set([
+                    "1",
+                    "2"
+                ]),
+
+                getLastAppearances: (_endDateExclusive: string, _appearanceCount: number, playerIds?: Set<string>) =>
+                    Array.from(playerIds ?? []).map(playerId =>
+                        buildImport(
+                            playerId,
+                            50
+                        )
+                    ),
+
+                getForDateRange: (startDate: string, endDateExclusive: string, playerIds?: Set<string>) => {
+                    if (startDate === "2026-01-01") {
+                        return Array.from(playerIds ?? []).map(playerId =>
+                            buildImport(
+                                playerId,
+                                20
+                            )
+                        )
+                    }
+
+                    if (
+                        startDate === "2026-07-20" &&
+                        endDateExclusive === "2026-07-21"
+                    ) {
+                        return Array.from(playerIds ?? []).map(playerId =>
+                            buildImport(
+                                playerId,
+                                10
+                            )
+                        )
+                    }
+
+                    return Array.from(playerIds ?? []).map(playerId =>
+                        buildImport(
+                            playerId,
+                            5
+                        )
+                    )
+                }
+            }
+
+            const seasonInputRepository = {
+                getBeforeSeason: (_season: number, playerIds?: Set<string>) =>
+                    Array.from(playerIds ?? []).map(playerId => ({
+                        season: 2025,
+                        playerId,
+                        data: buildImport(
+                            playerId,
+                            100
+                        ),
+                        metadata: {}
+                    }))
+            }
+
+            const ratingsRepository = {
+                read: async () => [],
+                write: async () => {}
+            }
+
+            queries.getPlayer = ((playerId: number) => ({
+                playerId,
+                firstName: "Test",
+                lastName: `Player ${playerId}`,
+                fullName: `Test Player ${playerId}`,
+                primaryPosition: "1B",
+                birthDate: "2000-01-01",
+                throws: "R",
+                bats: "R"
+            })) as typeof queries.getPlayer
+
+            const service = new PlayerRatingService(
+                inputRepository as unknown as PlayerRatingInputRepository,
+                seasonInputRepository as unknown as PlayerRatingSeasonInputRepository,
+                ratingsRepository as unknown as PlayerRatingsRepository
+            )
+
+            const ratingService = PlayerRatingService as any
+            const originalBuildPlayerRatings = ratingService.buildPlayerRatings
+
+            ratingService.buildPlayerRatings = (_environment: PitchEnvironmentTarget, playerInput: any) =>
+                buildRatings(
+                    playerInput.playerId,
+                    playerInput.value
+                )
+
+            try {
+                await service.buildPlayerRatingsForDate(
+                    2026,
+                    "2026-07-20",
+                    pitchEnvironment,
+                    new Set([
+                        "1"
+                    ])
+                )
+
+                await service.buildPlayerRatingsForDate(
+                    2026,
+                    "2026-07-21",
+                    pitchEnvironment,
+                    new Set([
+                        "1",
+                        "2"
+                    ])
+                )
+
+                const state = (service as any).states[0]
+                const player2Career = state.careerInputs.get("2")
+
+                assert.ok(
+                    player2Career
+                )
+
+                assert.equal(
+                    player2Career.value,
+                    120
+                )
+
+                assert.equal(
+                    state.careerInputs.get("1").value,
+                    130
+                )
+            } finally {
+                ratingService.buildPlayerRatings =
+                    originalBuildPlayerRatings
+            }
+        })
+
+
         it("uses the career set for nonnumeric rating values", function () {
             queries.getPlayer = (() => ({
                 playerId: 1,

@@ -2,13 +2,11 @@ import {
     queries
 } from "baseball-database"
 
-import {
-    HitterStatLine,
-    PitcherStatLine,
-    StatService
-} from "../../sim/index.js"
+
 
 import { PlayerStatRepository, PlayerStatRow } from "../repository/player-stat-repository.js"
+import { StatService } from "../../sim/service/stat-service.js"
+import { HitterStatLine, PitcherStatLine } from "../../sim/service/interfaces.js"
 
 
 class PlayerStatService {

@@ -7,13 +7,29 @@ import path from "path"
 
 import { afterEach, beforeEach, describe, it } from "mocha"
 
-import {
-    simService
-} from "../src/sim/index.js"
+import { RollChartService } from "../src/sim/service/roll-chart-service.js"
+import { RunnerService } from "../src/sim/service/runner-service.js"
+import { GameInfo, GamePlayers, SimRolls, SimService } from "../src/sim/service/sim-service.js"
+import { StatService } from "../src/sim/service/stat-service.js"
+import { SubstitutionService } from "../src/sim/service/substitution-service.js"
+import defaultPitchEnvironmentTargetJson from "../src/sim/_pitch_environment_target.json" with { type: "json" }
+
+import type { PitchEnvironmentTarget } from "../src/sim/service/interfaces.js"
 
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
 import { SimVersionService } from "../src/version/service/sim-version-service.js"
 
+const rollChartService = new RollChartService()
+const simRolls = new SimRolls(rollChartService)
+const gamePlayers = new GamePlayers()
+const runnerService = new RunnerService(simRolls)
+const gameInfo = new GameInfo(gamePlayers)
+const substitutionService = new SubstitutionService()
+const defaultPitchEnvironmentTarget = defaultPitchEnvironmentTargetJson as unknown as PitchEnvironmentTarget
+const simService = new SimService(rollChartService, simRolls, runnerService, gameInfo, substitutionService, defaultPitchEnvironmentTarget)
+const statService = new StatService()
+
+void statService
 
 class SimVersionServiceTestHarness {
 
@@ -54,7 +70,7 @@ class SimVersionServiceTestHarness {
             BaselineGameService.prototype.buildStartedBaselineGame
 
         this.originalSimPitch =
-            simService.simPitch
+            SimService.prototype.simPitch
     }
 
     public createService(): SimVersionService {
@@ -112,7 +128,7 @@ class SimVersionServiceTestHarness {
                 }
             } as any
 
-        simService.simPitch =
+        SimService.prototype.simPitch =
             function (game: any): void {
                 game.pitches++
                 game.score.away = game.pitches + resultOffset
@@ -156,7 +172,7 @@ class SimVersionServiceTestHarness {
         BaselineGameService.prototype.buildStartedBaselineGame =
             this.originalBuildStartedBaselineGame
 
-        simService.simPitch =
+        SimService.prototype.simPitch =
             this.originalSimPitch
 
         process.chdir(

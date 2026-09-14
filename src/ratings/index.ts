@@ -14,18 +14,17 @@ import { SchemaService } from "../importer/service/schema-service.js"
 import { PlayerRatingService } from "./service/player-rating-service.js"
 import { PlayerStatRepository } from "./repository/player-stat-repository.js"
 import { PlayerStatService } from "./service/player-stat-service.js"
-import { StatService } from "../sim/index.js"
 import { MlbGameBundleService } from "./service/mlb-game-bundle-service.js"
 import { MlbRosterService } from "./service/mlb-roster-service.js"
 import { GameLineupService } from "./service/game-lineup-service.js"
 import { PitcherAppearanceService } from "./service/pitcher-appearance-service.js"
 import { PitcherWorkloadService } from "./service/pitcher-workload-service.js"
 import { PitcherAppearanceRepository } from "./repository/pitcher-appearance-repository.js"
-import { PitchEnvironmentTargetService } from "./service/pitch-environment-target-service.js"
 import { DownloaderService } from "./service/downloader-service.js"
 import { BaseballSavantService } from "./service/baseball-savant-service.js"
 import { TeamRatingService } from "./service/team-rating-service.js"
 import { TeamRatingRepository } from "./repository/team-rating-repository.js"
+import { StatService } from "../sim/service/stat-service.js"
 
 const firstRatingSeason = 2008
 const defaultBaseDataDir = process.env.DATA_DIR ?? "data"
@@ -38,7 +37,6 @@ const playerRatingSeasonInputRepository = new PlayerRatingSeasonInputRepository(
 const playerRatingsRepository = new PlayerRatingsRepository(defaultBaseDataDir)
 const playerStatRepository = new PlayerStatRepository(database)
 const pitcherAppearanceRepository = new PitcherAppearanceRepository(defaultBaseDataDir)
-const pitchEnvironmentTargetRepository = new PitchEnvironmentTargetRepository(defaultBaseDataDir)
 
 const downloaderService = new DownloaderService(
     defaultBaseDataDir,
@@ -54,10 +52,7 @@ const playerStatService = new PlayerStatService(statService, playerStatRepositor
 const downloadService = new DownloadService(schemaService, playerRatingInputRepository, playerRatingSeasonInputRepository, playerStatRepository)
 const playerRatingService = new PlayerRatingService(playerRatingInputRepository, playerRatingSeasonInputRepository, playerRatingsRepository)
 
-const pitchEnvironmentTargetService = new PitchEnvironmentTargetService(
-    pitchEnvironmentTargetRepository,
-    downloadService
-)
+
 
 const mlbRosterService = new MlbRosterService()
 const pitcherAppearanceService = new PitcherAppearanceService(pitcherAppearanceRepository)
@@ -69,7 +64,6 @@ const mlbGameBundleService = new MlbGameBundleService(
     mlbRosterService,
     gameLineupService,
     playerRatingService,
-    pitchEnvironmentTargetService,
     playerStatService,
     baseballSavantService,
     teamRatingService
@@ -166,7 +160,6 @@ export {
     exportPlayerRatingsRange,
     playerRatingService,
     playerStatService,
-    pitchEnvironmentTargetService,
     mlbGameBundleService,
     MlbGameBundleService,
     PlayerRatingService,

@@ -1,3 +1,6 @@
+import fs from "fs"
+import path from "path"
+
 import { queries } from "baseball-database"
 import type { PitchEnvironmentTarget, Player, StadiumEnvironment } from "../../sim/service/interfaces.js"
 import { BaseballSavantService } from "./baseball-savant-service.js"
@@ -5,7 +8,6 @@ import { GameLineupService } from "./game-lineup-service.js"
 import type { TeamBundle } from "./game-lineup-service.js"
 import { MlbRosterService } from "./mlb-roster-service.js"
 import type { MlbRosterEntry, MlbTeam } from "./mlb-roster-service.js"
-import { PitchEnvironmentTargetService } from "./pitch-environment-target-service.js"
 import { PlayerRatingService } from "./player-rating-service.js"
 import { PlayerStatService } from "./player-stat-service.js"
 import type { PlayerStats } from "./player-stat-service.js"
@@ -13,10 +15,19 @@ import { TeamRatingService } from "./team-rating-service.js"
 import type { TeamRating } from "../repository/team-rating-repository.js"
 
 const TEAM_RATING_ADVANTAGE_PER_100_RATING_POINTS = 0.00
+const defaultBaseDataDir = process.env.DATA_DIR ?? "data"
 
 class MlbGameBundleService {
 
-    public constructor(private readonly mlbRosterService: MlbRosterService, private readonly gameLineupService: GameLineupService, private readonly playerRatingService: PlayerRatingService, private readonly pitchEnvironmentTargetService: PitchEnvironmentTargetService, private readonly playerStatService: PlayerStatService, private readonly baseballSavantService: BaseballSavantService, private readonly teamRatingService: TeamRatingService) {}
+    public constructor(
+        private readonly mlbRosterService: MlbRosterService, 
+        private readonly gameLineupService: GameLineupService, 
+        private readonly playerRatingService: PlayerRatingService, 
+        private readonly playerStatService: PlayerStatService, 
+        private readonly baseballSavantService: BaseballSavantService, 
+        private readonly teamRatingService: TeamRatingService, 
+        private readonly baseDataDir = defaultBaseDataDir
+    ) {}
 
     public async build(gameDate: string): Promise<MlbDailyBundle> {
         this.validateGameDate(gameDate)
@@ -34,7 +45,7 @@ class MlbGameBundleService {
 
         const [teams, pitchEnvironmentTarget, teamRatings] = await Promise.all([
             this.mlbRosterService.getTeams(season),
-            this.pitchEnvironmentTargetService.getForDate(gameDate),
+            this.getPitchEnvironmentTarget(season),
             this.teamRatingService.getRatingsForDate(gameDate)
         ])
 
@@ -139,6 +150,43 @@ class MlbGameBundleService {
             stadiumEnvironments,
             games: bundles
         }
+    }
+
+    private async getPitchEnvironmentTarget(season: number): Promise<PitchEnvironmentTarget> {
+        const filePath = path.join(
+            this.baseDataDir,
+            String(season),
+            "_pitch_environment_target.json"
+        )
+
+        let raw: string
+
+        try {
+            raw = await fs.promises.readFile(
+                filePath,
+                "utf8"
+            )
+        } catch (error: any) {
+            if (error?.code === "ENOENT") {
+                throw new Error(`Pitch environment target not found: ${filePath}`)
+            }
+
+            throw error
+        }
+
+        const target = JSON.parse(
+            raw
+        ) as PitchEnvironmentTarget
+
+        if (target.season !== season) {
+            throw new Error(`Pitch environment target season ${target.season} does not match requested season ${season}: ${filePath}`)
+        }
+
+        if (!target.pitchEnvironmentTuning) {
+            throw new Error(`Pitch environment target has no tuning for season ${season}: ${filePath}`)
+        }
+
+        return target
     }
 
     private async getGameRoster(gameDate: string, gamePk: number, team: MlbTeam): Promise<MlbGameRoster> {

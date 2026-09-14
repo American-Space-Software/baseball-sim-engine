@@ -2052,7 +2052,7 @@ export {
     TeamInfo, FielderChance, LastPlay, UpcomingMatchup, InningEndingEvent,  Lineup, LineupPlayer, RotationPitcher, HalfInning, RunnerResult, Score,
     Pitch, RunnerEvent, Play, Count, PitcherChange, HitterChange, PitchResultCount,HitResultCount, MatchupHandedness,
     GamePlayer, GamePlayerBio, HitterStatLine, PitcherStatLine, SimPitchResult, SimPitchCommand, PitchLog, RunnerThrowCommand, Team,
-    Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, PlayerHittingRatingInputSplit, PlayerRatingSeasonInput,
+    Colors, ContactProfile, PitchRatings, PitchingHandednessRatings, HittingRatings, HittingHandednessRatings, PlayerHittingRatingInputSplit, PlayerRatingSeasonInput, PitchZone,
     SwingTakeRollInput,
     PlayerRatingInput,
     ContactMissRollInput,

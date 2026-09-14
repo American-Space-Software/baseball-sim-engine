@@ -1,5 +1,6 @@
-import { HitterStatLine, PitcherStatLine, StatService } from "../../sim/index.js";
 import { PlayerStatRepository } from "../repository/player-stat-repository.js";
+import { StatService } from "../../sim/service/stat-service.js";
+import { HitterStatLine, PitcherStatLine } from "../../sim/service/interfaces.js";
 declare class PlayerStatService {
     private readonly statService;
     private readonly playerStatRepository;

@@ -1,6 +1,6 @@
-import { SimService } from "../../sim/index.js"
 import { Handedness, PitchingRoleType, PitchType, Position } from "../../sim/service/enums.js"
 import { Game, HitResultCount, Lineup, PitchEnvironmentTarget, PitchingRole, PitchResultCount, Player, RotationPitcher, StadiumEnvironment, Team } from "../../sim/service/interfaces.js"
+import { SimService } from "../../sim/service/sim-service.js"
 
 class BaselineGameService {
 

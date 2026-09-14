@@ -37,14 +37,15 @@ declare class PlayerRatingService {
     private rebuildPlayerRatings;
     private addPlayerRatingInputs;
     private addRatingValues;
+    private subtractPlayerRatingInputs;
+    private subtractRatingValues;
+    private hasAnyHistory;
     private finalizePlayerRatingInput;
     private toInputMap;
     private replaceInputs;
     private getCareerWindow;
     private getLast162Window;
     private getRecentWindows;
-    private getChangedDateRanges;
-    private addPlayerIds;
     private static buildPlayerRatings;
     static buildHittingRatings(env: PitchEnvironmentTarget, playerInput: PlayerRatingInput): HittingRatings;
     private static getRunningRatings;

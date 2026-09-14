@@ -9,6 +9,6 @@ interface ExportPitchEnvironmentTargetResult {
     pitchEnvironment: PitchEnvironmentTarget;
     players: Map<string, PlayerImportRaw>;
 }
-declare function exportPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any, seasonPlayers?: Map<string, PlayerImportRaw>): Promise<PitchEnvironmentTarget>;
+declare function exportPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any): Promise<PitchEnvironmentTarget>;
 export { downloadService, exportPitchEnvironmentTarget, playerImportService, PlayerImportService, StatAccumulatorService, PitchEnvironmentService };
 export type { PlayerHittingStats, PlayerPitchingStats, PlayerFieldingStats, PlayerRunningStats, PlayerSplitsStats, PlayerHittingSplitStats, PlayerPitchingSplitStats, PlayerImportRaw, PitchEnvironmentTuning, ExportPitchEnvironmentTargetResult };

@@ -5,28 +5,47 @@ import fs from "fs"
 import path from "path"
 
 import {
-    StatService,
-    simService,
-    Position,
-    PitchingRoleType,
     Handedness,
-    GameInfo
-} from "../src/sim/index.js"
+    PitchingRoleType,
+    Position
+} from "../src/sim/service/enums.js"
+
+import {
+    GameInfo,
+    GamePlayers,
+    SimRolls,
+    SimService
+} from "../src/sim/service/sim-service.js"
+
+import {
+    RollChartService
+} from "../src/sim/service/roll-chart-service.js"
+
+import {
+    RunnerService
+} from "../src/sim/service/runner-service.js"
+
+import {
+    StatService
+} from "../src/sim/service/stat-service.js"
+
+import {
+    SubstitutionService
+} from "../src/sim/service/substitution-service.js"
+
 import type {
-    PitchEnvironmentTarget,
     Game,
     GamePlayer,
-    TeamInfo,
     Lineup,
+    PitchEnvironmentTarget,
     Player,
     RotationPitcher,
-    Team
-} from "../src/sim/index.js"
+    Team,
+    TeamInfo
+} from "../src/sim/service/interfaces.js"
 
 import { PitchEnvironmentService } from "../src/importer/service/pitch-environment-service.js"
 import { BaselineGameService } from "../src/importer/service/baseline-game-service.js"
-
-const statService = new StatService()
 
 const pitchEnvironment = JSON.parse(
     fs.readFileSync(
@@ -39,8 +58,15 @@ const pitchEnvironment = JSON.parse(
     )
 ) as PitchEnvironmentTarget
 
+const rollChartService = new RollChartService()
+const simRolls = new SimRolls(rollChartService)
+const gamePlayers = new GamePlayers()
+const runnerService = new RunnerService(simRolls)
+const gameInfo = new GameInfo(gamePlayers)
+const substitutionServiceInstance = new SubstitutionService()
+const simService = new SimService(rollChartService, simRolls, runnerService, gameInfo, substitutionServiceInstance, pitchEnvironment)
+const statService = new StatService()
 const season = 2025
-
 const baselineGameService = new BaselineGameService(simService)
 const pitchEnvironmentService = new PitchEnvironmentService(simService, statService, baselineGameService)
 

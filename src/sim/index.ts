@@ -23,6 +23,10 @@ let simService = new SimService(rollChartService, simRolls, runnerService, gameI
 
 declare const SIM_VERSION: number
 
+if (typeof SIM_VERSION === "undefined") {
+    throw new Error("SIM_VERSION is not defined")
+}
+
 const simVersion = SIM_VERSION
 
 export {

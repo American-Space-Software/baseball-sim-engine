@@ -20,6 +20,10 @@ import {
     database
 } from "baseball-database"
 
+import type {
+    StatExport
+} from "baseball-database"
+
 import { PlayerImportService } from "./service/player-import-service.js"
 import { StatAccumulatorService } from "./service/stat-accumulator-service.js"
 import { StatClassificationService } from "./service/stat-classification-service.js"
@@ -93,56 +97,86 @@ interface ExportPitchEnvironmentTargetResult {
     players: Map<string, PlayerImportRaw>
 }
 
-async function exportPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any, seasonPlayers?: Map<string, PlayerImportRaw>): Promise<PitchEnvironmentTarget> {
-    const existingPitchEnvironmentTargetPath = path.join(baseDataDir, String(season), "_pitch_environment_target.json")
-
-    const readJson = async (filePath: string): Promise<any> => {
-        return JSON.parse(await fs.promises.readFile(filePath, "utf8"))
-    }
-
-    const writeJson = async (filePath: string, data: any): Promise<void> => {
-        await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
-        await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), "utf8")
-    }
-
-    const fileExists = async (filePath: string): Promise<boolean> => {
-        try {
-            await fs.promises.access(filePath, fs.constants.F_OK)
-
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    const existingPitchEnvironmentTarget = await fileExists(existingPitchEnvironmentTargetPath)
-        ? await readJson(existingPitchEnvironmentTargetPath)
-        : undefined
-
+async function exportPitchEnvironmentTarget(season: number, baseDataDir: string, options?: any): Promise<PitchEnvironmentTarget> {
+    const pitchEnvironmentTargetPath = path.join(baseDataDir, String(season), "_pitch_environment_target.json")
     const tuningSupportService = new TuningSupportService()
 
-    const players = seasonPlayers ?? await playerImportService.buildSeasonPlayerImports(season, new Set())
+    const firstRegularSeasonDate = await getFirstRegularSeasonDate(
+        season
+    )
 
-    const currentSeason = new Date().getUTCFullYear()
-    const homeFieldReferenceSeason = season === currentSeason
-        ? season - 1
-        : season
+    const startDate = addDays(
+        firstRegularSeasonDate,
+        -365
+    )
 
-    const homeFieldAdvantage = await getSeasonHomeFieldAdvantage(homeFieldReferenceSeason)
+    await downloadService.syncSeason(
+        season - 1
+    )
+
+    const statExport = getRegularSeasonStatExport(
+        startDate,
+        firstRegularSeasonDate
+    )
+
+    if (statExport.games.length === 0) {
+        throw new Error(
+            `No completed regular-season games were found from ${startDate} through ${addDays(firstRegularSeasonDate, -1)} for the ${season} pitch environment.`
+        )
+    }
+
+    log(
+        "PITCH ENVIRONMENT WINDOW",
+        `targetSeason=${season}`,
+        `startDate=${startDate}`,
+        `endDateExclusive=${firstRegularSeasonDate}`,
+        `regularSeasonGames=${statExport.games.length}`
+    )
+
+    const stats = PitchEnvironmentService.getPitchEnvironmentStatsForStatExport(
+        season,
+        statExport
+    )
+
+    if (Number(stats.hitterTotals?.pa ?? 0) <= 0) {
+        throw new Error(
+            `No hitter plate appearances were found from ${startDate} through ${addDays(firstRegularSeasonDate, -1)} for the ${season} pitch environment.`
+        )
+    }
+
+    const gamePks = new Set(
+        statExport.games.map(game =>
+            Number(game.gamePk)
+        )
+    )
+
+    const homeFieldAdvantage = getHomeFieldAdvantageForGames(
+        gamePks
+    )
 
     log(
         "HOME FIELD ADVANTAGE",
         `targetSeason=${season}`,
-        `referenceSeason=${homeFieldReferenceSeason}`,
+        `startDate=${startDate}`,
+        `endDateExclusive=${firstRegularSeasonDate}`,
         `value=${homeFieldAdvantage}`
     )
 
-    const pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(season, players, homeFieldAdvantage)
+    const pitchEnvironment = PitchEnvironmentService.getPitchEnvironmentTargetForStats(
+        season,
+        stats,
+        homeFieldAdvantage
+    )
 
-    const rng = seedrandom(String(season))
+    const rng = seedrandom(
+        String(season)
+    )
 
     const tuningEvaluationService = new TuningEvaluationService()
-    const pitchEnvironmentTuner = new PitchEnvironmentTuner(tuningSupportService, tuningEvaluationService)
+    const pitchEnvironmentTuner = new PitchEnvironmentTuner(
+        tuningSupportService,
+        tuningEvaluationService
+    )
 
     const pitchEnvironmentTuning = await pitchEnvironmentTuner.getTunings(
         pitchEnvironment,
@@ -150,8 +184,7 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
         {
             ...options,
             baseDataDir,
-            pitchEnvironmentService,
-            startingCandidate: existingPitchEnvironmentTarget?.pitchEnvironmentTuning
+            pitchEnvironmentService
         }
     )
 
@@ -160,16 +193,42 @@ async function exportPitchEnvironmentTarget(season: number, baseDataDir: string,
         pitchEnvironmentTuning
     }
 
-    await writeJson(existingPitchEnvironmentTargetPath, fullPitchEnvironment)
+    await fs.promises.mkdir(
+        path.dirname(
+            pitchEnvironmentTargetPath
+        ),
+        {
+            recursive: true
+        }
+    )
+
+    await fs.promises.writeFile(
+        pitchEnvironmentTargetPath,
+        JSON.stringify(
+            fullPitchEnvironment,
+            null,
+            2
+        ),
+        "utf8"
+    )
 
     return fullPitchEnvironment
 }
 
-async function getSeasonHomeFieldAdvantage(season: number): Promise<number> {
-    
-    await downloadService.syncSeason(season)
+async function getFirstRegularSeasonDate(season: number): Promise<string> {
+    let schedule = queries.getSchedule(
+        season
+    )
 
-    const schedule = queries.getSchedule(season)
+    if (!schedule) {
+        await downloadService.syncSeason(
+            season
+        )
+
+        schedule = queries.getSchedule(
+            season
+        )
+    }
 
     if (!schedule) {
         throw new Error(
@@ -177,103 +236,215 @@ async function getSeasonHomeFieldAdvantage(season: number): Promise<number> {
         )
     }
 
-    let homeWins = 0
-    let awayWins = 0
-
-    for (const date of schedule.data?.dates ?? []) {
-        for (const scheduledGame of date?.games ?? []) {
-            const gamePk = Number(
-                scheduledGame?.gamePk
+    const dates = (schedule.data?.dates ?? [])
+        .filter(date =>
+            (date?.games ?? []).length > 0
+        )
+        .map(date =>
+            String(
+                date?.date ??
+                ""
             )
-
-            if (!gamePk || !isCompletedScheduleGame(scheduledGame)) {
-                continue
-            }
-
-            const storedGame = queries.getGame(gamePk)
-
-            if (!storedGame) {
-                throw new Error(
-                    `Completed game ${gamePk} was not found in baseball-database.`
-                )
-            }
-
-            const homeScore = Number(
-                storedGame.data
-                    ?.liveData
-                    ?.linescore
-                    ?.teams
-                    ?.home
-                    ?.runs
+        )
+        .filter(date =>
+            /^\d{4}-\d{2}-\d{2}$/.test(
+                date
             )
+        )
+        .sort()
 
-            const awayScore = Number(
-                storedGame.data
-                    ?.liveData
-                    ?.linescore
-                    ?.teams
-                    ?.away
-                    ?.runs
-            )
+    const firstDate = dates[0]
 
-            if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore) || homeScore === awayScore) {
-                continue
-            }
-
-            if (homeScore > awayScore) {
-                homeWins++
-            } else {
-                awayWins++
-            }
-        }
-    }
-
-    const completedGames = homeWins + awayWins
-
-    if (completedGames === 0) {
+    if (!firstDate) {
         throw new Error(
-            `No completed games were found for home-field calculation in ${season}.`
+            `No regular-season games were found on the ${season} schedule.`
         )
     }
 
-    return homeWins / completedGames - 0.5
+    return firstDate
 }
 
-function isCompletedScheduleGame(game: any): boolean {
-    const abstractState = String(
-        game?.status?.abstractGameState ?? ""
+function getRegularSeasonStatExport(startDate: string, endDateExclusive: string): StatExport {
+    const completedGamePks = new Set(
+        queries.getCompletedGamePksByDateRange(
+            startDate,
+            endDateExclusive
+        )
     )
 
-    const detailedState = String(
-        game?.status?.detailedState ?? ""
+    const regularSeasonRows = database
+        .prepare(`
+            SELECT
+                game_pk AS gamePk
+            FROM games
+            WHERE game_date >= @startDate
+                AND game_date < @endDateExclusive
+                AND game_type = 'R'
+            ORDER BY
+                game_date,
+                game_pk
+        `)
+        .all({
+            startDate,
+            endDateExclusive
+        }) as {
+            gamePk: number
+        }[]
+
+    const regularSeasonGamePks = new Set(
+        regularSeasonRows
+            .map(row =>
+                Number(
+                    row.gamePk
+                )
+            )
+            .filter(gamePk =>
+                completedGamePks.has(
+                    gamePk
+                )
+            )
     )
 
-    const codedState = String(
-        game?.status?.codedGameState ?? ""
+    const statExport = queries.getStatExport(
+        startDate,
+        endDateExclusive
     )
 
-    const statusCode = String(
-        game?.status?.statusCode ?? ""
+    return filterStatExportByGamePks(
+        statExport,
+        regularSeasonGamePks
     )
+}
 
-    if (
-        detailedState === "Postponed" ||
-        detailedState === "Cancelled" ||
-        detailedState === "Suspended" ||
-        codedState === "C" ||
-        codedState === "D" ||
-        statusCode === "CO" ||
-        statusCode === "DR"
-    ) {
-        return false
+function filterStatExportByGamePks(statExport: StatExport, gamePks: Set<number>): StatExport {
+    return {
+        games: statExport.games.filter(game =>
+            gamePks.has(
+                Number(
+                    game.gamePk
+                )
+            )
+        ),
+        appearances: statExport.appearances.filter(appearance =>
+            gamePks.has(
+                Number(
+                    appearance.gamePk
+                )
+            )
+        ),
+        plateAppearances: statExport.plateAppearances.filter(plateAppearance =>
+            gamePks.has(
+                Number(
+                    plateAppearance.gamePk
+                )
+            )
+        ),
+        pitches: statExport.pitches.filter(pitch =>
+            gamePks.has(
+                Number(
+                    pitch.gamePk
+                )
+            )
+        ),
+        runnerMovements: statExport.runnerMovements.filter(runnerMovement =>
+            gamePks.has(
+                Number(
+                    runnerMovement.gamePk
+                )
+            )
+        ),
+        fieldingCredits: statExport.fieldingCredits.filter(fieldingCredit =>
+            gamePks.has(
+                Number(
+                    fieldingCredit.gamePk
+                )
+            )
+        ),
+        defensiveEvents: statExport.defensiveEvents.filter(defensiveEvent =>
+            gamePks.has(
+                Number(
+                    defensiveEvent.gamePk
+                )
+            )
+        )
+    }
+}
+
+function getHomeFieldAdvantageForGames(gamePks: Set<number>): number {
+    let homeWins = 0
+    let awayWins = 0
+
+    for (const gamePk of gamePks) {
+        const game = queries.getGame(
+            gamePk
+        )
+
+        if (!game) {
+            throw new Error(
+                `Completed regular-season game ${gamePk} was not found in baseball-database.`
+            )
+        }
+
+        const homeRuns = Number(
+            game.data
+                ?.liveData
+                ?.linescore
+                ?.teams
+                ?.home
+                ?.runs
+        )
+
+        const awayRuns = Number(
+            game.data
+                ?.liveData
+                ?.linescore
+                ?.teams
+                ?.away
+                ?.runs
+        )
+
+        if (
+            !Number.isFinite(homeRuns) ||
+            !Number.isFinite(awayRuns) ||
+            homeRuns === awayRuns
+        ) {
+            continue
+        }
+
+        if (homeRuns > awayRuns) {
+            homeWins++
+        } else {
+            awayWins++
+        }
     }
 
-    return abstractState === "Final" ||
-        detailedState === "Final" ||
-        detailedState === "Game Over" ||
-        detailedState === "Completed Early" ||
-        codedState === "F"
+    const decisions = homeWins + awayWins
+
+    if (decisions === 0) {
+        throw new Error(
+            "No completed regular-season games with decisions were available for home-field calculation."
+        )
+    }
+
+    return homeWins / decisions - 0.5
 }
+
+function addDays(value: string, days: number): string {
+    const date = new Date(
+        `${value}T12:00:00.000Z`
+    )
+
+    date.setUTCDate(
+        date.getUTCDate() +
+        days
+    )
+
+    return date.toISOString().slice(
+        0,
+        10
+    )
+}
+
 
 class PitchEnvironmentTuner {
 
