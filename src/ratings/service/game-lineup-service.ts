@@ -120,9 +120,9 @@ class GameLineupService {
             _id: String(mlbTeam.id),
             name: mlbTeam.name,
             abbrev: mlbTeam.abbrev,
-            colors: {
-                color1: "#222222",
-                color2: "#dddddd"
+            colors: mlbTeam.colors ?? {
+                color1: "#0A3161",
+                color2: "#B31942"
             }
         } as Team
 

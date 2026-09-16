@@ -49,10 +49,23 @@ interface MlbTeamBundle extends TeamBundle {
     playerStats: MlbPlayerStats[];
     teamRating?: TeamRating;
 }
+interface MlbGameScore {
+    away: number;
+    home: number;
+}
+interface MlbGameStatus {
+    abstractGameState: string;
+    detailedState: string;
+    currentInning?: number;
+    inningState?: string;
+}
 interface MlbGameBundle {
     gamePk: number;
+    date: string;
     away: MlbTeamBundle;
     home: MlbTeamBundle;
+    score?: MlbGameScore;
+    status: MlbGameStatus;
     homeFieldAdvantage: number;
 }
 interface MlbDailyBundle {
@@ -62,4 +75,4 @@ interface MlbDailyBundle {
     games: MlbGameBundle[];
 }
 export { MlbGameBundleService };
-export type { MlbDailyBundle, MlbGameBundle, MlbHittingStats, MlbPitchingStats, MlbPlayerStats, MlbTeamBundle };
+export type { MlbDailyBundle, MlbGameBundle, MlbGameScore, MlbGameStatus, MlbHittingStats, MlbPitchingStats, MlbPlayerStats, MlbTeamBundle };

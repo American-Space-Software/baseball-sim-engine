@@ -627,43 +627,6 @@
 
 <style>
 
-.game-state.top-inning .offense-player .wrapper,
-.game-state.bottom-inning .defense-player .wrapper {
-  border: 2px solid var(--away-color);
-}
-
-.game-state.top-inning .offense-player .text,
-.game-state.bottom-inning .defense-player .text {
-  background: var(--away-color);
-  color: var(--away-font-color);
-}
-
-.game-state.top-inning .offense-player img,
-.game-state.bottom-inning .defense-player img {
-  border-color: var(--away-color);
-}
-
-.game-state.top-inning .defense-player .wrapper,
-.game-state.bottom-inning .offense-player .wrapper {
-  border: 2px solid var(--home-color);
-}
-
-.game-state.top-inning .defense-player .text,
-.game-state.bottom-inning .offense-player .text {
-  background: var(--home-color);
-  color: var(--home-font-color);
-}
-
-.game-state.top-inning .defense-player img,
-.game-state.bottom-inning .offense-player img {
-  border-color: var(--home-color);
-}
-
-.game-state .offense-player .text,
-.game-state .defense-player .text {
-  text-decoration: none;
-}
-
 </style>
 
 <script>
@@ -681,8 +644,23 @@ export default (props, { $h }) => {
     let pauseCallback = props.pausecallback
     let resumeCallback = props.resumecallback
     let simToEndCallback = props.simtoendcallback
-    let awayColor = props.awaycolor || "#0A3161"
-    let homeColor = props.homecolor || "#B31942"
+
+    const DEFAULT_AWAY_COLOR = "#0A3161"
+    const DEFAULT_HOME_COLOR = "#B31942"
+
+    const getTeamColor = (team, fallback) => {
+        return team?.color1 ?? team?.colors?.color1 ?? fallback
+    }
+
+    const awayColor = getTeamColor(
+        vm.game.away,
+        DEFAULT_AWAY_COLOR
+    )
+
+    const homeColor = getTeamColor(
+        vm.game.home,
+        DEFAULT_HOME_COLOR
+    )
 
     const getFontColor = color => {
         const value = String(color).replace("#", "")

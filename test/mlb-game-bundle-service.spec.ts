@@ -376,31 +376,47 @@ describe("MlbGameBundleService", function () {
                         games: [
                             {
                                 gamePk: 1001,
+                                status: {
+                                    abstractGameState: "Final",
+                                    detailedState: "Final"
+                                },
                                 teams: {
                                     away: {
                                         team: {
                                             id: 134
-                                        }
+                                        },
+                                        score: 5
                                     },
                                     home: {
                                         team: {
                                             id: 143
-                                        }
+                                        },
+                                        score: 3
                                     }
                                 }
                             },
                             {
                                 gamePk: 1002,
+                                status: {
+                                    abstractGameState: "Live",
+                                    detailedState: "In Progress"
+                                },
+                                linescore: {
+                                    currentInning: 3,
+                                    inningState: "Top"
+                                },
                                 teams: {
                                     away: {
                                         team: {
                                             id: 147
-                                        }
+                                        },
+                                        score: 0
                                     },
                                     home: {
                                         team: {
                                             id: 111
-                                        }
+                                        },
+                                        score: 0
                                     }
                                 }
                             }
@@ -428,18 +444,44 @@ describe("MlbGameBundleService", function () {
         assert.equal(result.games.length, 2)
 
         assert.equal(result.games[0].gamePk, 1001)
+        assert.equal(result.games[0].date, harness.gameDate)
 
         assert.equal(result.games[0].away.team._id, "134")
 
         assert.equal(result.games[0].home.team._id, "143")
 
+        assert.deepEqual(result.games[0].score, {
+            away: 5,
+            home: 3
+        })
+
+        assert.deepEqual(result.games[0].status, {
+            abstractGameState: "Final",
+            detailedState: "Final",
+            currentInning: undefined,
+            inningState: undefined
+        })
+
         assert.deepEqual(result.games[0].away.teamRating, harness.teamRatings.teams["134"])
         assert.deepEqual(result.games[0].home.teamRating, harness.teamRatings.teams["143"])
         assert.equal(result.games[1].gamePk, 1002)
+        assert.equal(result.games[1].date, harness.gameDate)
 
         assert.equal(result.games[1].away.team._id, "147")
 
         assert.equal(result.games[1].home.team._id, "111")
+
+        assert.deepEqual(result.games[1].score, {
+            away: 0,
+            home: 0
+        })
+
+        assert.deepEqual(result.games[1].status, {
+            abstractGameState: "Live",
+            detailedState: "In Progress",
+            currentInning: 3,
+            inningState: "Top"
+        })
 
         assert.deepEqual(result.games[1].away.teamRating, harness.teamRatings.teams["147"])
         assert.deepEqual(result.games[1].home.teamRating, harness.teamRatings.teams["111"])
@@ -623,6 +665,185 @@ describe("MlbGameBundleService", function () {
             assert.equal(call.ratings, harness.ratings)
         }
     })
+
+    it("omits the score for an upcoming game and publishes preview status", async function () {
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: [
+                    {
+                        date: harness.gameDate,
+                        games: [
+                            {
+                                gamePk: 1001,
+                                status: {
+                                    abstractGameState: "Preview",
+                                    detailedState: "Scheduled"
+                                },
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        }
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        })) as unknown as typeof queries.getSchedule
+
+        const result = await service.build(
+            harness.gameDate
+        )
+
+        assert.equal(
+            result.games[0].score,
+            undefined
+        )
+
+        assert.deepEqual(
+            result.games[0].status,
+            {
+                abstractGameState: "Preview",
+                detailedState: "Scheduled",
+                currentInning: undefined,
+                inningState: undefined
+            }
+        )
+    })
+
+
+    it("publishes the current score and inning state for a live game", async function () {
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: [
+                    {
+                        date: harness.gameDate,
+                        games: [
+                            {
+                                gamePk: 1001,
+                                status: {
+                                    abstractGameState: "Live",
+                                    detailedState: "In Progress"
+                                },
+                                linescore: {
+                                    currentInning: 3,
+                                    inningState: "Bottom"
+                                },
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        },
+                                        score: 0
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        },
+                                        score: 0
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        })) as unknown as typeof queries.getSchedule
+
+        const result = await service.build(
+            harness.gameDate
+        )
+
+        assert.deepEqual(
+            result.games[0].score,
+            {
+                away: 0,
+                home: 0
+            }
+        )
+
+        assert.deepEqual(
+            result.games[0].status,
+            {
+                abstractGameState: "Live",
+                detailedState: "In Progress",
+                currentInning: 3,
+                inningState: "Bottom"
+            }
+        )
+    })
+
+
+    it("publishes the final score and final status for a completed game", async function () {
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: [
+                    {
+                        date: harness.gameDate,
+                        games: [
+                            {
+                                gamePk: 1001,
+                                status: {
+                                    abstractGameState: "Final",
+                                    detailedState: "Final"
+                                },
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        },
+                                        score: 6
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        },
+                                        score: 4
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        })) as unknown as typeof queries.getSchedule
+
+        const result = await service.build(
+            harness.gameDate
+        )
+
+        assert.deepEqual(
+            result.games[0].score,
+            {
+                away: 6,
+                home: 4
+            }
+        )
+
+        assert.deepEqual(
+            result.games[0].status,
+            {
+                abstractGameState: "Final",
+                detailedState: "Final",
+                currentInning: undefined,
+                inningState: undefined
+            }
+        )
+    })
+
 
     it("returns an empty games collection when nothing is scheduled for the date", async function () {
         queries.getSchedule = (() => ({

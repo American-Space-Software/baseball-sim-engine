@@ -6,10 +6,15 @@ declare class MlbRosterService {
     private validateGameDate;
     private mapPosition;
 }
+interface MlbTeamColors {
+    color1: string;
+    color2: string;
+}
 interface MlbTeam {
     id: number;
     name: string;
     abbrev: string;
+    colors?: MlbTeamColors;
 }
 interface MlbRosterEntry {
     playerId: string;
@@ -17,4 +22,4 @@ interface MlbRosterEntry {
     position: Position;
 }
 export { MlbRosterService };
-export type { MlbTeam, MlbRosterEntry };
+export type { MlbRosterEntry, MlbTeam, MlbTeamColors };

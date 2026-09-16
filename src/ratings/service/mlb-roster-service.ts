@@ -42,6 +42,39 @@ const MLB_TEAM_ABBREVIATIONS = new Map<number, string>([
 ])
 
 
+const MLB_TEAM_COLORS = new Map<number, MlbTeamColors>([
+    [108, { color1: "#BA0C2F", color2: "#FFFFFF" }], // Los Angeles Angels
+    [109, { color1: "#A6192E", color2: "#FFFFFF" }], // Arizona Diamondbacks
+    [110, { color1: "#010101", color2: "#FC4C02" }], // Baltimore Orioles
+    [111, { color1: "#0C2340", color2: "#C8102E" }], // Boston Red Sox
+    [112, { color1: "#002F6C", color2: "#FFFFFF" }], // Chicago Cubs
+    [113, { color1: "#BA0C2F", color2: "#FFFFFF" }], // Cincinnati Reds
+    [114, { color1: "#0C2340", color2: "#FFFFFF" }], // Cleveland Guardians
+    [115, { color1: "#330072", color2: "#C4CED4" }], // Colorado Rockies
+    [116, { color1: "#0C2340", color2: "#FA4616" }], // Detroit Tigers
+    [117, { color1: "#041E42", color2: "#CF4520" }], // Houston Astros
+    [118, { color1: "#0032A0", color2: "#FFFFFF" }], // Kansas City Royals
+    [119, { color1: "#002F6C", color2: "#FFFFFF" }], // Los Angeles Dodgers
+    [120, { color1: "#BA0C2F", color2: "#FFFFFF" }], // Washington Nationals
+    [121, { color1: "#002D72", color2: "#FFFFFF" }], // New York Mets
+    [133, { color1: "#024638", color2: "#FFB81C" }], // Athletics
+    [134, { color1: "#010101", color2: "#FFC72C" }], // Pittsburgh Pirates
+    [135, { color1: "#3E342F", color2: "#FFC72C" }], // San Diego Padres
+    [136, { color1: "#0C2340", color2: "#A2AAAD" }], // Seattle Mariners
+    [137, { color1: "#010101", color2: "#FA4616" }], // San Francisco Giants
+    [138, { color1: "#BA0C2F", color2: "#FEDB00" }], // St. Louis Cardinals
+    [139, { color1: "#041E42", color2: "#FFFFFF" }], // Tampa Bay Rays
+    [140, { color1: "#002D72", color2: "#FFFFFF" }], // Texas Rangers
+    [141, { color1: "#003DA5", color2: "#FFFFFF" }], // Toronto Blue Jays
+    [142, { color1: "#0C2340", color2: "#FFFFFF" }], // Minnesota Twins
+    [143, { color1: "#BA0C2F", color2: "#FFFFFF" }], // Philadelphia Phillies
+    [144, { color1: "#0C2340", color2: "#BA0C2F" }], // Atlanta Braves
+    [145, { color1: "#010101", color2: "#C4CED4" }], // Chicago White Sox
+    [146, { color1: "#010101", color2: "#00A3E0" }], // Miami Marlins
+    [147, { color1: "#0C2340", color2: "#FFFFFF" }], // New York Yankees
+    [158, { color1: "#13294B", color2: "#FFC72C" }]  // Milwaukee Brewers
+])
+
 class MlbRosterService {
 
     public async getTeams(season: number): Promise<MlbTeam[]> {
@@ -69,10 +102,13 @@ class MlbRosterService {
                         continue
                     }
 
+                    const colors = MLB_TEAM_COLORS.get(teamId)
+
                     teams.set(teamId, {
                         id: teamId,
                         name: String(scheduledTeam?.name ?? teamId),
-                        abbrev
+                        abbrev,
+                        colors
                     })
                 }
             }
@@ -159,10 +195,17 @@ class MlbRosterService {
 }
 
 
+interface MlbTeamColors {
+    color1: string
+    color2: string
+}
+
+
 interface MlbTeam {
     id: number
     name: string
     abbrev: string
+    colors?: MlbTeamColors
 }
 
 
@@ -179,6 +222,7 @@ export {
 
 
 export type {
+    MlbRosterEntry,
     MlbTeam,
-    MlbRosterEntry
+    MlbTeamColors
 }

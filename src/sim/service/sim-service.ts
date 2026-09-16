@@ -1898,10 +1898,10 @@ class GamePlayers {
 
             gamePlayers.push({
                 _id: p._id,
-                fullName: `${p.firstName} ${p.lastName}`,
+                fullName: p.fullName,
                 firstName: p.firstName,
                 lastName: p.lastName,
-                displayName: `${p.firstName[0]}. ${p.lastName}`,
+                displayName: p.displayName,
                 stamina: p.stamina,
                 maxPitchCount: p.maxPitchCount,
 

@@ -58,15 +58,38 @@ class MlbGameBundleService {
             const gamePk = Number(scheduledGame?.gamePk)
             const awayTeamId = Number(scheduledGame?.teams?.away?.team?.id)
             const homeTeamId = Number(scheduledGame?.teams?.home?.team?.id)
+            const awayScore = Number(scheduledGame?.teams?.away?.score)
+            const homeScore = Number(scheduledGame?.teams?.home?.score)
 
             if (!Number.isSafeInteger(gamePk) || gamePk <= 0) {
                 throw new Error(`Invalid MLB game PK for ${gameDate}.`)
             }
 
+            const gameFeed = queries.getGame(gamePk)?.data
+            const status = gameFeed?.gameData?.status ?? scheduledGame?.status
+            const linescore = gameFeed?.liveData?.linescore
+            const currentInning = Number(linescore?.currentInning)
+
             return {
                 gamePk,
                 awayTeam: this.getTeam(teams, awayTeamId, gamePk),
-                homeTeam: this.getTeam(teams, homeTeamId, gamePk)
+                homeTeam: this.getTeam(teams, homeTeamId, gamePk),
+                score: Number.isFinite(awayScore) && Number.isFinite(homeScore)
+                    ? {
+                        away: awayScore,
+                        home: homeScore
+                    }
+                    : undefined,
+                status: {
+                    abstractGameState: String(status?.abstractGameState ?? ""),
+                    detailedState: String(status?.detailedState ?? ""),
+                    currentInning: Number.isFinite(currentInning)
+                        ? currentInning
+                        : undefined,
+                    inningState: linescore?.inningState
+                        ? String(linescore.inningState)
+                        : undefined
+                }
             }
         })
 
@@ -133,8 +156,11 @@ class MlbGameBundleService {
 
                 return {
                     gamePk: game.gamePk,
+                    date: gameDate,
                     away: this.addTeamRating(this.addPlayerStats(away, season, statsByPlayerId), awayTeamRating),
                     home: this.addTeamRating(this.addPlayerStats(home, season, statsByPlayerId), homeTeamRating),
+                    score: game.score,
+                    status: game.status,
                     homeFieldAdvantage: this.getHomeFieldAdvantage(
                         pitchEnvironmentTarget,
                         awayTeamRating,
@@ -306,10 +332,25 @@ interface MlbTeamBundle extends TeamBundle {
     teamRating?: TeamRating
 }
 
+interface MlbGameScore {
+    away: number
+    home: number
+}
+
+interface MlbGameStatus {
+    abstractGameState: string
+    detailedState: string
+    currentInning?: number
+    inningState?: string
+}
+
 interface MlbGameBundle {
     gamePk: number
+    date: string
     away: MlbTeamBundle
     home: MlbTeamBundle
+    score?: MlbGameScore
+    status: MlbGameStatus
     homeFieldAdvantage: number
 }
 
@@ -327,6 +368,8 @@ export {
 export type {
     MlbDailyBundle,
     MlbGameBundle,
+    MlbGameScore,
+    MlbGameStatus,
     MlbHittingStats,
     MlbPitchingStats,
     MlbPlayerStats,
