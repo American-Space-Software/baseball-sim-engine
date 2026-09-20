@@ -323,6 +323,7 @@ describe("MlbGameBundleService", function () {
     let harness: MlbGameBundleServiceTestHarness
     let service: MlbGameBundleService
     let originalGetSchedule: typeof queries.getSchedule
+    let originalGetGame: typeof queries.getGame
     let dataDir: string
 
     beforeEach(function () {
@@ -334,6 +335,9 @@ describe("MlbGameBundleService", function () {
         }
 
         originalGetSchedule = queries.getSchedule
+        originalGetGame = queries.getGame
+
+        queries.getGame = (() => undefined) as typeof queries.getGame
 
         dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mlb-game-bundle-service-"))
 
@@ -355,6 +359,7 @@ describe("MlbGameBundleService", function () {
 
     afterEach(function () {
         queries.getSchedule = originalGetSchedule
+        queries.getGame = originalGetGame
 
         fs.rmSync(
             dataDir,
@@ -425,6 +430,29 @@ describe("MlbGameBundleService", function () {
                 ]
             }
         })) as unknown as typeof queries.getSchedule
+
+        queries.getGame = ((gamePk: number) => {
+            if (gamePk !== 1002) {
+                return undefined
+            }
+
+            return {
+                data: {
+                    gameData: {
+                        status: {
+                            abstractGameState: "Live",
+                            detailedState: "In Progress"
+                        }
+                    },
+                    liveData: {
+                        linescore: {
+                            currentInning: 3,
+                            inningState: "Top"
+                        }
+                    }
+                }
+            }
+        }) as unknown as typeof queries.getGame
 
         const result = await service.build(harness.gameDate)
 
@@ -736,10 +764,6 @@ describe("MlbGameBundleService", function () {
                                     abstractGameState: "Live",
                                     detailedState: "In Progress"
                                 },
-                                linescore: {
-                                    currentInning: 3,
-                                    inningState: "Bottom"
-                                },
                                 teams: {
                                     away: {
                                         team: {
@@ -760,6 +784,30 @@ describe("MlbGameBundleService", function () {
                 ]
             }
         })) as unknown as typeof queries.getSchedule
+
+        queries.getGame = ((gamePk: number) => {
+            assert.equal(
+                gamePk,
+                1001
+            )
+
+            return {
+                data: {
+                    gameData: {
+                        status: {
+                            abstractGameState: "Live",
+                            detailedState: "In Progress"
+                        }
+                    },
+                    liveData: {
+                        linescore: {
+                            currentInning: 3,
+                            inningState: "Bottom"
+                        }
+                    }
+                }
+            }
+        }) as unknown as typeof queries.getGame
 
         const result = await service.build(
             harness.gameDate

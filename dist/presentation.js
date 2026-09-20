@@ -94,7 +94,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
   `:" "}
 
-`}}M.id="703f2a8796",M.style="\n\n";const W=M;function Y(e){let t=e.playbyplay??[],s=e.gameplayers??{},i=e.gameviewservice;return function(e){e.$;var r=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,r`
+`}}M.id="295e34a9fa",M.style="\n\n";const W=M;function Y(e){let t=e.playbyplay??[],s=e.gameplayers??{},i=e.gameviewservice;return function(e){e.$;var r=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,r`
 
   <div class="game-log">
 
@@ -206,16 +206,16 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
   </div>
 
-`}}Y.id="e747be51d2",Y.style="\n\n\n\n";const j=Y;function K(e,{$h:t}){let s=e.vm,i=e.gameviewservice,r=e.fieldimageurl,a=e.getplayerimageurl,n=e.getplayerhref,l=e.getboxscorehref,o=e.getgameloghref,c=e.advancecallback,h=e.pausecallback,d=e.resumecallback,u=e.simtoendcallback;const p=(e,t)=>e?.color1??e?.colors?.color1??t,m=p(s.game.away,"#0A3161"),g=p(s.game.home,"#B31942"),f=e=>{const t=String(e).replace("#","");return.299*parseInt(t.substring(0,2),16)+.587*parseInt(t.substring(2,4),16)+.114*parseInt(t.substring(4,6),16)>160?"#000000":"#ffffff"};let $=f(m),v=f(g);const y=e=>e.lineupIds.map(t=>e.players.find(e=>e._id===t)).filter(e=>e),b=e=>null==e?"color-gray":e>=146?"color-green":e>=122?"color-blue":e>=83?"color-yellow":e>=47?"color-orange":"color-red",P=e=>null==e?"":e>=170?"A+":e>=158?"A":e>=146?"A-":e>=134?"B+":e>=122?"B":e>=110?"B-":e>=95?"C+":e>=83?"C":e>=71?"C-":e>=59?"D+":e>=47?"D":e>=35?"D-":"F",R=async()=>{c&&await c()},I=async()=>{h&&await h()},T=async()=>{d&&await d()},S=async()=>{u&&await u()};return function(t){t.$;var c=t.$h;return t.$root,t.$f7,t.$f7route,t.$f7router,t.$theme,t.$update,t.$store,c`
+`}}Y.id="c70f5412f2",Y.style="\n\n\n\n";const j=Y;function K(e,{$h:t}){let s=e.vm,i=e.gameviewservice,r=e.fieldimageurl,a=e.getplayerimageurl,n=e.getplayerhref,l=e.getboxscorehref,o=e.getgameloghref,c=e.advancecallback,h=e.pausecallback,d=e.resumecallback,u=e.simtoendcallback;const p="#0A3161",m="#B31942",g=(e,t)=>e?.color1??e?.colors?.color1??t,f=(e,t)=>e?.color2??e?.colors?.color2??(e=>{const t=String(e).replace("#","");return.299*parseInt(t.substring(0,2),16)+.587*parseInt(t.substring(2,4),16)+.114*parseInt(t.substring(4,6),16)>160?"#000000":"#ffffff"})(g(e,t)),$=g(s.game.away,p),v=g(s.game.home,m),y=f(s.game.away,p),b=f(s.game.home,m),P=e=>e.lineupIds.map(t=>e.players.find(e=>e._id===t)).filter(e=>e),R=e=>{const t=(e=>{if(e)return s.game.away.players?.some(t=>t._id===e._id)?s.game.away:s.game.home.players?.some(t=>t._id===e._id)?s.game.home:void 0})(e);return t?._id===s.game.away._id?y:t?._id===s.game.home._id?b:"#ffffff"},I=e=>null==e?"color-gray":e>=146?"color-green":e>=122?"color-blue":e>=83?"color-yellow":e>=47?"color-orange":"color-red",T=e=>null==e?"":e>=170?"A+":e>=158?"A":e>=146?"A-":e>=134?"B+":e>=122?"B":e>=110?"B-":e>=95?"C+":e>=83?"C":e>=71?"C-":e>=59?"D+":e>=47?"D":e>=35?"D-":"F",S=async()=>{c&&await c()},E=async()=>{h&&await h()},w=async()=>{d&&await d()},B=async()=>{u&&await u()};return function(t){t.$;var c=t.$h;return t.$root,t.$f7,t.$f7route,t.$f7router,t.$theme,t.$update,t.$store,c`
 
-  <div class="game-state ${s.isTopInning?"top-inning":"bottom-inning"}" style="--away-color: ${m}; --home-color: ${g}; --away-font-color: ${$}; --home-font-color: ${v};">
+  <div class="game-state ${s.isTopInning?"top-inning":"bottom-inning"}" style="--away-color: ${$}; --home-color: ${v}; --away-font-color: ${y}; --home-font-color: ${b};">
 
     <div class="game-summary">
 
       <div class="game-score">
         <table>
           <tr class="${s.isTopInning?"at-bat":""}">
-            <td class="name" style="background-color: ${m}; color: ${$};">
+            <td class="name" style="background-color: ${$}; color: ${y};">
               <strong>${s.game.away.abbrev}</strong>
             </td>
             <td class="runs">${s.score.away}</td>
@@ -225,7 +225,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
           </tr>
 
           <tr class="${s.isTopInning?"":"at-bat"}">
-            <td class="name" style="background-color: ${g}; color: ${v};">
+            <td class="name" style="background-color: ${v}; color: ${b};">
               <strong>${s.game.home.abbrev}</strong>
             </td>
             <td class="runs">${s.score.home}</td>
@@ -261,7 +261,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
           <div class="card card-raised ${s.atBatBoxscore.team._id===s.awayBoxscore.team._id?"card-atbat":"card-notatbat"}">
 
-            <div class="card-header">
+            <div class="card-header" style="background-color: ${$}; color: ${y};">
               ${s.awayBoxscore.team.name??s.awayBoxscore.team.abbrev}
             </div>
 
@@ -281,7 +281,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
                 <tbody>
 
-                  ${y(s.awayBoxscore.team).map((e,t)=>c`
+                  ${P(s.awayBoxscore.team).map((e,t)=>c`
                     <tr class="${s.atBatBoxscore.team._id===s.awayBoxscore.team._id&&s.awayBoxscore.team.currentHitterIndex===t?"at-bat":""}">
 
                       <td class="num order">${t+1}</td>
@@ -329,7 +329,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.showHitter&&s.hitter?c`
-              <a href="${n?n(s.hitter):"#"}" class="runner hitter offense-player ${"R"===s.matchupHandedness?.hits?"rhb":"lhb"}">
+              <a href="${n?n(s.hitter):"#"}" class="runner hitter offense-player ${"R"===s.matchupHandedness?.hits?"rhb":"lhb"}" style="color: ${R(s.hitter)};">
 
                 ${"L"===s.matchupHandedness?.hits&&a?c`
                   <div class="image">
@@ -356,7 +356,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.runner1B?c`
-              <a href="${n?n(s.runner1B):"#"}" class="runner firstBase offense-player">
+              <a href="${n?n(s.runner1B):"#"}" class="runner firstBase offense-player" style="color: ${R(s.runner1B)};">
 
                 ${a?c`
                   <div class="image">
@@ -369,7 +369,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.runner1B.hittingRatings.speed)}">${P(s.runner1B.hittingRatings.speed)}</div>
+                      <div class="chip-media bg-${I(s.runner1B.hittingRatings.speed)}">${T(s.runner1B.hittingRatings.speed)}</div>
                       <div class="chip-label">SPD</div>
                     </div>
                   </div>
@@ -380,14 +380,14 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.runner2B?c`
-              <a href="${n?n(s.runner2B):"#"}" class="runner secondBase offense-player">
+              <a href="${n?n(s.runner2B):"#"}" class="runner secondBase offense-player" style="color: ${R(s.runner2B)};">
 
                 <div class="wrapper">
                   <div class="text">${s.runner2B.displayName??s.runner2B.fullName}</div>
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.runner2B.hittingRatings.speed)}">${P(s.runner2B.hittingRatings.speed)}</div>
+                      <div class="chip-media bg-${I(s.runner2B.hittingRatings.speed)}">${T(s.runner2B.hittingRatings.speed)}</div>
                       <div class="chip-label">SPD</div>
                     </div>
                   </div>
@@ -404,7 +404,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.runner3B?c`
-              <a href="${n?n(s.runner3B):"#"}" class="runner thirdBase offense-player">
+              <a href="${n?n(s.runner3B):"#"}" class="runner thirdBase offense-player" style="color: ${R(s.runner3B)};">
 
                 ${a?c`
                   <div class="image">
@@ -417,7 +417,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.runner3B.hittingRatings.speed)}">${P(s.runner3B.hittingRatings.speed)}</div>
+                      <div class="chip-media bg-${I(s.runner3B.hittingRatings.speed)}">${T(s.runner3B.hittingRatings.speed)}</div>
                       <div class="chip-label">SPD</div>
                     </div>
                   </div>
@@ -428,7 +428,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.showPitcher&&s.pitcher?c`
-              <a href="${n?n(s.pitcher):"#"}" class="defender p defense-player" data-pos="P">
+              <a href="${n?n(s.pitcher):"#"}" class="defender p defense-player" data-pos="P" style="color: ${R(s.pitcher)};">
 
                 <div class="wrapper">
                   <div class="text">${s.pitcher.displayName??s.pitcher.fullName}</div>
@@ -449,7 +449,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.showPitcher&&s.catcher?c`
-              <a href="${n?n(s.catcher):"#"}" class="defender c top defense-player" data-pos="C">
+              <a href="${n?n(s.catcher):"#"}" class="defender c top defense-player" data-pos="C" style="color: ${R(s.catcher)};">
 
                 ${a?c`
                   <div class="image">
@@ -462,7 +462,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.catcher.hittingRatings.arm)}">${P(s.catcher.hittingRatings.arm)}</div>
+                      <div class="chip-media bg-${I(s.catcher.hittingRatings.arm)}">${T(s.catcher.hittingRatings.arm)}</div>
                       <div class="chip-label">ARM</div>
                     </div>
                   </div>
@@ -473,14 +473,14 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.showPitcher&&s.firstBase?c`
-              <a href="${n?n(s.firstBase):"#"}" class="defender firstBase defense-player" data-pos="1B">
+              <a href="${n?n(s.firstBase):"#"}" class="defender firstBase defense-player" data-pos="1B" style="color: ${R(s.firstBase)};">
 
                 <div class="wrapper">
                   <div class="text">${s.firstBase.displayName??s.firstBase.fullName}</div>
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.firstBase.hittingRatings.defense)}">${P(s.firstBase.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.firstBase.hittingRatings.defense)}">${T(s.firstBase.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
@@ -497,14 +497,14 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.showPitcher&&s.secondBase?c`
-              <a href="${n?n(s.secondBase):"#"}" class="defender secondBase defense-player" data-pos="2B">
+              <a href="${n?n(s.secondBase):"#"}" class="defender secondBase defense-player" data-pos="2B" style="color: ${R(s.secondBase)};">
 
                 <div class="wrapper">
                   <div class="text">${s.secondBase.displayName??s.secondBase.fullName}</div>
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.secondBase.hittingRatings.defense)}">${P(s.secondBase.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.secondBase.hittingRatings.defense)}">${T(s.secondBase.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
@@ -521,14 +521,14 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.showPitcher&&s.thirdBase?c`
-              <a href="${n?n(s.thirdBase):"#"}" class="defender thirdBase defense-player" data-pos="3B">
+              <a href="${n?n(s.thirdBase):"#"}" class="defender thirdBase defense-player" data-pos="3B" style="color: ${R(s.thirdBase)};">
 
                 <div class="wrapper">
                   <div class="text">${s.thirdBase.displayName??s.thirdBase.fullName}</div>
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.thirdBase.hittingRatings.defense)}">${P(s.thirdBase.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.thirdBase.hittingRatings.defense)}">${T(s.thirdBase.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
@@ -545,14 +545,14 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.showPitcher&&s.shortstop?c`
-              <a href="${n?n(s.shortstop):"#"}" class="defender ss defense-player" data-pos="SS">
+              <a href="${n?n(s.shortstop):"#"}" class="defender ss defense-player" data-pos="SS" style="color: ${R(s.shortstop)};">
 
                 <div class="wrapper">
                   <div class="text">${s.shortstop.displayName??s.shortstop.fullName}</div>
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.shortstop.hittingRatings.defense)}">${P(s.shortstop.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.shortstop.hittingRatings.defense)}">${T(s.shortstop.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
@@ -569,14 +569,14 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.showPitcher&&s.leftField?c`
-              <a href="${n?n(s.leftField):"#"}" class="defender lf defense-player" data-pos="LF">
+              <a href="${n?n(s.leftField):"#"}" class="defender lf defense-player" data-pos="LF" style="color: ${R(s.leftField)};">
 
                 <div class="wrapper">
                   <div class="text">${s.leftField.displayName??s.leftField.fullName}</div>
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.leftField.hittingRatings.defense)}">${P(s.leftField.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.leftField.hittingRatings.defense)}">${T(s.leftField.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
@@ -593,14 +593,14 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.showPitcher&&s.centerField?c`
-              <a href="${n?n(s.centerField):"#"}" class="defender cf defense-player" data-pos="CF">
+              <a href="${n?n(s.centerField):"#"}" class="defender cf defense-player" data-pos="CF" style="color: ${R(s.centerField)};">
 
                 <div class="wrapper">
                   <div class="text">${s.centerField.displayName??s.centerField.fullName}</div>
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.centerField.hittingRatings.defense)}">${P(s.centerField.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.centerField.hittingRatings.defense)}">${T(s.centerField.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
@@ -617,14 +617,14 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
 
             ${s.showPitcher&&s.rightField?c`
-              <a href="${n?n(s.rightField):"#"}" class="defender rf defense-player" data-pos="RF">
+              <a href="${n?n(s.rightField):"#"}" class="defender rf defense-player" data-pos="RF" style="color: ${R(s.rightField)};">
 
                 <div class="wrapper">
                   <div class="text">${s.rightField.displayName??s.rightField.fullName}</div>
 
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${b(s.rightField.hittingRatings.defense)}">${P(s.rightField.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.rightField.hittingRatings.defense)}">${T(s.rightField.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
@@ -662,7 +662,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
           <div class="card card-raised ${s.atBatBoxscore.team._id===s.homeBoxscore.team._id?"card-atbat":"card-notatbat"}">
 
-            <div class="card-header">
+            <div class="card-header" style="background-color: ${v}; color: ${b};">
               ${s.homeBoxscore.team.name??s.homeBoxscore.team.abbrev}
             </div>
 
@@ -682,7 +682,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
                 <tbody>
 
-                  ${y(s.homeBoxscore.team).map((e,t)=>c`
+                  ${P(s.homeBoxscore.team).map((e,t)=>c`
                     <tr class="${s.atBatBoxscore.team._id===s.homeBoxscore.team._id&&s.homeBoxscore.team.currentHitterIndex===t?"at-bat":""}">
 
                       <td class="num order">${t+1}</td>
@@ -724,7 +724,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
       <div class="matchup">
 
-        <div class="matchup-detail away" style="background-color: ${m}; color: ${$};">
+        <div class="matchup-detail away" style="background-color: ${$}; color: ${y};">
 
           ${s.awayPlayer?c`
             ${a?c`
@@ -751,7 +751,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
         </div>
 
 
-        <div class="matchup-detail" style="background-color: ${g}; color: ${v};">
+        <div class="matchup-detail" style="background-color: ${v}; color: ${b};">
 
           ${s.homePlayer?c`
             ${a?c`
@@ -795,18 +795,18 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
             <ul>
               <li>
                 ${!0===e.paused?c`
-                  <a href="#" class="list-button popover-close" @click=${T}>Resume</a>
+                  <a href="#" class="list-button popover-close" @click=${w}>Resume</a>
                 `:c`
-                  <a href="#" class="list-button popover-close" @click=${I}>Pause</a>
+                  <a href="#" class="list-button popover-close" @click=${E}>Pause</a>
                 `}
               </li>
               ${!0===e.paused?c`
                 <li>
-                  <a href="#" class="list-button popover-close" @click=${R}>Next Pitch</a>
+                  <a href="#" class="list-button popover-close" @click=${S}>Next Pitch</a>
                 </li>
               `:c` `}
               <li>
-                <a href="#" class="list-button popover-close" @click=${S}>Sim to End</a>
+                <a href="#" class="list-button popover-close" @click=${B}>Sim to End</a>
               </li>
               ${l?c`
                 <li>
@@ -827,7 +827,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
   </div>
 
-`}}K.id="e35bc849fa",K.style="\n\n";const q=K;function V(e){let t=e.vm,s=e.substitutions??[],i=e.boxscoreservice,r=e.getplayerimageurl,a=e.getplayerhref;const n=i.getBoxscoreInfo(s,t),l=e=>e.map(e=>`${e.name}${e.value>1?` ${e.value}`:""}`).join("; ");return function(e){e.$;var s=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,s`
+`}}K.id="3679dd7f88",K.style="\n\n";const q=K;function V(e){let t=e.vm,s=e.substitutions??[],i=e.boxscoreservice,r=e.getplayerimageurl,a=e.getplayerhref;const n=i.getBoxscoreInfo(s,t),l=e=>e.map(e=>`${e.name}${e.value>1?` ${e.value}`:""}`).join("; ");return function(e){e.$;var s=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,s`
 
   <div class="block block-outline block-strong">
 
@@ -989,7 +989,7 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
   </div>
 
-`}}V.id="20b0a3ff8a",V.style="\n\n\n";const z=V,Z=new N;function Q(e,{$onMounted:t,$onUpdated:s,$onBeforeUnmount:i,$:r,$f7:a,$update:n}){let l,o=e.gamewebservice,c=e.gameviewservice,h=e.gamemessageservice,d=e.game,u=e.fieldimageurl,p=e.getplayerimageurl,m=e.getplayerhref,g=e.getboxscorehref,f=e.getgameloghref,$=!0===e.paused,v=e.advancecallback,y=e.pausecallback,b=e.resumecallback,P=e.simtoendcallback,R=e.registerpageafterincallback,I=d?o.getGameViewModel(d):void 0,T=0,S=Promise.resolve(),E=[".at-bat-ended"],w=d;const B=()=>{if(!d)return void(I=void 0);const e=o.getGameViewModel(d);I?Object.assign(I,e):I=e},N=()=>{for(const e of E)r(e).hide()},D=()=>{l&&l.scroll(0)},x=async e=>{if(!d)return;const t=o.getCurrentDescriptions(d),s=(e=>c.getMessagesFromPlayDescriptions(e))(t);((e,t)=>{if("ENDED"===e){const e=t.find(e=>"RESULT"===e.type)?.text??"";return r(".at-bat-ended .result").text(e),void(e=>{for(const t of E)t!==e&&r(t).hide();r(e).css("display","flex")})(".at-bat-ended")}N()})(o.getAtBatState(d),t),await(async(e,t)=>{if(!l)return;const s=l.messages??[],i=h.getSync(s,e);T++;const r=T;S=S.then(async()=>{if(r===T)if(i.clear&&l.clear(),t)for(const e of i.messages){if(r!==T)return;if(l.showTyping(),await _(500),r!==T)return;l.addMessage(e),l.hideTyping()}else l.addMessages(i.messages)}),await S,D()})(s,e)},_=e=>new Promise(t=>setTimeout(t,e));return t(async()=>{d&&(B(),await n(),l=(()=>{const e=a.messages?.get(".game-messages");return e||a.messages?.create({el:".game-messages",scrollMessages:!0,scrollMessagesOnEdge:!0})})(),R&&R(D),await x(!1))}),s(async()=>{await(async()=>{$=!0===e.paused,v=e.advancecallback,y=e.pausecallback,b=e.resumecallback,P=e.simtoendcallback,R=e.registerpageafterincallback,e.game!==w&&(d=e.game,w=e.game,B(),await x(!1))})()}),i(()=>{T++,R&&R(void 0),N()}),function(e){e.$;var t=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,t`
+`}}V.id="0920601ffd",V.style="\n\n\n";const z=V,Z=new N;function Q(e,{$onMounted:t,$onUpdated:s,$onBeforeUnmount:i,$:r,$f7:a,$update:n}){let l,o=e.gamewebservice,c=e.gameviewservice,h=e.gamemessageservice,d=e.game,u=e.fieldimageurl,p=e.getplayerimageurl,m=e.getplayerhref,g=e.getboxscorehref,f=e.getgameloghref,$=!0===e.paused,v=e.advancecallback,y=e.pausecallback,b=e.resumecallback,P=e.simtoendcallback,R=e.registerpageafterincallback,I=d?o.getGameViewModel(d):void 0,T=0,S=Promise.resolve(),E=[".at-bat-ended"],w=d;const B=()=>{if(!d)return void(I=void 0);const e=o.getGameViewModel(d);I?Object.assign(I,e):I=e},N=()=>{for(const e of E)r(e).hide()},D=()=>{l&&l.scroll(0)},x=async e=>{if(!d)return;const t=o.getCurrentDescriptions(d),s=(e=>c.getMessagesFromPlayDescriptions(e))(t);((e,t)=>{if("ENDED"===e){const e=t.find(e=>"RESULT"===e.type)?.text??"";return r(".at-bat-ended .result").text(e),void(e=>{for(const t of E)t!==e&&r(t).hide();r(e).css("display","flex")})(".at-bat-ended")}N()})(o.getAtBatState(d),t),await(async(e,t)=>{if(!l)return;const s=l.messages??[],i=h.getSync(s,e);T++;const r=T;S=S.then(async()=>{if(r===T)if(i.clear&&l.clear(),t)for(const e of i.messages){if(r!==T)return;if(l.showTyping(),await _(500),r!==T)return;l.addMessage(e),l.hideTyping()}else l.addMessages(i.messages)}),await S,D()})(s,e)},_=e=>new Promise(t=>setTimeout(t,e));return t(async()=>{d&&(B(),await n(),l=(()=>{const e=a.messages?.get(".game-messages");return e||a.messages?.create({el:".game-messages",scrollMessages:!0,scrollMessagesOnEdge:!0})})(),R&&R(D),await x(!1))}),s(async()=>{await(async()=>{$=!0===e.paused,v=e.advancecallback,y=e.pausecallback,b=e.resumecallback,P=e.simtoendcallback,R=e.registerpageafterincallback,e.game!==w&&(d=e.game,w=e.game,B(),await x(!1))})()}),i(()=>{T++,R&&R(void 0),N()}),function(e){e.$;var t=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,t`
 
   <div class="game-page">
 
@@ -1060,4 +1060,4 @@ var e,t,s,i,r,a,n,l,o,c,h,d,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
   </div>
 
-`}}Q.id="e102c000ce",Q.style="\n\n\n";const X=Q,J=new E,ee=new w(J),te=new B(J),se=new D,ie=new N,re=new G;export{R as AtBatState,z as BoxscoreComponent,N as BoxscoreService,X as GameInProgressComponent,j as GameLogComponent,D as GameMessageService,U as GamePlaybackService,q as GameStateComponent,B as GameViewService,w as GameWebService,W as LineScoreComponent,E as PlayByPlayService,P as PlayDescriptionType,G as TeamComponentService,ie as boxscoreService,se as gameMessageService,te as gameViewService,ee as gameWebService,J as playByPlayService,re as teamComponentService};
+`}}Q.id="0e3f320d4f",Q.style="\n\n\n";const X=Q,J=new E,ee=new w(J),te=new B(J),se=new D,ie=new N,re=new G;export{R as AtBatState,z as BoxscoreComponent,N as BoxscoreService,X as GameInProgressComponent,j as GameLogComponent,D as GameMessageService,U as GamePlaybackService,q as GameStateComponent,B as GameViewService,w as GameWebService,W as LineScoreComponent,E as PlayByPlayService,P as PlayDescriptionType,G as TeamComponentService,ie as boxscoreService,se as gameMessageService,te as gameViewService,ee as gameWebService,J as playByPlayService,re as teamComponentService};

@@ -53,7 +53,7 @@
 
           <div class="card card-raised ${vm.atBatBoxscore.team._id === vm.awayBoxscore.team._id ? "card-atbat" : "card-notatbat"}">
 
-            <div class="card-header">
+            <div class="card-header" style="background-color: ${awayColor}; color: ${awayFontColor};">
               ${vm.awayBoxscore.team.name ?? vm.awayBoxscore.team.abbrev}
             </div>
 
@@ -121,7 +121,7 @@
 
 
             ${vm.showHitter && vm.hitter ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.hitter) : "#"}" class="runner hitter offense-player ${vm.matchupHandedness?.hits === "R" ? "rhb" : "lhb"}">
+              <a href="${getPlayerHref ? getPlayerHref(vm.hitter) : "#"}" class="runner hitter offense-player ${vm.matchupHandedness?.hits === "R" ? "rhb" : "lhb"}" style="color: ${getPlayerFontColor(vm.hitter)};">
 
                 ${vm.matchupHandedness?.hits === "L" && getPlayerImageUrl ? $h`
                   <div class="image">
@@ -148,7 +148,7 @@
 
 
             ${vm.runner1B ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.runner1B) : "#"}" class="runner firstBase offense-player">
+              <a href="${getPlayerHref ? getPlayerHref(vm.runner1B) : "#"}" class="runner firstBase offense-player" style="color: ${getPlayerFontColor(vm.runner1B)};">
 
                 ${getPlayerImageUrl ? $h`
                   <div class="image">
@@ -172,7 +172,7 @@
 
 
             ${vm.runner2B ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.runner2B) : "#"}" class="runner secondBase offense-player">
+              <a href="${getPlayerHref ? getPlayerHref(vm.runner2B) : "#"}" class="runner secondBase offense-player" style="color: ${getPlayerFontColor(vm.runner2B)};">
 
                 <div class="wrapper">
                   <div class="text">${vm.runner2B.displayName ?? vm.runner2B.fullName}</div>
@@ -196,7 +196,7 @@
 
 
             ${vm.runner3B ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.runner3B) : "#"}" class="runner thirdBase offense-player">
+              <a href="${getPlayerHref ? getPlayerHref(vm.runner3B) : "#"}" class="runner thirdBase offense-player" style="color: ${getPlayerFontColor(vm.runner3B)};">
 
                 ${getPlayerImageUrl ? $h`
                   <div class="image">
@@ -220,7 +220,7 @@
 
 
             ${vm.showPitcher && vm.pitcher ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.pitcher) : "#"}" class="defender p defense-player" data-pos="P">
+              <a href="${getPlayerHref ? getPlayerHref(vm.pitcher) : "#"}" class="defender p defense-player" data-pos="P" style="color: ${getPlayerFontColor(vm.pitcher)};">
 
                 <div class="wrapper">
                   <div class="text">${vm.pitcher.displayName ?? vm.pitcher.fullName}</div>
@@ -241,7 +241,7 @@
 
 
             ${vm.showPitcher && vm.catcher ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.catcher) : "#"}" class="defender c top defense-player" data-pos="C">
+              <a href="${getPlayerHref ? getPlayerHref(vm.catcher) : "#"}" class="defender c top defense-player" data-pos="C" style="color: ${getPlayerFontColor(vm.catcher)};">
 
                 ${getPlayerImageUrl ? $h`
                   <div class="image">
@@ -265,7 +265,7 @@
 
 
             ${vm.showPitcher && vm.firstBase ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.firstBase) : "#"}" class="defender firstBase defense-player" data-pos="1B">
+              <a href="${getPlayerHref ? getPlayerHref(vm.firstBase) : "#"}" class="defender firstBase defense-player" data-pos="1B" style="color: ${getPlayerFontColor(vm.firstBase)};">
 
                 <div class="wrapper">
                   <div class="text">${vm.firstBase.displayName ?? vm.firstBase.fullName}</div>
@@ -289,7 +289,7 @@
 
 
             ${vm.showPitcher && vm.secondBase ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.secondBase) : "#"}" class="defender secondBase defense-player" data-pos="2B">
+              <a href="${getPlayerHref ? getPlayerHref(vm.secondBase) : "#"}" class="defender secondBase defense-player" data-pos="2B" style="color: ${getPlayerFontColor(vm.secondBase)};">
 
                 <div class="wrapper">
                   <div class="text">${vm.secondBase.displayName ?? vm.secondBase.fullName}</div>
@@ -313,7 +313,7 @@
 
 
             ${vm.showPitcher && vm.thirdBase ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.thirdBase) : "#"}" class="defender thirdBase defense-player" data-pos="3B">
+              <a href="${getPlayerHref ? getPlayerHref(vm.thirdBase) : "#"}" class="defender thirdBase defense-player" data-pos="3B" style="color: ${getPlayerFontColor(vm.thirdBase)};">
 
                 <div class="wrapper">
                   <div class="text">${vm.thirdBase.displayName ?? vm.thirdBase.fullName}</div>
@@ -337,7 +337,7 @@
 
 
             ${vm.showPitcher && vm.shortstop ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.shortstop) : "#"}" class="defender ss defense-player" data-pos="SS">
+              <a href="${getPlayerHref ? getPlayerHref(vm.shortstop) : "#"}" class="defender ss defense-player" data-pos="SS" style="color: ${getPlayerFontColor(vm.shortstop)};">
 
                 <div class="wrapper">
                   <div class="text">${vm.shortstop.displayName ?? vm.shortstop.fullName}</div>
@@ -361,7 +361,7 @@
 
 
             ${vm.showPitcher && vm.leftField ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.leftField) : "#"}" class="defender lf defense-player" data-pos="LF">
+              <a href="${getPlayerHref ? getPlayerHref(vm.leftField) : "#"}" class="defender lf defense-player" data-pos="LF" style="color: ${getPlayerFontColor(vm.leftField)};">
 
                 <div class="wrapper">
                   <div class="text">${vm.leftField.displayName ?? vm.leftField.fullName}</div>
@@ -385,7 +385,7 @@
 
 
             ${vm.showPitcher && vm.centerField ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.centerField) : "#"}" class="defender cf defense-player" data-pos="CF">
+              <a href="${getPlayerHref ? getPlayerHref(vm.centerField) : "#"}" class="defender cf defense-player" data-pos="CF" style="color: ${getPlayerFontColor(vm.centerField)};">
 
                 <div class="wrapper">
                   <div class="text">${vm.centerField.displayName ?? vm.centerField.fullName}</div>
@@ -409,7 +409,7 @@
 
 
             ${vm.showPitcher && vm.rightField ? $h`
-              <a href="${getPlayerHref ? getPlayerHref(vm.rightField) : "#"}" class="defender rf defense-player" data-pos="RF">
+              <a href="${getPlayerHref ? getPlayerHref(vm.rightField) : "#"}" class="defender rf defense-player" data-pos="RF" style="color: ${getPlayerFontColor(vm.rightField)};">
 
                 <div class="wrapper">
                   <div class="text">${vm.rightField.displayName ?? vm.rightField.fullName}</div>
@@ -454,7 +454,7 @@
 
           <div class="card card-raised ${vm.atBatBoxscore.team._id === vm.homeBoxscore.team._id ? "card-atbat" : "card-notatbat"}">
 
-            <div class="card-header">
+            <div class="card-header" style="background-color: ${homeColor}; color: ${homeFontColor};">
               ${vm.homeBoxscore.team.name ?? vm.homeBoxscore.team.abbrev}
             </div>
 
@@ -652,6 +652,21 @@ export default (props, { $h }) => {
         return team?.color1 ?? team?.colors?.color1 ?? fallback
     }
 
+    const getContrastFontColor = color => {
+        const value = String(color).replace("#", "")
+        const r = parseInt(value.substring(0, 2), 16)
+        const g = parseInt(value.substring(2, 4), 16)
+        const b = parseInt(value.substring(4, 6), 16)
+
+        return r * 0.299 + g * 0.587 + b * 0.114 > 160 ? "#000000" : "#ffffff"
+    }
+
+    const getTeamFontColor = (team, fallbackColor) => {
+        return team?.color2 ?? team?.colors?.color2 ?? getContrastFontColor(
+            getTeamColor(team, fallbackColor)
+        )
+    }
+
     const awayColor = getTeamColor(
         vm.game.away,
         DEFAULT_AWAY_COLOR
@@ -662,20 +677,50 @@ export default (props, { $h }) => {
         DEFAULT_HOME_COLOR
     )
 
-    const getFontColor = color => {
-        const value = String(color).replace("#", "")
-        const r = parseInt(value.substring(0, 2), 16)
-        const g = parseInt(value.substring(2, 4), 16)
-        const b = parseInt(value.substring(4, 6), 16)
+    const awayFontColor = getTeamFontColor(
+        vm.game.away,
+        DEFAULT_AWAY_COLOR
+    )
 
-        return r * 0.299 + g * 0.587 + b * 0.114 > 160 ? "#000000" : "#ffffff"
-    }
-
-    let awayFontColor = getFontColor(awayColor)
-    let homeFontColor = getFontColor(homeColor)
+    const homeFontColor = getTeamFontColor(
+        vm.game.home,
+        DEFAULT_HOME_COLOR
+    )
 
     const getLineupPlayers = team => {
-        return team.lineupIds.map(playerId => team.players.find(player => player._id === playerId)).filter(player => player)
+        return team.lineupIds
+            .map(playerId => team.players.find(player => player._id === playerId))
+            .filter(player => player)
+    }
+
+    const getPlayerTeam = player => {
+        if (!player) {
+            return undefined
+        }
+
+        if (vm.game.away.players?.some(teamPlayer => teamPlayer._id === player._id)) {
+            return vm.game.away
+        }
+
+        if (vm.game.home.players?.some(teamPlayer => teamPlayer._id === player._id)) {
+            return vm.game.home
+        }
+
+        return undefined
+    }
+
+    const getPlayerFontColor = player => {
+        const team = getPlayerTeam(player)
+
+        if (team?._id === vm.game.away._id) {
+            return awayFontColor
+        }
+
+        if (team?._id === vm.game.home._id) {
+            return homeFontColor
+        }
+
+        return "#ffffff"
     }
 
     const getRatingBadgeColor = rating => {

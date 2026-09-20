@@ -18,16 +18,22 @@ declare class PlayerStatService {
 interface HitterSeasonStats {
     season: number;
     age?: number;
+    teamId?: number;
+    teamAbbrev?: string;
     stats: HitterStatLine;
 }
 interface PitcherSeasonStats {
     season: number;
     age?: number;
+    teamId?: number;
+    teamAbbrev?: string;
     stats: PitcherStatLine;
 }
 interface PlayerStats {
     careerHitterStats: HitterStatLine;
     careerPitcherStats: PitcherStatLine;
+    currentSeasonHitterStats?: HitterStatLine;
+    currentSeasonPitcherStats?: PitcherStatLine;
     seasonHitterStats: HitterSeasonStats[];
     seasonPitcherStats: PitcherSeasonStats[];
 }

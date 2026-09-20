@@ -2,8 +2,6 @@ import {
     queries
 } from "baseball-database"
 
-
-
 import { PlayerStatRepository, PlayerStatRow } from "../repository/player-stat-repository.js"
 import { StatService } from "../../sim/service/stat-service.js"
 import { HitterStatLine, PitcherStatLine } from "../../sim/service/interfaces.js"
@@ -17,16 +15,9 @@ class PlayerStatService {
     ) {}
 
     public getStats(endDateExclusive: string, filterPlayerIds?: Set<string>): Map<string, PlayerStats> {
-        const startedAt = Date.now()
+        const currentSeason = Number(endDateExclusive.slice(0, 4))
 
-        const rowsStartedAt = Date.now()
         const rows = this.playerStatRepository.getSeasons(endDateExclusive, filterPlayerIds)
-
-        // console.log(
-        //     `[PLAYER STAT PERF] getSeasons(${endDateExclusive}): ${rows.length} rows in ${Date.now() - rowsStartedAt}ms.`
-        // )
-
-        const groupingStartedAt = Date.now()
         const rowsByPlayerId = new Map<string, PlayerStatRow[]>()
 
         for (const row of rows) {
@@ -38,10 +29,6 @@ class PlayerStatService {
                 rowsByPlayerId.set(row.playerId, [row])
             }
         }
-
-        // console.log(
-        //     `[PLAYER STAT PERF] group rows: ${rowsByPlayerId.size} players in ${Date.now() - groupingStartedAt}ms.`
-        // )
 
         const stats = new Map<string, PlayerStats>()
         let playerLookupMilliseconds = 0
@@ -59,6 +46,10 @@ class PlayerStatService {
 
             const aggregateStartedAt = Date.now()
             const careerRow = this.aggregateRows(playerRows)
+            const currentSeasonRows = playerRows.filter(row => row.season === currentSeason)
+            const currentSeasonRow = currentSeasonRows.length > 0
+                ? this.aggregateRows(currentSeasonRows)
+                : undefined
             aggregateMilliseconds += Date.now() - aggregateStartedAt
 
             const statBuildStartedAt = Date.now()
@@ -67,34 +58,33 @@ class PlayerStatService {
                 careerHitterStats: this.toHitterStatLine(careerRow),
                 careerPitcherStats: this.toPitcherStatLine(careerRow),
 
+                currentSeasonHitterStats: currentSeasonRow
+                    ? this.toHitterStatLine(currentSeasonRow)
+                    : undefined,
+
+                currentSeasonPitcherStats: currentSeasonRow
+                    ? this.toPitcherStatLine(currentSeasonRow)
+                    : undefined,
+
                 seasonHitterStats: playerRows.map(row => ({
                     season: row.season,
                     age: this.getSeasonAge(player.birthDate, row.season),
+                    teamId: row.teamId,
+                    teamAbbrev: row.teamAbbrev,
                     stats: this.toHitterStatLine(row)
                 })),
 
                 seasonPitcherStats: playerRows.map(row => ({
                     season: row.season,
                     age: this.getSeasonAge(player.birthDate, row.season),
+                    teamId: row.teamId,
+                    teamAbbrev: row.teamAbbrev,
                     stats: this.toPitcherStatLine(row)
                 }))
             })
 
             statBuildMilliseconds += Date.now() - statBuildStartedAt
         }
-
-        // console.log(
-        //     `[PLAYER STAT PERF] queries.getPlayer: ${rowsByPlayerId.size} lookups in ${playerLookupMilliseconds}ms.`
-        // )
-        // console.log(
-        //     `[PLAYER STAT PERF] aggregateRows: ${rowsByPlayerId.size} players in ${aggregateMilliseconds}ms.`
-        // )
-        // console.log(
-        //     `[PLAYER STAT PERF] build stat lines: ${rowsByPlayerId.size} players in ${statBuildMilliseconds}ms.`
-        // )
-        // console.log(
-        //     `[PLAYER STAT PERF] getStats total: ${stats.size} players in ${Date.now() - startedAt}ms.`
-        // )
 
         return stats
     }
@@ -180,7 +170,10 @@ class PlayerStatService {
                     key === "playerId" ||
                     key === "gamePk" ||
                     key === "gameDate" ||
-                    key === "season"
+                    key === "gameType" ||
+                    key === "season" ||
+                    key === "teamId" ||
+                    key === "teamAbbrev"
                 ) {
                     continue
                 }
@@ -370,6 +363,8 @@ class PlayerStatService {
 interface HitterSeasonStats {
     season: number
     age?: number
+    teamId?: number
+    teamAbbrev?: string
     stats: HitterStatLine
 }
 
@@ -377,6 +372,8 @@ interface HitterSeasonStats {
 interface PitcherSeasonStats {
     season: number
     age?: number
+    teamId?: number
+    teamAbbrev?: string
     stats: PitcherStatLine
 }
 
@@ -384,6 +381,8 @@ interface PitcherSeasonStats {
 interface PlayerStats {
     careerHitterStats: HitterStatLine
     careerPitcherStats: PitcherStatLine
+    currentSeasonHitterStats?: HitterStatLine
+    currentSeasonPitcherStats?: PitcherStatLine
     seasonHitterStats: HitterSeasonStats[]
     seasonPitcherStats: PitcherSeasonStats[]
 }

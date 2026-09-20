@@ -242,8 +242,8 @@ describe("PlayerStatService", function () {
 
     it("returns hitter season stats in repository order", function () {
         repository.seasons = [
-            createRow({ season: 2025, hittingHits: 10 }),
-            createRow({ season: 2026, hittingHits: 20 })
+            createRow({ season: 2025, teamId: 10, teamAbbrev: "AAA", hittingHits: 10 }),
+            createRow({ season: 2026, teamId: 20, teamAbbrev: "BBB", hittingHits: 20 })
         ]
 
         const results = service.getSeasonHitterStats("101", "2027-01-01")
@@ -253,10 +253,26 @@ describe("PlayerStatService", function () {
         assert.equal(results[1]?.hits, 20)
     })
 
+    it("preserves team identity on hitter season stats", function () {
+        repository.seasons = [
+            createRow({ season: 2025, teamId: 10, teamAbbrev: "AAA" }),
+            createRow({ season: 2025, teamId: 20, teamAbbrev: "BBB" })
+        ]
+
+        const result = service.getStats("2027-01-01", new Set(["101"])).get("101")
+
+        assert.ok(result)
+        assert.equal(result.seasonHitterStats.length, 2)
+        assert.equal(result.seasonHitterStats[0]?.teamId, 10)
+        assert.equal(result.seasonHitterStats[0]?.teamAbbrev, "AAA")
+        assert.equal(result.seasonHitterStats[1]?.teamId, 20)
+        assert.equal(result.seasonHitterStats[1]?.teamAbbrev, "BBB")
+    })
+
     it("returns pitcher season stats in repository order", function () {
         repository.seasons = [
-            createRow({ playerId: "201", season: 2025, pitchingWins: 1 }),
-            createRow({ playerId: "201", season: 2026, pitchingWins: 3 })
+            createRow({ playerId: "201", season: 2025, teamId: 20, teamAbbrev: "AAA", pitchingWins: 1 }),
+            createRow({ playerId: "201", season: 2026, teamId: 30, teamAbbrev: "BBB", pitchingWins: 3 })
         ]
 
         const results = service.getSeasonPitcherStats("201", "2027-01-01")
@@ -264,6 +280,65 @@ describe("PlayerStatService", function () {
         assert.equal(results.length, 2)
         assert.equal(results[0]?.wins, 1)
         assert.equal(results[1]?.wins, 3)
+    })
+
+    it("preserves team identity on pitcher season stats", function () {
+        repository.seasons = [
+            createRow({ playerId: "201", season: 2025, teamId: 20, teamAbbrev: "AAA" }),
+            createRow({ playerId: "201", season: 2025, teamId: 30, teamAbbrev: "BBB" })
+        ]
+
+        const result = service.getStats("2027-01-01", new Set(["201"])).get("201")
+
+        assert.ok(result)
+        assert.equal(result.seasonPitcherStats.length, 2)
+        assert.equal(result.seasonPitcherStats[0]?.teamId, 20)
+        assert.equal(result.seasonPitcherStats[0]?.teamAbbrev, "AAA")
+        assert.equal(result.seasonPitcherStats[1]?.teamId, 30)
+        assert.equal(result.seasonPitcherStats[1]?.teamAbbrev, "BBB")
+    })
+
+    it("aggregates current-season hitter stats across teams", function () {
+        repository.seasons = [
+            createRow({ season: 2025, teamId: 10, teamAbbrev: "AAA", hittingGames: 5, hittingPa: 20, hittingHits: 6 }),
+            createRow({ season: 2025, teamId: 20, teamAbbrev: "BBB", hittingGames: 7, hittingPa: 30, hittingHits: 9 }),
+            createRow({ season: 2024, teamId: 10, teamAbbrev: "AAA", hittingGames: 10, hittingPa: 40, hittingHits: 12 })
+        ]
+
+        const result = service.getStats("2025-09-18", new Set(["101"])).get("101")
+
+        assert.ok(result)
+        assert.ok(result.currentSeasonHitterStats)
+        assert.equal(result.currentSeasonHitterStats.games, 12)
+        assert.equal(result.currentSeasonHitterStats.pa, 50)
+        assert.equal(result.currentSeasonHitterStats.hits, 15)
+    })
+
+    it("aggregates current-season pitcher stats across teams", function () {
+        repository.seasons = [
+            createRow({ playerId: "201", season: 2025, teamId: 20, teamAbbrev: "AAA", pitchingGames: 4, pitchingWins: 1 }),
+            createRow({ playerId: "201", season: 2025, teamId: 30, teamAbbrev: "BBB", pitchingGames: 6, pitchingWins: 2 }),
+            createRow({ playerId: "201", season: 2024, teamId: 20, teamAbbrev: "AAA", pitchingGames: 8, pitchingWins: 3 })
+        ]
+
+        const result = service.getStats("2025-09-18", new Set(["201"])).get("201")
+
+        assert.ok(result)
+        assert.ok(result.currentSeasonPitcherStats)
+        assert.equal(result.currentSeasonPitcherStats.games, 10)
+        assert.equal(result.currentSeasonPitcherStats.wins, 3)
+    })
+
+    it("does not create current-season stats when the player has no stats in the current season", function () {
+        repository.seasons = [
+            createRow({ season: 2024 })
+        ]
+
+        const result = service.getStats("2025-09-18", new Set(["101"])).get("101")
+
+        assert.ok(result)
+        assert.equal(result.currentSeasonHitterStats, undefined)
+        assert.equal(result.currentSeasonPitcherStats, undefined)
     })
 
     it("throws when stats do not exist", function () {
@@ -284,6 +359,9 @@ describe("PlayerStatService", function () {
 function createRow(overrides: Partial<PlayerStatRow> = {}): PlayerStatRow {
     return {
         playerId: "101",
+        season: 2025,
+        teamId: 10,
+        teamAbbrev: "AAA",
 
         hittingTeamWins: 10,
         hittingTeamLosses: 5,

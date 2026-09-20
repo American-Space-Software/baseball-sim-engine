@@ -1,7 +1,7 @@
 import { strict as assert } from "assert"
 
 import BetterSqlite3 from "better-sqlite3"
-import { afterEach, beforeEach, describe, it } from "mocha"
+import { after, afterEach, before, beforeEach, describe, it } from "mocha"
 
 import type { Database } from "better-sqlite3"
 
@@ -139,14 +139,18 @@ class PlayerStatRepositoryTestHarness {
 
     private seed(): void {
         this.insertGame(1, "2025-04-01", 2, 5, 201)
-        this.insertGame(2, "2025-04-10", 4, 2, undefined, undefined, 201)
+        this.insertGame(2, "2025-04-10", 4, 2, undefined, undefined, 201, "R", 30, 40)
         this.insertGame(3, "2026-05-01", 3, 1, undefined, 201)
         this.insertGame(4, "2025-10-05", 6, 1, 201, undefined, undefined, "D")
 
-        for (const gamePk of [1, 2, 3, 4]) {
-            this.insertAppearance(gamePk, 101, 10, true, false, false)
-            this.insertAppearance(gamePk, 201, 20, false, true, true)
-        }
+        this.insertAppearance(1, 101, 10, true, false, false)
+        this.insertAppearance(1, 201, 20, false, true, true)
+        this.insertAppearance(2, 101, 30, true, false, false)
+        this.insertAppearance(2, 201, 40, false, true, true)
+        this.insertAppearance(3, 101, 10, true, false, false)
+        this.insertAppearance(3, 201, 20, false, true, true)
+        this.insertAppearance(4, 101, 10, true, false, false)
+        this.insertAppearance(4, 201, 20, false, true, true)
 
         this.insertPlateAppearance(1, 0, 101, 201, "home_run", 1)
         this.insertPitch(1, 0, 0, "X", false, true, true, 5, "fly_ball")
@@ -268,7 +272,7 @@ class PlayerStatRepositoryTestHarness {
         })
     }
 
-    private insertGame(gamePk: number, gameDate: string, homeRuns: number, awayRuns: number, winningPitcherId?: number, losingPitcherId?: number, savePitcherId?: number, gameType = "R"): void {
+    private insertGame(gamePk: number, gameDate: string, homeRuns: number, awayRuns: number, winningPitcherId?: number, losingPitcherId?: number, savePitcherId?: number, gameType = "R", homeTeamId = 10, awayTeamId = 20): void {
         this.database.prepare(`
             INSERT INTO games (
                 game_pk,
@@ -291,8 +295,8 @@ class PlayerStatRepositoryTestHarness {
                         type: gameType
                     },
                     teams: {
-                        home: { id: 10 },
-                        away: { id: 20 }
+                        home: { id: homeTeamId, abbreviation: `T${homeTeamId}` },
+                        away: { id: awayTeamId, abbreviation: `T${awayTeamId}` }
                     }
                 },
                 liveData: {
@@ -480,6 +484,328 @@ class PlayerStatRepositoryTestHarness {
 }
 
 
+class PlayerStatRepositoryPerformanceHarness {
+
+    public readonly database: Database
+    public readonly repository: PlayerStatRepository
+
+    public constructor() {
+        this.database = new BetterSqlite3(":memory:")
+
+        this.database.exec(`
+            PRAGMA journal_mode = OFF;
+            PRAGMA synchronous = OFF;
+            PRAGMA temp_store = MEMORY;
+
+            CREATE TABLE games (
+                game_pk INTEGER PRIMARY KEY,
+                data TEXT NOT NULL,
+                game_date TEXT NOT NULL,
+                game_type TEXT NOT NULL
+            );
+
+            CREATE TABLE player_appearances (
+                game_pk INTEGER NOT NULL,
+                player_id INTEGER NOT NULL,
+                team_id INTEGER NOT NULL,
+                appeared_as_batter INTEGER NOT NULL,
+                appeared_as_pitcher INTEGER NOT NULL,
+                appeared_as_runner INTEGER NOT NULL,
+                appeared_as_fielder INTEGER NOT NULL,
+                started_as_batter INTEGER NOT NULL,
+                started_as_pitcher INTEGER NOT NULL,
+                started_as_fielder INTEGER NOT NULL,
+
+                PRIMARY KEY (
+                    game_pk,
+                    player_id
+                )
+            );
+
+            CREATE TABLE plate_appearances (
+                game_pk INTEGER NOT NULL,
+                at_bat_index INTEGER NOT NULL,
+                batter_id INTEGER NOT NULL,
+                pitcher_id INTEGER NOT NULL,
+                event_type TEXT,
+                rbi INTEGER NOT NULL,
+                is_complete INTEGER NOT NULL,
+
+                PRIMARY KEY (
+                    game_pk,
+                    at_bat_index
+                )
+            );
+
+            CREATE TABLE pitches (
+                game_pk INTEGER NOT NULL,
+                at_bat_index INTEGER NOT NULL,
+                event_index INTEGER NOT NULL,
+                call_code TEXT,
+                is_ball INTEGER NOT NULL,
+                is_strike INTEGER NOT NULL,
+                is_in_play INTEGER NOT NULL,
+                zone INTEGER,
+                coordinate_p_x REAL,
+                coordinate_p_z REAL,
+                strike_zone_top REAL,
+                strike_zone_bottom REAL,
+                trajectory TEXT,
+
+                PRIMARY KEY (
+                    game_pk,
+                    at_bat_index,
+                    event_index
+                )
+            );
+
+            CREATE TABLE runner_movements (
+                game_pk INTEGER NOT NULL,
+                at_bat_index INTEGER NOT NULL,
+                runner_index INTEGER NOT NULL,
+                play_index INTEGER,
+                runner_id INTEGER NOT NULL,
+                responsible_pitcher_id INTEGER,
+                event_type TEXT,
+                end_base TEXT,
+                is_out INTEGER NOT NULL,
+                is_scoring_event INTEGER NOT NULL,
+                earned INTEGER NOT NULL,
+
+                PRIMARY KEY (
+                    game_pk,
+                    at_bat_index,
+                    runner_index
+                )
+            );
+
+            CREATE TABLE fielding_credits (
+                game_pk INTEGER NOT NULL,
+                at_bat_index INTEGER NOT NULL,
+                runner_index INTEGER NOT NULL,
+                credit_index INTEGER NOT NULL,
+                player_id INTEGER NOT NULL,
+                credit TEXT NOT NULL,
+                position_abbreviation TEXT,
+
+                PRIMARY KEY (
+                    game_pk,
+                    at_bat_index,
+                    runner_index,
+                    credit_index
+                )
+            );
+        `)
+
+        new SchemaService(this.database).load()
+
+        this.repository = new PlayerStatRepository(this.database)
+
+        this.seedPerformanceData()
+    }
+
+    public close(): void {
+        this.database.close()
+    }
+
+    public getPerformancePlayerIds(): Set<string> {
+        return new Set(
+            Array.from(
+                {
+                    length: 1470
+                },
+                (_, index) =>
+                    String(100000 + index)
+            )
+        )
+    }
+
+    private seedPerformanceData(): void {
+        const startedAt = Date.now()
+
+        this.database.exec(`
+            WITH RECURSIVE game_numbers(game_number) AS (
+                SELECT 0
+
+                UNION ALL
+
+                SELECT game_number + 1
+                FROM game_numbers
+                WHERE game_number < 43739
+            ),
+            game_rows AS (
+                SELECT
+                    game_number + 1 AS game_pk,
+                    2008 + CAST(game_number / 2430 AS INTEGER) AS season,
+                    game_number % 2430 AS game_in_season,
+                    (game_number % 2430) % 30 + 1 AS home_team_id
+                FROM game_numbers
+            )
+            INSERT INTO games (
+                game_pk,
+                data,
+                game_date,
+                game_type
+            )
+            SELECT
+                game_pk,
+                json_object(
+                    'gameData',
+                    json_object(
+                        'teams',
+                        json_object(
+                            'home',
+                            json_object(
+                                'id',
+                                home_team_id,
+                                'abbreviation',
+                                'T' || home_team_id
+                            ),
+                            'away',
+                            json_object(
+                                'id',
+                                home_team_id % 30 + 1,
+                                'abbreviation',
+                                'T' || (home_team_id % 30 + 1)
+                            )
+                        )
+                    )
+                ),
+                printf(
+                    '%04d-%02d-%02d',
+                    season,
+                    1 + CAST(game_in_season / 224 AS INTEGER),
+                    1 + game_in_season % 28
+                ),
+                'R'
+            FROM game_rows;
+        `)
+
+        this.database.exec(`
+            WITH RECURSIVE slots(slot) AS (
+                SELECT 0
+
+                UNION ALL
+
+                SELECT slot + 1
+                FROM slots
+                WHERE slot < 29
+            ),
+            appearances AS (
+                SELECT
+                    games.game_pk,
+                    (games.game_pk - 1) % 2430 AS game_in_season,
+                    slots.slot,
+                    CASE
+                        WHEN slots.slot < 15
+                        THEN ((games.game_pk - 1) % 2430) % 30 + 1
+                        ELSE (((games.game_pk - 1) % 2430) % 30 + 1) % 30 + 1
+                    END AS team_id
+                FROM games
+                CROSS JOIN slots
+            )
+            INSERT INTO player_appearances (
+                game_pk,
+                player_id,
+                team_id,
+                appeared_as_batter,
+                appeared_as_pitcher,
+                appeared_as_runner,
+                appeared_as_fielder,
+                started_as_batter,
+                started_as_pitcher,
+                started_as_fielder
+            )
+            SELECT
+                game_pk,
+                100000 +
+                    (team_id - 1) * 49 +
+                    (
+                        (
+                            CAST(game_in_season / 30 AS INTEGER) * 15 +
+                            slot % 15
+                        ) % 49
+                    ),
+                team_id,
+                1,
+                0,
+                0,
+                1,
+                1,
+                0,
+                1
+            FROM appearances;
+        `)
+
+        const columns = this.database.prepare(`
+            PRAGMA table_info(player_stats)
+        `).all() as {
+            name: string
+        }[]
+
+        const columnNames = columns.map(column => column.name)
+
+        const selectExpressions = columnNames.map(columnName => {
+            switch (columnName) {
+                case "game_pk":
+                    return "player_appearances.game_pk"
+
+                case "player_id":
+                    return "player_appearances.player_id"
+
+                case "game_date":
+                    return "games.game_date"
+
+                case "game_type":
+                    return "games.game_type"
+
+                case "team_id":
+                    return "player_appearances.team_id"
+
+                case "team_abbrev":
+                    return "'T' || player_appearances.team_id"
+
+                case "hitting_games":
+                    return "1"
+
+                default:
+                    return "0"
+            }
+        })
+
+        this.database.exec(`
+            INSERT INTO player_stats (
+                ${columnNames.join(",\n                ")}
+            )
+            SELECT
+                ${selectExpressions.join(",\n                ")}
+            FROM player_appearances
+            INNER JOIN games
+                ON games.game_pk = player_appearances.game_pk;
+        `)
+
+        const gameCount = this.database.prepare(`
+            SELECT COUNT(*) AS count
+            FROM games
+        `).get() as {
+            count: number
+        }
+
+        const statCount = this.database.prepare(`
+            SELECT COUNT(*) AS count
+            FROM player_stats
+        `).get() as {
+            count: number
+        }
+
+        console.log(
+            `[PERF] Seeded ${gameCount.count} games and ${statCount.count} player stat rows in ${Date.now() - startedAt}ms.`
+        )
+    }
+
+}
+
+
 describe("PlayerStatRepository", function () {
 
     let harness: PlayerStatRepositoryTestHarness
@@ -501,6 +827,26 @@ describe("PlayerStatRepository", function () {
         `).all() as { playerId: number }[]
 
         assert.deepEqual(rows.map(row => row.playerId), [101, 201])
+    })
+
+    it("materializes team identity", function () {
+        const rows = harness.database.prepare(`
+            SELECT
+                game_pk AS gamePk,
+                player_id AS playerId,
+                team_id AS teamId,
+                team_abbrev AS teamAbbrev
+            FROM player_stats
+            WHERE player_id = 101
+            ORDER BY game_pk
+        `).all()
+
+        assert.deepEqual(rows, [
+            { gamePk: 1, playerId: 101, teamId: 10, teamAbbrev: "T10" },
+            { gamePk: 2, playerId: 101, teamId: 30, teamAbbrev: "T30" },
+            { gamePk: 3, playerId: 101, teamId: 10, teamAbbrev: "T10" },
+            { gamePk: 4, playerId: 101, teamId: 10, teamAbbrev: "T10" }
+        ])
     })
 
     it("materializes the game type", function () {
@@ -733,7 +1079,9 @@ describe("PlayerStatRepository", function () {
             UPDATE player_stats
             SET
                 hitting_hits = 999,
-                game_type = 'D'
+                game_type = 'D',
+                team_id = 999,
+                team_abbrev = 'OLD'
             WHERE game_pk = 1
                 AND player_id = 101
         `).run()
@@ -743,18 +1091,24 @@ describe("PlayerStatRepository", function () {
         const row = harness.database.prepare(`
             SELECT
                 hitting_hits AS hittingHits,
-                game_type AS gameType
+                game_type AS gameType,
+                team_id AS teamId,
+                team_abbrev AS teamAbbrev
             FROM player_stats
             WHERE game_pk = 1
                 AND player_id = 101
         `).get() as {
             hittingHits: number
             gameType: string
+            teamId: number
+            teamAbbrev: string
         }
 
         assert.deepEqual(row, {
             hittingHits: 1,
-            gameType: "R"
+            gameType: "R",
+            teamId: 10,
+            teamAbbrev: "T10"
         })
     })
 
@@ -788,45 +1142,142 @@ describe("PlayerStatRepository", function () {
         assert.equal(results[0]?.hittingCs, 0)
     })
 
-    it("returns hitter season totals in chronological order", function () {
+    it("returns hitter season totals by team in chronological order", function () {
         const results = harness.repository.getSeasons("2027-01-01", new Set([harness.hitterId]))
 
-        assert.equal(results.length, 2)
+        assert.equal(results.length, 3)
 
         assert.equal(results[0]?.season, 2025)
-        assert.equal(results[0]?.hittingGames, 2)
-        assert.equal(results[0]?.hittingHits, 2)
-        assert.equal(results[0]?.hittingRbi, 3)
-        assert.equal(results[0]?.hittingSb, 1)
+        assert.equal(results[0]?.teamId, 10)
+        assert.equal(results[0]?.teamAbbrev, "T10")
+        assert.equal(results[0]?.hittingGames, 1)
+        assert.equal(results[0]?.hittingHits, 1)
+        assert.equal(results[0]?.hittingRbi, 1)
+        assert.equal(results[0]?.hittingSb, 0)
 
-        assert.equal(results[1]?.season, 2026)
+        assert.equal(results[1]?.season, 2025)
+        assert.equal(results[1]?.teamId, 30)
+        assert.equal(results[1]?.teamAbbrev, "T30")
         assert.equal(results[1]?.hittingGames, 1)
-        assert.equal(results[1]?.hittingPa, 1)
-        assert.equal(results[1]?.hittingAb, 0)
-        assert.equal(results[1]?.hittingBb, 1)
-        assert.equal(results[1]?.hittingCs, 1)
+        assert.equal(results[1]?.hittingHits, 1)
+        assert.equal(results[1]?.hittingRbi, 2)
+        assert.equal(results[1]?.hittingSb, 1)
+
+        assert.equal(results[2]?.season, 2026)
+        assert.equal(results[2]?.teamId, 10)
+        assert.equal(results[2]?.teamAbbrev, "T10")
+        assert.equal(results[2]?.hittingGames, 1)
+        assert.equal(results[2]?.hittingPa, 1)
+        assert.equal(results[2]?.hittingAb, 0)
+        assert.equal(results[2]?.hittingBb, 1)
+        assert.equal(results[2]?.hittingCs, 1)
     })
 
-    it("returns pitcher season totals in chronological order", function () {
+    it("orders teams within a season by the player's latest game for each team", function () {
+        harness.database.prepare(`
+            INSERT INTO games (
+                game_pk,
+                data,
+                game_date,
+                game_type
+            ) VALUES (
+                5,
+                @data,
+                '2025-05-01',
+                'R'
+            )
+        `).run({
+            data: JSON.stringify({
+                gameData: {
+                    teams: {
+                        home: { id: 5, abbreviation: "T5" },
+                        away: { id: 20, abbreviation: "T20" }
+                    }
+                },
+                liveData: {
+                    linescore: {
+                        teams: {
+                            home: { runs: 1 },
+                            away: { runs: 0 }
+                        }
+                    },
+                    decisions: {}
+                }
+            })
+        })
+
+        harness.database.prepare(`
+            INSERT INTO player_appearances (
+                game_pk,
+                player_id,
+                team_id,
+                appeared_as_batter,
+                appeared_as_pitcher,
+                appeared_as_runner,
+                appeared_as_fielder,
+                started_as_batter,
+                started_as_pitcher,
+                started_as_fielder
+            ) VALUES (
+                5,
+                101,
+                5,
+                1,
+                0,
+                0,
+                1,
+                1,
+                0,
+                1
+            )
+        `).run()
+
+        harness.repository.create(5)
+
+        const results = harness.repository.getSeasons("2026-01-01", new Set([harness.hitterId]))
+
+        assert.deepEqual(
+            results.map(row => row.teamId),
+            [10, 30, 5]
+        )
+    })
+
+    it("returns pitcher season totals by team in chronological order", function () {
         const results = harness.repository.getSeasons("2027-01-01", new Set([harness.pitcherId]))
 
-        assert.equal(results.length, 2)
+        assert.equal(results.length, 3)
 
         assert.equal(results[0]?.season, 2025)
-        assert.equal(results[0]?.pitchingGames, 2)
-        assert.equal(results[0]?.pitchingStarts, 2)
+        assert.equal(results[0]?.teamId, 20)
+        assert.equal(results[0]?.teamAbbrev, "T20")
+        assert.equal(results[0]?.pitchingGames, 1)
+        assert.equal(results[0]?.pitchingStarts, 1)
         assert.equal(results[0]?.pitchingWins, 1)
         assert.equal(results[0]?.pitchingLosses, 0)
-        assert.equal(results[0]?.pitchingHits, 2)
+        assert.equal(results[0]?.pitchingHits, 1)
         assert.equal(results[0]?.pitchingRuns, 1)
         assert.equal(results[0]?.pitchingEarnedRuns, 1)
-        assert.equal(results[0]?.pitchingSaves, 1)
+        assert.equal(results[0]?.pitchingSaves, 0)
 
-        assert.equal(results[1]?.season, 2026)
+        assert.equal(results[1]?.season, 2025)
+        assert.equal(results[1]?.teamId, 40)
+        assert.equal(results[1]?.teamAbbrev, "T40")
         assert.equal(results[1]?.pitchingGames, 1)
-        assert.equal(results[1]?.pitchingLosses, 1)
-        assert.equal(results[1]?.pitchingBb, 1)
-        assert.equal(results[1]?.pitchingWildPitches, 1)
+        assert.equal(results[1]?.pitchingStarts, 1)
+        assert.equal(results[1]?.pitchingWins, 0)
+        assert.equal(results[1]?.pitchingLosses, 0)
+        assert.equal(results[1]?.pitchingHits, 1)
+        assert.equal(results[1]?.pitchingRuns, 0)
+        assert.equal(results[1]?.pitchingEarnedRuns, 0)
+        assert.equal(results[1]?.pitchingSaves, 1)
+
+        assert.equal(results[2]?.season, 2026)
+        assert.equal(results[2]?.teamId, 20)
+        assert.equal(results[2]?.teamAbbrev, "T20")
+        assert.equal(results[2]?.pitchingGames, 1)
+        assert.equal(results[2]?.pitchingLosses, 1)
+        assert.equal(results[2]?.pitchingBb, 1)
+        assert.equal(results[2]?.pitchingWildPitches, 1)
     })
 
     it("returns all players when no player filter is provided", function () {
@@ -895,16 +1346,14 @@ describe("PlayerStatRepository", function () {
             ])
         )
 
-        assert.equal(results.length, 2)
+        assert.equal(results.length, 3)
 
-        const result = results.find(row =>
-            row.season === 2025
-        )
+        const seasonResults = results.filter(row => row.season === 2025)
 
-        assert.ok(result)
-        assert.equal(result.hittingGames, 2)
-        assert.equal(result.hittingHomeRuns, 1)
-        assert.equal(result.hittingRbi, 3)
+        assert.equal(seasonResults.length, 2)
+        assert.equal(seasonResults.reduce((games, row) => games + row.hittingGames, 0), 2)
+        assert.equal(seasonResults.reduce((homeRuns, row) => homeRuns + row.hittingHomeRuns, 0), 1)
+        assert.equal(seasonResults.reduce((rbi, row) => rbi + row.hittingRbi, 0), 3)
     })
 
     it("deletes materialized stats for a game", function () {
@@ -920,3 +1369,78 @@ describe("PlayerStatRepository", function () {
     })
 
 })
+
+
+describe("PlayerStatRepository performance diagnostics", function () {
+
+    let harness: PlayerStatRepositoryPerformanceHarness
+    let playerIds: Set<string>
+
+    before(function () {
+        this.timeout(0)
+
+        harness = new PlayerStatRepositoryPerformanceHarness()
+        playerIds = harness.getPerformancePlayerIds()
+    })
+
+    after(function () {
+        harness?.close()
+    })
+
+    it("diagnoses getSeasons query plan against historical data", function () {
+        this.timeout(0)
+
+        const plan = harness.database.prepare(`
+            EXPLAIN QUERY PLAN
+            SELECT
+                player_stats.player_id,
+                player_stats.team_id,
+                player_stats.team_abbrev,
+                CAST(SUBSTR(player_stats.game_date, 1, 4) AS INTEGER)
+            FROM player_stats
+            WHERE player_stats.game_date < @endDateExclusive
+                AND player_stats.game_type = 'R'
+                AND player_stats.player_id IN (
+                    SELECT CAST(value AS INTEGER)
+                    FROM json_each(@playerIds)
+                )
+            GROUP BY
+                player_stats.player_id,
+                player_stats.team_id,
+                player_stats.team_abbrev,
+                SUBSTR(player_stats.game_date, 1, 4)
+        `).all({
+            endDateExclusive: "2026-01-01",
+            playerIds: JSON.stringify(Array.from(playerIds).map(Number))
+        })
+
+        console.log(
+            "[PERF] getSeasons query plan:",
+            plan
+        )
+
+        assert.ok(plan.length > 0)
+    })
+
+    it("diagnoses getSeasons against historical data", function () {
+        this.timeout(0)
+
+        const startedAt = Date.now()
+
+        const results = harness.repository.getSeasons(
+            "2026-01-01",
+            playerIds
+        )
+
+        console.log(
+            `[PERF] Historical-table getSeasons: ${results.length} season/team rows in ${Date.now() - startedAt}ms.`
+        )
+
+        assert.equal(results.length, 26460)
+        assert.equal(results[0]?.season, 2008)
+        assert.ok(results[0]?.teamId)
+        assert.ok(results[0]?.teamAbbrev)
+    })
+
+})
+

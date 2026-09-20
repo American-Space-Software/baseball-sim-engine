@@ -10,6 +10,8 @@ interface PlayerStatRow {
     gameDate?: string
     gameType?: string
     season?: number
+    teamId?: number
+    teamAbbrev?: string
 
     hittingTeamWins: number
     hittingTeamLosses: number
@@ -165,6 +167,8 @@ class PlayerStatRepository {
         const rows = this.database.prepare(`
             SELECT
                 player_stats.player_id AS playerId,
+                player_stats.team_id AS teamId,
+                player_stats.team_abbrev AS teamAbbrev,
                 CAST(SUBSTR(player_stats.game_date, 1, 4) AS INTEGER) AS season,
                 ${aggregateColumns}
             FROM player_stats
@@ -173,10 +177,14 @@ class PlayerStatRepository {
                 ${playerFilter}
             GROUP BY
                 player_stats.player_id,
+                player_stats.team_id,
+                player_stats.team_abbrev,
                 SUBSTR(player_stats.game_date, 1, 4)
             ORDER BY
                 player_stats.player_id,
-                season
+                season,
+                MAX(player_stats.game_date),
+                player_stats.team_id
         `).all(parameters) as PlayerStatRow[]
 
         return rows.map(row => ({
@@ -335,7 +343,9 @@ const createQuery = `
             games.game_date,
             games.game_type,
             CAST(json_extract(games.data, '$.gameData.teams.home.id') AS INTEGER) AS home_team_id,
+            json_extract(games.data, '$.gameData.teams.home.abbreviation') AS home_team_abbrev,
             CAST(json_extract(games.data, '$.gameData.teams.away.id') AS INTEGER) AS away_team_id,
+            json_extract(games.data, '$.gameData.teams.away.abbreviation') AS away_team_abbrev,
             CAST(json_extract(games.data, '$.liveData.linescore.teams.home.runs') AS INTEGER) AS home_runs,
             CAST(json_extract(games.data, '$.liveData.linescore.teams.away.runs') AS INTEGER) AS away_runs,
             CAST(json_extract(games.data, '$.liveData.decisions.winner.id') AS INTEGER) AS winning_pitcher_id,
@@ -620,6 +630,8 @@ const createQuery = `
         player_id,
         game_date,
         game_type,
+        team_id,
+        team_abbrev,
 
         hitting_team_wins,
         hitting_team_losses,
@@ -715,6 +727,13 @@ const createQuery = `
         selected_players.player_id,
         game_info.game_date,
         game_info.game_type,
+        selected_players.team_id,
+        CASE
+            WHEN selected_players.team_id = game_info.home_team_id
+            THEN game_info.home_team_abbrev
+            WHEN selected_players.team_id = game_info.away_team_id
+            THEN game_info.away_team_abbrev
+        END,
 
         CASE
             WHEN COALESCE(hitting.games, 0) > 0
@@ -859,6 +878,8 @@ const createQuery = `
     ON CONFLICT(game_pk, player_id) DO UPDATE SET
         game_date = excluded.game_date,
         game_type = excluded.game_type,
+        team_id = excluded.team_id,
+        team_abbrev = excluded.team_abbrev,
 
         hitting_team_wins = excluded.hitting_team_wins,
         hitting_team_losses = excluded.hitting_team_losses,

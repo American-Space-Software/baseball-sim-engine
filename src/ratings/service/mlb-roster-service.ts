@@ -43,36 +43,36 @@ const MLB_TEAM_ABBREVIATIONS = new Map<number, string>([
 
 
 const MLB_TEAM_COLORS = new Map<number, MlbTeamColors>([
-    [108, { color1: "#BA0C2F", color2: "#FFFFFF" }], // Los Angeles Angels
-    [109, { color1: "#A6192E", color2: "#FFFFFF" }], // Arizona Diamondbacks
-    [110, { color1: "#010101", color2: "#FC4C02" }], // Baltimore Orioles
-    [111, { color1: "#0C2340", color2: "#C8102E" }], // Boston Red Sox
-    [112, { color1: "#002F6C", color2: "#FFFFFF" }], // Chicago Cubs
-    [113, { color1: "#BA0C2F", color2: "#FFFFFF" }], // Cincinnati Reds
-    [114, { color1: "#0C2340", color2: "#FFFFFF" }], // Cleveland Guardians
-    [115, { color1: "#330072", color2: "#C4CED4" }], // Colorado Rockies
-    [116, { color1: "#0C2340", color2: "#FA4616" }], // Detroit Tigers
-    [117, { color1: "#041E42", color2: "#CF4520" }], // Houston Astros
-    [118, { color1: "#0032A0", color2: "#FFFFFF" }], // Kansas City Royals
-    [119, { color1: "#002F6C", color2: "#FFFFFF" }], // Los Angeles Dodgers
-    [120, { color1: "#BA0C2F", color2: "#FFFFFF" }], // Washington Nationals
-    [121, { color1: "#002D72", color2: "#FFFFFF" }], // New York Mets
-    [133, { color1: "#024638", color2: "#FFB81C" }], // Athletics
-    [134, { color1: "#010101", color2: "#FFC72C" }], // Pittsburgh Pirates
-    [135, { color1: "#3E342F", color2: "#FFC72C" }], // San Diego Padres
-    [136, { color1: "#0C2340", color2: "#A2AAAD" }], // Seattle Mariners
-    [137, { color1: "#010101", color2: "#FA4616" }], // San Francisco Giants
-    [138, { color1: "#BA0C2F", color2: "#FEDB00" }], // St. Louis Cardinals
-    [139, { color1: "#041E42", color2: "#FFFFFF" }], // Tampa Bay Rays
-    [140, { color1: "#002D72", color2: "#FFFFFF" }], // Texas Rangers
-    [141, { color1: "#003DA5", color2: "#FFFFFF" }], // Toronto Blue Jays
-    [142, { color1: "#0C2340", color2: "#FFFFFF" }], // Minnesota Twins
-    [143, { color1: "#BA0C2F", color2: "#FFFFFF" }], // Philadelphia Phillies
-    [144, { color1: "#0C2340", color2: "#BA0C2F" }], // Atlanta Braves
-    [145, { color1: "#010101", color2: "#C4CED4" }], // Chicago White Sox
-    [146, { color1: "#010101", color2: "#00A3E0" }], // Miami Marlins
-    [147, { color1: "#0C2340", color2: "#FFFFFF" }], // New York Yankees
-    [158, { color1: "#13294B", color2: "#FFC72C" }]  // Milwaukee Brewers
+    [108, { color1: "#BA0C2F", color2: "#FFFFFF" }], // LAA
+    [109, { color1: "#A6192E", color2: "#FFFFFF" }], // ARI
+    [110, { color1: "#010101", color2: "#FC4C02" }], // BAL
+    [111, { color1: "#0C2340", color2: "#FFFFFF" }], // BOS
+    [112, { color1: "#002F6C", color2: "#FFFFFF" }], // CHC
+    [113, { color1: "#BA0C2F", color2: "#FFFFFF" }], // CIN
+    [114, { color1: "#0C2340", color2: "#C8102E" }], // CLE
+    [115, { color1: "#330072", color2: "#C4CED4" }], // COL
+    [116, { color1: "#0C2340", color2: "#FA4616" }], // DET
+    [117, { color1: "#041E42", color2: "#CF4520" }], // HOU
+    [118, { color1: "#0032A0", color2: "#FFFFFF" }], // KC
+    [119, { color1: "#002F6C", color2: "#FFFFFF" }], // LAD
+    [120, { color1: "#BA0C2F", color2: "#FFFFFF" }], // WSH
+    [121, { color1: "#002D72", color2: "#FFFFFF" }], // NYM
+    [133, { color1: "#024638", color2: "#FFB81C" }], // OAK
+    [134, { color1: "#010101", color2: "#FFC72C" }], // PIT
+    [135, { color1: "#3E342F", color2: "#FFC72C" }], // SD
+    [136, { color1: "#0C2340", color2: "#A2AAAD" }], // SEA
+    [137, { color1: "#010101", color2: "#FA4616" }], // SF
+    [138, { color1: "#BA0C2F", color2: "#FEDB00" }], // STL
+    [139, { color1: "#041E42", color2: "#FFFFFF" }], // TB
+    [140, { color1: "#002D72", color2: "#FFFFFF" }], // TEX
+    [141, { color1: "#003DA5", color2: "#FFFFFF" }], // TOR
+    [142, { color1: "#0C2340", color2: "#FFFFFF" }], // MIN
+    [143, { color1: "#BA0C2F", color2: "#FFFFFF" }], // PHI
+    [144, { color1: "#0C2340", color2: "#FFFFFF" }], // ATL
+    [145, { color1: "#010101", color2: "#C4CED4" }], // CWS
+    [146, { color1: "#010101", color2: "#00A3E0" }], // MIA
+    [147, { color1: "#0C2340", color2: "#FFFFFF" }], // NYY
+    [158, { color1: "#13294B", color2: "#FFC72C" }]  // MIL
 ])
 
 class MlbRosterService {

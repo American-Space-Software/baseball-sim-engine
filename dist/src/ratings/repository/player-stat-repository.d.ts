@@ -5,6 +5,8 @@ interface PlayerStatRow {
     gameDate?: string;
     gameType?: string;
     season?: number;
+    teamId?: number;
+    teamAbbrev?: string;
     hittingTeamWins: number;
     hittingTeamLosses: number;
     hittingGames: number;

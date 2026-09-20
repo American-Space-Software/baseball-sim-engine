@@ -61,8 +61,6 @@ class PlayerRatingService {
     constructor(private readonly playerRatingInputRepository: PlayerRatingInputRepository, private readonly playerRatingSeasonInputRepository: PlayerRatingSeasonInputRepository, private readonly playerRatingsRepository: PlayerRatingsRepository) {}
 
     public async buildPlayerRatingsForDate(season: number, gameDate: string, pitchEnvironment: PitchEnvironmentTarget, filterPlayerIds?: Set<string>): Promise<Map<string, GeneratedPlayerRatings>> {
-        const startedAt = Date.now()
-
         const selectedPlayerIds = this.getSelectedPlayerIds(season, filterPlayerIds)
         const storedRatings = await this.playerRatingsRepository.read(gameDate)
         const ratingsByPlayerId = new Map(storedRatings.map(rating => [ String(rating.playerId), rating ]))
@@ -99,11 +97,6 @@ class PlayerRatingService {
                 }
             )
         }
-
-        console.log(
-            `${missingPlayerIds.size > 0 ? "Built" : "Loaded"} ${ratings.size} player ratings for ${gameDate} in ` +
-            `${this.formatDuration(Date.now() - startedAt)}.`
-        )
 
         return ratings
     }

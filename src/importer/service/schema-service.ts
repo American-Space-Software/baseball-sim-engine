@@ -313,6 +313,8 @@ class SchemaService {
                 player_id INTEGER NOT NULL,
                 game_date TEXT NOT NULL,
                 game_type TEXT NOT NULL,
+                team_id INTEGER NOT NULL,
+                team_abbrev TEXT NOT NULL,
 
                 hitting_team_wins INTEGER NOT NULL,
                 hitting_team_losses INTEGER NOT NULL,

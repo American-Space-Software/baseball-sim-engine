@@ -8,6 +8,7 @@ import { StatService } from "./service/stat-service.js"
 import defaultPitchEnvironmentTargetJson from "./_pitch_environment_target.json" with { type: "json" }
 import { RunnerService } from "./service/runner-service.js"
 import { SubstitutionService } from "./service/substitution-service.js"
+import { TeamComponentService } from "../presentation/services/team-component-service.js"
 
 let rollChartService = new RollChartService()
 
@@ -33,6 +34,7 @@ export {
   simVersion,
   simService,
   statService,
+  TeamComponentService,
   SimService,
   StatService,
   RollChartService,
