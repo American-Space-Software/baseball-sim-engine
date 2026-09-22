@@ -381,6 +381,7 @@ describe("MlbGameBundleService", function () {
                         games: [
                             {
                                 gamePk: 1001,
+                                gameDate: "2026-07-09T17:05:00Z",
                                 status: {
                                     abstractGameState: "Final",
                                     detailedState: "Final"
@@ -402,6 +403,7 @@ describe("MlbGameBundleService", function () {
                             },
                             {
                                 gamePk: 1002,
+                                gameDate: "2026-07-09T23:10:00Z",
                                 status: {
                                     abstractGameState: "Live",
                                     detailedState: "In Progress"
@@ -473,6 +475,7 @@ describe("MlbGameBundleService", function () {
 
         assert.equal(result.games[0].gamePk, 1001)
         assert.equal(result.games[0].date, harness.gameDate)
+        assert.equal(result.games[0].gameDate, "2026-07-09T17:05:00Z")
 
         assert.equal(result.games[0].away.team._id, "134")
 
@@ -494,6 +497,7 @@ describe("MlbGameBundleService", function () {
         assert.deepEqual(result.games[0].home.teamRating, harness.teamRatings.teams["143"])
         assert.equal(result.games[1].gamePk, 1002)
         assert.equal(result.games[1].date, harness.gameDate)
+        assert.equal(result.games[1].gameDate, "2026-07-09T23:10:00Z")
 
         assert.equal(result.games[1].away.team._id, "147")
 
@@ -513,6 +517,78 @@ describe("MlbGameBundleService", function () {
 
         assert.deepEqual(result.games[1].away.teamRating, harness.teamRatings.teams["147"])
         assert.deepEqual(result.games[1].home.teamRating, harness.teamRatings.teams["111"])
+    })
+
+    it("sorts games by scheduled start time", async function () {
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: [
+                    {
+                        date: harness.gameDate,
+                        games: [
+                            {
+                                gamePk: 1001,
+                                gameDate: "2026-07-09T23:10:00Z",
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        }
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                gamePk: 1002,
+                                gameDate: "2026-07-09T17:05:00Z",
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 147
+                                        }
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 111
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        })) as unknown as typeof queries.getSchedule
+
+        const result = await service.build(
+            harness.gameDate
+        )
+
+        assert.deepEqual(
+            result.games.map(game =>
+                game.gamePk
+            ),
+            [
+                1002,
+                1001
+            ]
+        )
+
+        assert.deepEqual(
+            result.games.map(game =>
+                game.gameDate
+            ),
+            [
+                "2026-07-09T17:05:00Z",
+                "2026-07-09T23:10:00Z"
+            ]
+        )
     })
 
     it("loads every game roster before building ratings", async function () {

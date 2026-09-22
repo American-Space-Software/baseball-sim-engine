@@ -43,37 +43,38 @@ const MLB_TEAM_ABBREVIATIONS = new Map<number, string>([
 
 
 const MLB_TEAM_COLORS = new Map<number, MlbTeamColors>([
-    [108, { color1: "#BA0C2F", color2: "#FFFFFF" }], // LAA
-    [109, { color1: "#A6192E", color2: "#FFFFFF" }], // ARI
-    [110, { color1: "#010101", color2: "#FC4C02" }], // BAL
-    [111, { color1: "#0C2340", color2: "#FFFFFF" }], // BOS
-    [112, { color1: "#002F6C", color2: "#FFFFFF" }], // CHC
-    [113, { color1: "#BA0C2F", color2: "#FFFFFF" }], // CIN
-    [114, { color1: "#0C2340", color2: "#C8102E" }], // CLE
-    [115, { color1: "#330072", color2: "#C4CED4" }], // COL
-    [116, { color1: "#0C2340", color2: "#FA4616" }], // DET
-    [117, { color1: "#041E42", color2: "#CF4520" }], // HOU
-    [118, { color1: "#0032A0", color2: "#FFFFFF" }], // KC
-    [119, { color1: "#002F6C", color2: "#FFFFFF" }], // LAD
-    [120, { color1: "#BA0C2F", color2: "#FFFFFF" }], // WSH
-    [121, { color1: "#002D72", color2: "#FFFFFF" }], // NYM
-    [133, { color1: "#024638", color2: "#FFB81C" }], // OAK
-    [134, { color1: "#010101", color2: "#FFC72C" }], // PIT
-    [135, { color1: "#3E342F", color2: "#FFC72C" }], // SD
-    [136, { color1: "#0C2340", color2: "#A2AAAD" }], // SEA
-    [137, { color1: "#010101", color2: "#FA4616" }], // SF
-    [138, { color1: "#BA0C2F", color2: "#FEDB00" }], // STL
-    [139, { color1: "#041E42", color2: "#FFFFFF" }], // TB
-    [140, { color1: "#002D72", color2: "#FFFFFF" }], // TEX
-    [141, { color1: "#003DA5", color2: "#FFFFFF" }], // TOR
-    [142, { color1: "#0C2340", color2: "#FFFFFF" }], // MIN
-    [143, { color1: "#BA0C2F", color2: "#FFFFFF" }], // PHI
-    [144, { color1: "#0C2340", color2: "#FFFFFF" }], // ATL
-    [145, { color1: "#010101", color2: "#C4CED4" }], // CWS
-    [146, { color1: "#010101", color2: "#00A3E0" }], // MIA
-    [147, { color1: "#0C2340", color2: "#FFFFFF" }], // NYY
-    [158, { color1: "#13294B", color2: "#FFC72C" }]  // MIL
+    [108, { color1: "#BA0C2F", color2: "#FFFFFF" }],
+    [109, { color1: "#A6192E", color2: "#FFFFFF" }],
+    [110, { color1: "#010101", color2: "#FC4C02" }],
+    [111, { color1: "#0C2340", color2: "#FFFFFF" }],
+    [112, { color1: "#002F6C", color2: "#FFFFFF" }],
+    [113, { color1: "#BA0C2F", color2: "#FFFFFF" }],
+    [114, { color1: "#0C2340", color2: "#C8102E" }],
+    [115, { color1: "#330072", color2: "#C4CED4" }],
+    [116, { color1: "#0C2340", color2: "#FA4616" }],
+    [117, { color1: "#041E42", color2: "#CF4520" }],
+    [118, { color1: "#0032A0", color2: "#FFFFFF" }],
+    [119, { color1: "#002F6C", color2: "#FFFFFF" }],
+    [120, { color1: "#BA0C2F", color2: "#FFFFFF" }],
+    [121, { color1: "#002D72", color2: "#FFFFFF" }],
+    [133, { color1: "#024638", color2: "#FFB81C" }],
+    [134, { color1: "#010101", color2: "#FFC72C" }],
+    [135, { color1: "#3E342F", color2: "#FFC72C" }],
+    [136, { color1: "#0C2340", color2: "#A2AAAD" }],
+    [137, { color1: "#010101", color2: "#FA4616" }],
+    [138, { color1: "#BA0C2F", color2: "#FEDB00" }],
+    [139, { color1: "#041E42", color2: "#FFFFFF" }],
+    [140, { color1: "#002D72", color2: "#FFFFFF" }],
+    [141, { color1: "#003DA5", color2: "#FFFFFF" }],
+    [142, { color1: "#0C2340", color2: "#FFFFFF" }],
+    [143, { color1: "#BA0C2F", color2: "#FFFFFF" }],
+    [144, { color1: "#0C2340", color2: "#FFFFFF" }],
+    [145, { color1: "#010101", color2: "#C4CED4" }],
+    [146, { color1: "#010101", color2: "#00A3E0" }],
+    [147, { color1: "#0C2340", color2: "#FFFFFF" }],
+    [158, { color1: "#13294B", color2: "#FFC72C" }]
 ])
+
 
 class MlbRosterService {
 
@@ -150,6 +151,26 @@ class MlbRosterService {
         })
     }
 
+    public async getRosters(gameDate: string): Promise<MlbTeamRoster[]> {
+        this.validateGameDate(gameDate)
+
+        const teams = await this.getTeams(
+            Number(
+                gameDate.slice(0, 4)
+            )
+        )
+
+        return Promise.all(
+            teams.map(async team => ({
+                team,
+                players: await this.getRoster(
+                    gameDate,
+                    team
+                )
+            }))
+        )
+    }
+
     private validateGameDate(gameDate: string): void {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(gameDate)) {
             throw new Error(`Invalid MLB roster date: ${gameDate}.`)
@@ -216,6 +237,12 @@ interface MlbRosterEntry {
 }
 
 
+interface MlbTeamRoster {
+    team: MlbTeam
+    players: MlbRosterEntry[]
+}
+
+
 export {
     MlbRosterService
 }
@@ -224,5 +251,6 @@ export {
 export type {
     MlbRosterEntry,
     MlbTeam,
-    MlbTeamColors
+    MlbTeamColors,
+    MlbTeamRoster
 }

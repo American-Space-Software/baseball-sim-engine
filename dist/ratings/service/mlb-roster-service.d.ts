@@ -3,6 +3,7 @@ declare class MlbRosterService {
     getTeams(season: number): Promise<MlbTeam[]>;
     syncRosters(gameDate: string): Promise<void>;
     getRoster(gameDate: string, team: MlbTeam): Promise<MlbRosterEntry[]>;
+    getRosters(gameDate: string): Promise<MlbTeamRoster[]>;
     private validateGameDate;
     private mapPosition;
 }
@@ -21,5 +22,9 @@ interface MlbRosterEntry {
     fullName: string;
     position: Position;
 }
+interface MlbTeamRoster {
+    team: MlbTeam;
+    players: MlbRosterEntry[];
+}
 export { MlbRosterService };
-export type { MlbRosterEntry, MlbTeam, MlbTeamColors };
+export type { MlbRosterEntry, MlbTeam, MlbTeamColors, MlbTeamRoster };

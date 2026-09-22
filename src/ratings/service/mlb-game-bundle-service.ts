@@ -60,6 +60,7 @@ class MlbGameBundleService {
             const homeTeamId = Number(scheduledGame?.teams?.home?.team?.id)
             const awayScore = Number(scheduledGame?.teams?.away?.score)
             const homeScore = Number(scheduledGame?.teams?.home?.score)
+            const scheduledGameDate = String(scheduledGame?.gameDate ?? "")
 
             if (!Number.isSafeInteger(gamePk) || gamePk <= 0) {
                 throw new Error(`Invalid MLB game PK for ${gameDate}.`)
@@ -72,6 +73,7 @@ class MlbGameBundleService {
 
             return {
                 gamePk,
+                gameDate: scheduledGameDate,
                 awayTeam: this.getTeam(teams, awayTeamId, gamePk),
                 homeTeam: this.getTeam(teams, homeTeamId, gamePk),
                 score: Number.isFinite(awayScore) && Number.isFinite(homeScore)
@@ -157,6 +159,7 @@ class MlbGameBundleService {
                 return {
                     gamePk: game.gamePk,
                     date: gameDate,
+                    gameDate: game.gameDate,
                     away: this.addTeamRating(this.addPlayerStats(away, season, statsByPlayerId), awayTeamRating),
                     home: this.addTeamRating(this.addPlayerStats(home, season, statsByPlayerId), homeTeamRating),
                     score: game.score,
@@ -168,6 +171,10 @@ class MlbGameBundleService {
                     )
                 }
             })
+        )
+
+        bundles.sort((a, b) =>
+            new Date(a.gameDate).getTime() - new Date(b.gameDate).getTime()
         )
 
         return {
@@ -347,6 +354,7 @@ interface MlbGameStatus {
 interface MlbGameBundle {
     gamePk: number
     date: string
+    gameDate: string
     away: MlbTeamBundle
     home: MlbTeamBundle
     score?: MlbGameScore

@@ -62,6 +62,7 @@ interface MlbGameStatus {
 interface MlbGameBundle {
     gamePk: number;
     date: string;
+    gameDate: string;
     away: MlbTeamBundle;
     home: MlbTeamBundle;
     score?: MlbGameScore;
