@@ -67,7 +67,15 @@ class MlbGameBundleService {
             }
 
             const gameFeed = queries.getGame(gamePk)?.data
-            const status = gameFeed?.gameData?.status ?? scheduledGame?.status
+            const feedStatus = gameFeed?.gameData?.status
+            const scheduleStatus = scheduledGame?.status
+
+            const status =
+                scheduleStatus?.detailedState === "Postponed" ||
+                scheduleStatus?.detailedState === "Cancelled"
+                    ? scheduleStatus
+                    : feedStatus ?? scheduleStatus
+
             const linescore = gameFeed?.liveData?.linescore
             const currentInning = Number(linescore?.currentInning)
 

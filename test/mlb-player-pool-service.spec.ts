@@ -1,124 +1,210 @@
-import assert from "node:assert/strict"
+import { strict as assert } from "assert"
+import fs from "fs"
+import os from "os"
+import path from "path"
+
+import { afterEach, beforeEach, describe, it } from "mocha"
+
+import type {
+    PitchEnvironmentTarget
+} from "../src/sim/service/interfaces.js"
+
+import type {
+    PlayerRatingsRow
+} from "../src/ratings/repository/player-ratings-repository.js"
+
+import type {
+    MlbTeam
+} from "../src/ratings/service/mlb-roster-service.js"
 
 import {
     MlbPlayerPoolService
 } from "../src/ratings/service/mlb-player-pool-service.js"
 
-import type {
-    PlayerRatingsRepository,
-    PlayerRatingsRow
-} from "../src/ratings/repository/player-ratings-repository.js"
 
-import type {
-    MlbRosterService,
-    MlbTeam,
-    MlbTeamRoster
-} from "../src/ratings/service/mlb-roster-service.js"
+const gameDate = "2026-07-09"
 
+const pitchEnvironmentTarget = {
+    season: 2026,
+    avgRating: 100,
+    pitchEnvironmentTuning: {}
+} as PitchEnvironmentTarget
 
-function createRatings(
-    playerId: string,
-    firstName: string,
-    lastName: string
-): PlayerRatingsRow {
-    return {
-        playerId,
-        firstName,
-        lastName,
-        primaryPosition: "1B",
-        age: 27,
-        throws: "R",
-        hits: "R",
-        overallRating: 100,
-        hittingRatings: {
-            speed: 100,
-            steals: 100,
-            defense: 100,
-            arm: 100
-        },
-        pitchRatings: {
-            power: 100
-        }
-    }
-}
+const pirates = {
+    id: 134,
+    name: "Pittsburgh Pirates",
+    abbrev: "PIT"
+} as MlbTeam
 
+const phillies = {
+    id: 143,
+    name: "Philadelphia Phillies",
+    abbrev: "PHI"
+} as MlbTeam
 
-function createTeam(
-    id: number,
-    name: string,
-    abbrev: string
-): MlbTeam {
-    return {
-        id,
-        name,
-        abbrev,
-        colors: {
-            color1: "#000000",
-            color2: "#FFFFFF"
-        }
-    }
-}
+const buildRating = (playerId: string, firstName: string): PlayerRatingsRow => ({
+    playerId,
+    firstName,
+    lastName: "Player",
+    primaryPosition: "P",
+    age: 27,
+    throws: "R",
+    hits: "R",
+    overallRating: 100,
+    hittingRatings: {} as any,
+    pitchRatings: {} as any
+})
 
 
 describe("MlbPlayerPoolService", function () {
 
-    const gameDate = "2026-07-20"
-
-    let ratings: PlayerRatingsRow[]
-    let rosters: MlbTeamRoster[]
-    let ratingsReadDates: string[]
-    let rosterDates: string[]
-    let service: MlbPlayerPoolService
+    let dataDir: string
 
     beforeEach(function () {
-        ratings = []
-        rosters = []
-        ratingsReadDates = []
-        rosterDates = []
+        dataDir = fs.mkdtempSync(
+            path.join(
+                os.tmpdir(),
+                "mlb-player-pool-service-"
+            )
+        )
 
-        const playerRatingsRepository = {
-            read: async (date: string): Promise<PlayerRatingsRow[]> => {
-                ratingsReadDates.push(
-                    date
-                )
-
-                return ratings
+        fs.mkdirSync(
+            path.join(
+                dataDir,
+                "2026"
+            ),
+            {
+                recursive: true
             }
-        } as unknown as PlayerRatingsRepository
+        )
 
-        const mlbRosterService = {
-            getRosters: async (date: string): Promise<MlbTeamRoster[]> => {
-                rosterDates.push(
-                    date
-                )
-
-                return rosters
-            }
-        } as unknown as MlbRosterService
-
-        service = new MlbPlayerPoolService(
-            playerRatingsRepository,
-            mlbRosterService
+        fs.writeFileSync(
+            path.join(
+                dataDir,
+                "2026",
+                "_pitch_environment_target.json"
+            ),
+            JSON.stringify(
+                pitchEnvironmentTarget
+            ),
+            "utf8"
         )
     })
 
+    afterEach(function () {
+        fs.rmSync(
+            dataDir,
+            {
+                recursive: true,
+                force: true
+            }
+        )
+    })
 
-    it("builds the player pool for the requested date", async function () {
-        ratings = [
-            createRatings(
-                "1",
-                "First",
-                "Player"
-            ),
-            createRatings(
-                "2",
-                "Second",
-                "Player"
-            )
+    it("builds the pool from every player on the active MLB rosters", async function () {
+        const ratings = [
+            buildRating("100", "Pirates One"),
+            buildRating("101", "Pirates Two"),
+            buildRating("200", "Phillies One"),
+            buildRating("999", "Free Agent")
         ]
+
+        const ratingCalls: {
+            season: number
+            gameDate: string
+            pitchEnvironmentTarget: PitchEnvironmentTarget
+            playerIds: Set<string>
+        }[] = []
+
+        const service = new MlbPlayerPoolService(
+            {
+                read: async date => {
+                    assert.equal(
+                        date,
+                        gameDate
+                    )
+
+                    return ratings
+                }
+            } as any,
+            {
+                buildPlayerRatingsForDate: async (season, date, target, playerIds) => {
+                    ratingCalls.push({
+                        season,
+                        gameDate: date,
+                        pitchEnvironmentTarget: target,
+                        playerIds: new Set(playerIds)
+                    })
+
+                    return new Map()
+                }
+            } as any,
+            {
+                getRosters: async date => {
+                    assert.equal(
+                        date,
+                        gameDate
+                    )
+
+                    return [
+                        {
+                            team: pirates,
+                            players: [
+                                {
+                                    playerId: "100"
+                                },
+                                {
+                                    playerId: "101"
+                                }
+                            ]
+                        },
+                        {
+                            team: phillies,
+                            players: [
+                                {
+                                    playerId: "200"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            } as any,
+            dataDir
+        )
 
         const result = await service.build(
             gameDate
+        )
+
+        assert.equal(
+            ratingCalls.length,
+            1
+        )
+
+        assert.equal(
+            ratingCalls[0].season,
+            2026
+        )
+
+        assert.equal(
+            ratingCalls[0].gameDate,
+            gameDate
+        )
+
+        assert.deepEqual(
+            ratingCalls[0].pitchEnvironmentTarget,
+            pitchEnvironmentTarget
+        )
+
+        assert.deepEqual(
+            Array.from(
+                ratingCalls[0].playerIds
+            ).sort(),
+            [
+                "100",
+                "101",
+                "200"
+            ]
         )
 
         assert.equal(
@@ -126,337 +212,155 @@ describe("MlbPlayerPoolService", function () {
             gameDate
         )
 
-        assert.equal(
-            result.players.length,
-            2
-        )
-
         assert.deepEqual(
-            ratingsReadDates,
+            result.players.map(player => ({
+                playerId: player.playerId,
+                team: player.team?.abbrev
+            })),
             [
-                gameDate
-            ]
-        )
-
-        assert.deepEqual(
-            rosterDates,
-            [
-                gameDate
+                {
+                    playerId: "100",
+                    team: "PIT"
+                },
+                {
+                    playerId: "101",
+                    team: "PIT"
+                },
+                {
+                    playerId: "200",
+                    team: "PHI"
+                }
             ]
         )
     })
 
-
-    it("assigns a team to a player on an MLB roster", async function () {
-        const team = createTeam(
-            147,
-            "New York Yankees",
-            "NYY"
-        )
-
-        ratings = [
-            createRatings(
-                "1",
-                "First",
-                "Player"
-            )
-        ]
-
-        rosters = [
+    it("excludes stored ratings for players who are not on an active roster", async function () {
+        const service = new MlbPlayerPoolService(
             {
-                team,
-                players: [
+                read: async () => [
+                    buildRating("100", "Rostered"),
+                    buildRating("999", "Free Agent")
+                ]
+            } as any,
+            {
+                buildPlayerRatingsForDate: async () => new Map()
+            } as any,
+            {
+                getRosters: async () => [
                     {
-                        playerId: "1",
-                        fullName: "First Player",
-                        position: "1B" as any
+                        team: pirates,
+                        players: [
+                            {
+                                playerId: "100"
+                            }
+                        ]
                     }
                 ]
-            }
-        ]
+            } as any,
+            dataDir
+        )
 
         const result = await service.build(
             gameDate
         )
 
         assert.deepEqual(
-            result.players[0].team,
-            team
-        )
-    })
-
-
-    it("leaves players without an MLB roster assignment unassigned", async function () {
-        ratings = [
-            createRatings(
-                "1",
-                "First",
-                "Player"
+            result.players.map(player =>
+                player.playerId
             ),
-            createRatings(
-                "2",
-                "Second",
-                "Player"
-            )
-        ]
-
-        const team = createTeam(
-            147,
-            "New York Yankees",
-            "NYY"
-        )
-
-        rosters = [
-            {
-                team,
-                players: [
-                    {
-                        playerId: "1",
-                        fullName: "First Player",
-                        position: "1B" as any
-                    }
-                ]
-            }
-        ]
-
-        const result = await service.build(
-            gameDate
-        )
-
-        assert.deepEqual(
-            result.players[0].team,
-            team
-        )
-
-        assert.equal(
-            result.players[1].team,
-            undefined
-        )
-    })
-
-
-    it("includes rated players even when they do not appear on any roster", async function () {
-        ratings = [
-            createRatings(
-                "1",
-                "First",
-                "Player"
-            ),
-            createRatings(
-                "2",
-                "Second",
-                "Player"
-            ),
-            createRatings(
-                "3",
-                "Third",
-                "Player"
-            )
-        ]
-
-        rosters = []
-
-        const result = await service.build(
-            gameDate
-        )
-
-        assert.deepEqual(
-            result.players.map(player => player.playerId),
             [
-                "1",
-                "2",
-                "3"
+                "100"
             ]
         )
-
-        assert.ok(
-            result.players.every(player =>
-                player.team === undefined
-            )
-        )
     })
 
+    it("deduplicates players before building ratings", async function () {
+        let requestedPlayerIds: Set<string> | undefined
 
-    it("does not add roster players that do not have ratings", async function () {
-        const team = createTeam(
-            147,
-            "New York Yankees",
-            "NYY"
-        )
-
-        ratings = [
-            createRatings(
-                "1",
-                "First",
-                "Player"
-            )
-        ]
-
-        rosters = [
+        const service = new MlbPlayerPoolService(
             {
-                team,
-                players: [
+                read: async () => [
+                    buildRating("100", "Player")
+                ]
+            } as any,
+            {
+                buildPlayerRatingsForDate: async (_season, _date, _target, playerIds) => {
+                    requestedPlayerIds = new Set(
+                        playerIds
+                    )
+
+                    return new Map()
+                }
+            } as any,
+            {
+                getRosters: async () => [
                     {
-                        playerId: "1",
-                        fullName: "First Player",
-                        position: "1B" as any
+                        team: pirates,
+                        players: [
+                            {
+                                playerId: "100"
+                            }
+                        ]
                     },
                     {
-                        playerId: "999",
-                        fullName: "Roster Only Player",
-                        position: "P" as any
+                        team: phillies,
+                        players: [
+                            {
+                                playerId: "100"
+                            }
+                        ]
                     }
                 ]
-            }
-        ]
+            } as any,
+            dataDir
+        )
 
         const result = await service.build(
             gameDate
         )
 
         assert.deepEqual(
-            result.players.map(player => player.playerId),
+            Array.from(
+                requestedPlayerIds ?? []
+            ),
             [
-                "1"
+                "100"
             ]
-        )
-    })
-
-
-    it("assigns players from different rosters to their correct teams", async function () {
-        const yankees = createTeam(
-            147,
-            "New York Yankees",
-            "NYY"
-        )
-
-        const redSox = createTeam(
-            111,
-            "Boston Red Sox",
-            "BOS"
-        )
-
-        ratings = [
-            createRatings(
-                "1",
-                "First",
-                "Player"
-            ),
-            createRatings(
-                "2",
-                "Second",
-                "Player"
-            ),
-            createRatings(
-                "3",
-                "Third",
-                "Player"
-            )
-        ]
-
-        rosters = [
-            {
-                team: yankees,
-                players: [
-                    {
-                        playerId: "1",
-                        fullName: "First Player",
-                        position: "1B" as any
-                    }
-                ]
-            },
-            {
-                team: redSox,
-                players: [
-                    {
-                        playerId: "2",
-                        fullName: "Second Player",
-                        position: "P" as any
-                    }
-                ]
-            }
-        ]
-
-        const result = await service.build(
-            gameDate
-        )
-
-        assert.deepEqual(
-            result.players[0].team,
-            yankees
-        )
-
-        assert.deepEqual(
-            result.players[1].team,
-            redSox
         )
 
         assert.equal(
-            result.players[2].team,
-            undefined
+            result.players.length,
+            1
+        )
+
+        assert.equal(
+            result.players[0].team?.abbrev,
+            "PHI"
         )
     })
 
+    it("returns an empty pool without building unfiltered ratings when there are no roster players", async function () {
+        let ratingsBuilt = false
+        let ratingsRead = false
 
-    it("preserves all player rating data", async function () {
-        const player = createRatings(
-            "1",
-            "First",
-            "Player"
-        )
-
-        player.overallRating = 123
-        player.age = 31
-        player.primaryPosition = "RF"
-        player.throws = "L"
-        player.hits = "L"
-        player.hittingRatings = {
-            speed: 111,
-            steals: 112,
-            defense: 113,
-            arm: 114
-        }
-        player.pitchRatings = {
-            power: 115
-        }
-
-        ratings = [
-            player
-        ]
-
-        const result = await service.build(
-            gameDate
-        )
-
-        assert.deepEqual(
-            result.players[0],
+        const service = new MlbPlayerPoolService(
             {
-                ...player,
-                team: undefined
-            }
-        )
-    })
-
-
-    it("returns an empty player pool when there are no ratings", async function () {
-        ratings = []
-
-        rosters = [
+                read: async () => {
+                    ratingsRead = true
+                    return []
+                }
+            } as any,
             {
-                team: createTeam(
-                    147,
-                    "New York Yankees",
-                    "NYY"
-                ),
-                players: [
-                    {
-                        playerId: "1",
-                        fullName: "First Player",
-                        position: "1B" as any
-                    }
-                ]
-            }
-        ]
+                buildPlayerRatingsForDate: async () => {
+                    ratingsBuilt = true
+                    return new Map()
+                }
+            } as any,
+            {
+                getRosters: async () => []
+            } as any,
+            dataDir
+        )
 
         const result = await service.build(
             gameDate
@@ -468,6 +372,148 @@ describe("MlbPlayerPoolService", function () {
                 date: gameDate,
                 players: []
             }
+        )
+
+        assert.equal(
+            ratingsBuilt,
+            false
+        )
+
+        assert.equal(
+            ratingsRead,
+            false
+        )
+    })
+
+    it("throws when the season pitch environment target is missing", async function () {
+        fs.rmSync(
+            path.join(
+                dataDir,
+                "2026",
+                "_pitch_environment_target.json"
+            )
+        )
+
+        const service = new MlbPlayerPoolService(
+            {
+                read: async () => []
+            } as any,
+            {
+                buildPlayerRatingsForDate: async () => new Map()
+            } as any,
+            {
+                getRosters: async () => [
+                    {
+                        team: pirates,
+                        players: [
+                            {
+                                playerId: "100"
+                            }
+                        ]
+                    }
+                ]
+            } as any,
+            dataDir
+        )
+
+        await assert.rejects(
+            service.build(
+                gameDate
+            ),
+            /Pitch environment target not found/
+        )
+    })
+
+    it("throws when the pitch environment target season does not match", async function () {
+        fs.writeFileSync(
+            path.join(
+                dataDir,
+                "2026",
+                "_pitch_environment_target.json"
+            ),
+            JSON.stringify({
+                ...pitchEnvironmentTarget,
+                season: 2025
+            }),
+            "utf8"
+        )
+
+        const service = new MlbPlayerPoolService(
+            {
+                read: async () => []
+            } as any,
+            {
+                buildPlayerRatingsForDate: async () => new Map()
+            } as any,
+            {
+                getRosters: async () => [
+                    {
+                        team: pirates,
+                        players: [
+                            {
+                                playerId: "100"
+                            }
+                        ]
+                    }
+                ]
+            } as any,
+            dataDir
+        )
+
+        await assert.rejects(
+            service.build(
+                gameDate
+            ),
+            /Pitch environment target season 2025 does not match requested season 2026/
+        )
+    })
+
+    it("throws when the pitch environment target has no tuning", async function () {
+        const target = {
+            ...pitchEnvironmentTarget
+        } as any
+
+        delete target.pitchEnvironmentTuning
+
+        fs.writeFileSync(
+            path.join(
+                dataDir,
+                "2026",
+                "_pitch_environment_target.json"
+            ),
+            JSON.stringify(
+                target
+            ),
+            "utf8"
+        )
+
+        const service = new MlbPlayerPoolService(
+            {
+                read: async () => []
+            } as any,
+            {
+                buildPlayerRatingsForDate: async () => new Map()
+            } as any,
+            {
+                getRosters: async () => [
+                    {
+                        team: pirates,
+                        players: [
+                            {
+                                playerId: "100"
+                            }
+                        ]
+                    }
+                ]
+            } as any,
+            dataDir
+        )
+
+        await assert.rejects(
+            service.build(
+                gameDate
+            ),
+            /Pitch environment target has no tuning for season 2026/
         )
     })
 

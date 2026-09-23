@@ -11,7 +11,6 @@
         getplayerimageurl=${getPlayerImageUrl}
         getplayerhref=${getPlayerHref}
         getboxscorehref=${getBoxscoreHref}
-        getgameloghref=${getGameLogHref}
         paused=${paused}
         advancecallback=${advanceCallback}
         pausecallback=${pauseCallback}
@@ -20,28 +19,45 @@
       />
 
       <div class="popup box-score-popup popup-tablet-fullscreen">
+
         <div class="view">
+
           <div class="page">
+
             <div class="navbar">
+
               <div class="navbar-bg"></div>
+
               <div class="navbar-inner">
+
                 <div class="title">Box Score</div>
+
                 <div class="right">
+
                   <a class="link popup-close">Close</a>
+
                 </div>
+
               </div>
+
             </div>
 
             <div class="page-content">
+
               <div class="game-banner">
+
                 <div class="linescore-wrapper">
+
                   <${LineScore}
                     vm=${gameViewModel.linescore}
                   />
+
                 </div>
+
               </div>
 
               <div class="grid grid-cols-1 large-grid-cols-2">
+
                 <${Boxscore}
                   substitutions=${gameViewModel.game.substitutions ?? []}
                   vm=${gameViewModel.awayBoxscore}
@@ -57,14 +73,21 @@
                   getplayerimageurl=${getPlayerImageUrl}
                   getplayerhref=${getPlayerHref}
                 />
+
               </div>
+
             </div>
+
           </div>
+
         </div>
+
       </div>
 
     ` : $h`
+
       <div class="block">No game found.</div>
+
     `}
 
   </div>
@@ -74,16 +97,21 @@
 <style>
 
 
+
 </style>
 
 <script>
 
 import Boxscore from "./boxscore.f7.html"
+
 import GameState from "./game-state.f7.html"
+
 import LineScore from "./linescore.f7.html"
 
 import {
+
     BoxscoreService
+
 } from "../services/boxscore-service.js"
 
 const boxscoreService = new BoxscoreService()
@@ -91,99 +119,153 @@ const boxscoreService = new BoxscoreService()
 export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $update }) => {
 
     let gameWebService = props.gamewebservice
+
     let gameViewService = props.gameviewservice
+
     let gameMessageService = props.gamemessageservice
+
     let game = props.game
+
     let fieldImageUrl = props.fieldimageurl
+
     let getPlayerImageUrl = props.getplayerimageurl
+
     let getPlayerHref = props.getplayerhref
+
     let getBoxscoreHref = props.getboxscorehref
-    let getGameLogHref = props.getgameloghref
+
     let paused = props.paused === true
+
     let advanceCallback = props.advancecallback
+
     let pauseCallback = props.pausecallback
+
     let resumeCallback = props.resumecallback
+
     let simToEndCallback = props.simtoendcallback
+
     let registerPageAfterInCallback = props.registerpageafterincallback
 
     let gameViewModel = game ? gameWebService.getGameViewModel(game) : undefined
+
     let messagesComponent
+
     let messageSyncVersion = 0
+
     let messageSyncQueue = Promise.resolve()
+
     let allPopups = [".at-bat-ended"]
+
     let syncedGame = game
 
     const updateGameViewModel = () => {
+
         if (!game) {
+
             gameViewModel = undefined
+
             return
+
         }
 
         const updatedViewModel = gameWebService.getGameViewModel(game)
 
         if (!gameViewModel) {
+
             gameViewModel = updatedViewModel
+
             return
+
         }
 
         Object.assign(gameViewModel, updatedViewModel)
+
     }
 
     const showPopup = popup => {
+
         for (const item of allPopups) {
+
             if (item !== popup) $(item).hide()
+
         }
 
         $(popup).css("display", "flex")
+
     }
 
     const closeAllPopups = () => {
+
         for (const popup of allPopups) {
+
             $(popup).hide()
+
         }
+
     }
 
     const syncPopup = (atBatState, descriptions) => {
+
         if (atBatState === "ENDED") {
+
             const result = descriptions.find(description => description.type === "RESULT")?.text ?? ""
 
             $(".at-bat-ended .result").text(result)
+
             showPopup(".at-bat-ended")
 
             return
+
         }
 
         closeAllPopups()
+
     }
 
     const getMessages = descriptions => gameViewService.getMessagesFromPlayDescriptions(descriptions)
 
     const getMessagesComponent = () => {
+
         const existing = $f7.messages?.get(".game-messages")
 
         if (existing) {
+
             return existing
+
         }
 
         return $f7.messages?.create({
+
             el: ".game-messages",
+
             scrollMessages: true,
+
             scrollMessagesOnEdge: true
+
         })
+
     }
 
     const scrollMessagesToBottom = () => {
+
         if (messagesComponent) {
+
             messagesComponent.scroll(0)
+
         }
+
     }
 
     const syncMessages = async (allMessages, showDelay) => {
+
         if (!messagesComponent) {
+
             return
+
         }
 
         const existingMessages = messagesComponent.messages ?? []
+
         const sync = gameMessageService.getSync(existingMessages, allMessages)
 
         messageSyncVersion++
@@ -191,107 +273,157 @@ export default (props, { $onMounted, $onUpdated, $onBeforeUnmount, $, $f7, $upda
         const version = messageSyncVersion
 
         messageSyncQueue = messageSyncQueue.then(async () => {
+
             if (version !== messageSyncVersion) {
+
                 return
+
             }
 
             if (sync.clear) {
+
                 messagesComponent.clear()
+
             }
 
             if (!showDelay) {
+
                 messagesComponent.addMessages(sync.messages)
+
                 return
+
             }
 
             for (const message of sync.messages) {
+
                 if (version !== messageSyncVersion) {
+
                     return
+
                 }
 
                 messagesComponent.showTyping()
+
                 await delay(500)
 
                 if (version !== messageSyncVersion) {
+
                     return
+
                 }
 
                 messagesComponent.addMessage(message)
+
                 messagesComponent.hideTyping()
+
             }
+
         })
 
         await messageSyncQueue
 
         scrollMessagesToBottom()
+
     }
 
     const syncGameUi = async showDelay => {
+
         if (!game) {
+
             return
+
         }
 
         const descriptions = gameWebService.getCurrentDescriptions(game)
+
         const allMessages = getMessages(descriptions)
+
         const atBatState = gameWebService.getAtBatState(game)
 
         syncPopup(atBatState, descriptions)
+
         await syncMessages(allMessages, showDelay)
+
     }
 
     const syncProps = async () => {
+
         paused = props.paused === true
+
         advanceCallback = props.advancecallback
+
         pauseCallback = props.pausecallback
+
         resumeCallback = props.resumecallback
+
         simToEndCallback = props.simtoendcallback
+
         registerPageAfterInCallback = props.registerpageafterincallback
 
         if (props.game === syncedGame) {
+
             return
+
         }
 
         game = props.game
+
         syncedGame = props.game
 
         updateGameViewModel()
+
         await syncGameUi(false)
+
     }
 
     const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
 
     $onMounted(async () => {
+
         if (!game) {
+
             return
+
         }
 
         updateGameViewModel()
+
         await $update()
 
         messagesComponent = getMessagesComponent()
 
         if (registerPageAfterInCallback) {
+
             registerPageAfterInCallback(scrollMessagesToBottom)
+
         }
 
         await syncGameUi(false)
+
     })
 
     $onUpdated(async () => {
+
         await syncProps()
+
     })
 
     $onBeforeUnmount(() => {
+
         messageSyncVersion++
 
         if (registerPageAfterInCallback) {
+
             registerPageAfterInCallback(undefined)
+
         }
 
         closeAllPopups()
+
     })
 
     return $render
+
 }
 
 </script>

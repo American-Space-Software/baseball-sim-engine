@@ -62,7 +62,7 @@ const MLB_TEAM_COLORS = new Map<number, MlbTeamColors>([
     [135, { color1: "#3E342F", color2: "#FFC72C" }],
     [136, { color1: "#0C2340", color2: "#A2AAAD" }],
     [137, { color1: "#010101", color2: "#FA4616" }],
-    [138, { color1: "#BA0C2F", color2: "#FEDB00" }],
+    [138, { color1: "#BA0C2F", color2: "#FFFFFF" }],
     [139, { color1: "#041E42", color2: "#FFFFFF" }],
     [140, { color1: "#002D72", color2: "#FFFFFF" }],
     [141, { color1: "#003DA5", color2: "#FFFFFF" }],

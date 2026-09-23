@@ -1,29 +1,40 @@
 <template>
 
-  <div class="block block-outline block-strong">
+  <div class="block block-outline block-strong game-boxscore-card">
 
-    <div class="block-header">
-      ${vm.team.name ?? vm.team.abbrev}
+    <div
+      class="game-setup-team-header game-boxscore-team-header"
+      style="--team-color: ${teamColor}; --team-text-color: ${teamTextColor};"
+    >
+      <span class="game-setup-team-badge">${vm.team.abbrev}</span>
+      <div class="game-setup-team-heading">
+        <div class="game-setup-team-side">${vm.side === "AWAY" ? "Away" : "Home"}</div>
+        <div class="game-setup-team-name">${vm.team.name ?? vm.team.abbrev}</div>
+      </div>
     </div>
 
-    <div class="stat-table-wrapper">
-      <table class="data-table small-font game-table">
+    <div class="block-title game-setup-section-title game-boxscore-section-title">
+      Batting
+    </div>
+
+    <div class="stat-table-wrapper game-boxscore-table-wrapper">
+      <table class="data-table players game-setup-table game-table game-boxscore-table">
 
         <thead>
           <tr>
             <th class="image"></th>
-            <th class="name">Batting</th>
-            <th class="numeric-cell">POS</th>
-            <th class="numeric-cell">AB</th>
-            <th class="numeric-cell">R</th>
-            <th class="numeric-cell">H</th>
-            <th class="numeric-cell">2B</th>
-            <th class="numeric-cell">3B</th>
-            <th class="numeric-cell">HR</th>
-            <th class="numeric-cell">RBI</th>
-            <th class="numeric-cell">BB</th>
-            <th class="numeric-cell">HBP</th>
-            <th class="numeric-cell">SO</th>
+            <th class="name">Player</th>
+            <th class="position-cell">POS</th>
+            <th class="stat">AB</th>
+            <th class="stat">R</th>
+            <th class="stat">H</th>
+            <th class="stat">2B</th>
+            <th class="stat">3B</th>
+            <th class="stat">HR</th>
+            <th class="stat">RBI</th>
+            <th class="stat">BB</th>
+            <th class="stat">HBP</th>
+            <th class="stat">SO</th>
           </tr>
         </thead>
 
@@ -46,17 +57,17 @@
                 ` : row.player.fullName}
               </td>
 
-              <td class="pos">${row.player.currentPosition}</td>
-              <td class="numeric-cell">${row.player.hitResult.atBats}</td>
-              <td class="numeric-cell">${row.player.hitResult.runs}</td>
-              <td class="numeric-cell">${row.player.hitResult.hits}</td>
-              <td class="numeric-cell">${row.player.hitResult.doubles}</td>
-              <td class="numeric-cell">${row.player.hitResult.triples}</td>
-              <td class="numeric-cell">${row.player.hitResult.homeRuns}</td>
-              <td class="numeric-cell">${row.player.hitResult.rbi}</td>
-              <td class="numeric-cell">${row.player.hitResult.bb}</td>
-              <td class="numeric-cell">${row.player.hitResult.hbp}</td>
-              <td class="numeric-cell">${row.player.hitResult.so}</td>
+              <td class="position-cell">${row.player.currentPosition}</td>
+              <td class="stat">${row.player.hitResult.atBats}</td>
+              <td class="stat">${row.player.hitResult.runs}</td>
+              <td class="stat">${row.player.hitResult.hits}</td>
+              <td class="stat">${row.player.hitResult.doubles}</td>
+              <td class="stat">${row.player.hitResult.triples}</td>
+              <td class="stat">${row.player.hitResult.homeRuns}</td>
+              <td class="stat">${row.player.hitResult.rbi}</td>
+              <td class="stat">${row.player.hitResult.bb}</td>
+              <td class="stat">${row.player.hitResult.hbp}</td>
+              <td class="stat">${row.player.hitResult.so}</td>
 
             </tr>
           `)}
@@ -67,27 +78,31 @@
     </div>
 
 
-    <div class="stat-table-wrapper">
-      <table class="data-table small-font game-table">
+    <div class="block-title game-setup-section-title game-boxscore-section-title">
+      Pitching
+    </div>
+
+    <div class="stat-table-wrapper game-boxscore-table-wrapper">
+      <table class="data-table players game-setup-table game-table game-boxscore-table">
 
         <thead>
           <tr>
             <th class="image"></th>
-            <th class="name">Pitching</th>
-            <th class="numeric-cell">POS</th>
-            <th class="numeric-cell">W</th>
-            <th class="numeric-cell">L</th>
-            <th class="numeric-cell">IP</th>
-            <th class="numeric-cell">H</th>
-            <th class="numeric-cell">R</th>
-            <th class="numeric-cell">ER</th>
-            <th class="numeric-cell">HR</th>
-            <th class="numeric-cell">BB</th>
-            <th class="numeric-cell">SO</th>
-            <th class="numeric-cell">HBP</th>
-            <th class="numeric-cell">BF</th>
-            <th class="numeric-cell">PIT</th>
-            <th class="numeric-cell">STR</th>
+            <th class="name">Player</th>
+            <th class="position-cell">POS</th>
+            <th class="stat">W</th>
+            <th class="stat">L</th>
+            <th class="stat">IP</th>
+            <th class="stat">H</th>
+            <th class="stat">R</th>
+            <th class="stat">ER</th>
+            <th class="stat">HR</th>
+            <th class="stat">BB</th>
+            <th class="stat">SO</th>
+            <th class="stat">HBP</th>
+            <th class="stat">BF</th>
+            <th class="stat">PIT</th>
+            <th class="stat">STR</th>
           </tr>
         </thead>
 
@@ -110,20 +125,20 @@
                 ` : row.player.fullName}
               </td>
 
-              <td class="pos">${row.player.currentPosition}</td>
-              <td class="numeric-cell">${row.player.pitchResult.wins}</td>
-              <td class="numeric-cell">${row.player.pitchResult.losses}</td>
-              <td class="numeric-cell">${row.player.pitchResult.ip}</td>
-              <td class="numeric-cell">${row.player.pitchResult.hits}</td>
-              <td class="numeric-cell">${row.player.pitchResult.runs}</td>
-              <td class="numeric-cell">${row.player.pitchResult.er}</td>
-              <td class="numeric-cell">${row.player.pitchResult.homeRuns}</td>
-              <td class="numeric-cell">${row.player.pitchResult.bb}</td>
-              <td class="numeric-cell">${row.player.pitchResult.so}</td>
-              <td class="numeric-cell">${row.player.pitchResult.hbp}</td>
-              <td class="numeric-cell">${row.player.pitchResult.battersFaced}</td>
-              <td class="numeric-cell">${row.player.pitchResult.pitches}</td>
-              <td class="numeric-cell">${row.player.pitchResult.strikes}</td>
+              <td class="position-cell">${row.player.currentPosition}</td>
+              <td class="stat">${row.player.pitchResult.wins}</td>
+              <td class="stat">${row.player.pitchResult.losses}</td>
+              <td class="stat">${row.player.pitchResult.ip}</td>
+              <td class="stat">${row.player.pitchResult.hits}</td>
+              <td class="stat">${row.player.pitchResult.runs}</td>
+              <td class="stat">${row.player.pitchResult.er}</td>
+              <td class="stat">${row.player.pitchResult.homeRuns}</td>
+              <td class="stat">${row.player.pitchResult.bb}</td>
+              <td class="stat">${row.player.pitchResult.so}</td>
+              <td class="stat">${row.player.pitchResult.hbp}</td>
+              <td class="stat">${row.player.pitchResult.battersFaced}</td>
+              <td class="stat">${row.player.pitchResult.pitches}</td>
+              <td class="stat">${row.player.pitchResult.strikes}</td>
 
             </tr>
           `)}
@@ -134,7 +149,7 @@
     </div>
 
 
-    <div class="batter-summary">
+    <div class="batter-summary game-boxscore-summary">
 
       ${info.doubles.length > 0 ? $h`
         <strong>2B:</strong> ${arrayToString(info.doubles)}<br />
@@ -176,6 +191,8 @@ export default (props) => {
     let boxscoreService = props.boxscoreservice
     let getPlayerImageUrl = props.getplayerimageurl
     let getPlayerHref = props.getplayerhref
+    let teamColor = props.teamcolor ?? "var(--f7-theme-color)"
+    let teamTextColor = props.teamtextcolor ?? "#ffffff"
 
     const info = boxscoreService.getBoxscoreInfo(substitutions, vm)
 

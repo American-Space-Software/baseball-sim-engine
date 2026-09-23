@@ -60,6 +60,7 @@ const playerRatingService = new PlayerRatingService(playerRatingInputRepository,
 const mlbRosterService = new MlbRosterService()
 const mlbPlayerPoolService = new MlbPlayerPoolService(
     playerRatingsRepository,
+    playerRatingService,
     mlbRosterService
 )
 
@@ -241,6 +242,8 @@ export {
     playerStatService,
     mlbGameBundleService,
     mlbPlayerPoolService,
+    mlbRosterService,
+    MlbRosterService,
     MlbGameBundleService,
     MlbPlayerPoolService,
     PlayerRatingService,
