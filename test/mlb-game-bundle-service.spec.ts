@@ -19,6 +19,7 @@ import type { GeneratedPlayerRatings } from "../src/ratings/service/player-ratin
 
 import type { TeamRatingSnapshot } from "../src/ratings/repository/team-rating-repository.js"
 
+
 class MlbGameBundleServiceTestHarness {
 
     public readonly gameDate = "2026-07-09"
@@ -317,6 +318,7 @@ class MlbGameBundleServiceTestHarness {
     }
 
 }
+
 
 describe("MlbGameBundleService", function () {
 
@@ -824,7 +826,6 @@ describe("MlbGameBundleService", function () {
         )
     })
 
-
     it("publishes the current score and inning state for a live game", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
@@ -845,7 +846,7 @@ describe("MlbGameBundleService", function () {
                                         team: {
                                             id: 134
                                         },
-                                        score: 0
+                                        score: 1
                                     },
                                     home: {
                                         team: {
@@ -877,8 +878,16 @@ describe("MlbGameBundleService", function () {
                     },
                     liveData: {
                         linescore: {
-                            currentInning: 3,
-                            inningState: "Bottom"
+                            currentInning: 4,
+                            inningState: "Bottom",
+                            teams: {
+                                away: {
+                                    runs: 1
+                                },
+                                home: {
+                                    runs: 1
+                                }
+                            }
                         }
                     }
                 }
@@ -892,8 +901,8 @@ describe("MlbGameBundleService", function () {
         assert.deepEqual(
             result.games[0].score,
             {
-                away: 0,
-                home: 0
+                away: 1,
+                home: 1
             }
         )
 
@@ -902,12 +911,11 @@ describe("MlbGameBundleService", function () {
             {
                 abstractGameState: "Live",
                 detailedState: "In Progress",
-                currentInning: 3,
+                currentInning: 4,
                 inningState: "Bottom"
             }
         )
     })
-
 
     it("publishes the final score and final status for a completed game", async function () {
         queries.getSchedule = (() => ({
@@ -967,7 +975,6 @@ describe("MlbGameBundleService", function () {
             }
         )
     })
-
 
     it("returns an empty games collection when nothing is scheduled for the date", async function () {
         queries.getSchedule = (() => ({

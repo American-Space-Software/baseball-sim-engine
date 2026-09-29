@@ -2,6 +2,7 @@ import fs from "fs"
 import path from "path"
 
 import { queries } from "baseball-database"
+
 import type { PitchEnvironmentTarget, Player, StadiumEnvironment } from "../../sim/service/interfaces.js"
 import { BaseballSavantService } from "./baseball-savant-service.js"
 import { GameLineupService } from "./game-lineup-service.js"
@@ -14,18 +15,20 @@ import type { PlayerStats } from "./player-stat-service.js"
 import { TeamRatingService } from "./team-rating-service.js"
 import type { TeamRating } from "../repository/team-rating-repository.js"
 
+
 const TEAM_RATING_ADVANTAGE_PER_100_RATING_POINTS = 0.00
 const defaultBaseDataDir = process.env.DATA_DIR ?? "data"
+
 
 class MlbGameBundleService {
 
     public constructor(
-        private readonly mlbRosterService: MlbRosterService, 
-        private readonly gameLineupService: GameLineupService, 
-        private readonly playerRatingService: PlayerRatingService, 
-        private readonly playerStatService: PlayerStatService, 
-        private readonly baseballSavantService: BaseballSavantService, 
-        private readonly teamRatingService: TeamRatingService, 
+        private readonly mlbRosterService: MlbRosterService,
+        private readonly gameLineupService: GameLineupService,
+        private readonly playerRatingService: PlayerRatingService,
+        private readonly playerStatService: PlayerStatService,
+        private readonly baseballSavantService: BaseballSavantService,
+        private readonly teamRatingService: TeamRatingService,
         private readonly baseDataDir = defaultBaseDataDir
     ) {}
 
@@ -58,8 +61,8 @@ class MlbGameBundleService {
             const gamePk = Number(scheduledGame?.gamePk)
             const awayTeamId = Number(scheduledGame?.teams?.away?.team?.id)
             const homeTeamId = Number(scheduledGame?.teams?.home?.team?.id)
-            const awayScore = Number(scheduledGame?.teams?.away?.score)
-            const homeScore = Number(scheduledGame?.teams?.home?.score)
+            const scheduleAwayScore = Number(scheduledGame?.teams?.away?.score)
+            const scheduleHomeScore = Number(scheduledGame?.teams?.home?.score)
             const scheduledGameDate = String(scheduledGame?.gameDate ?? "")
 
             if (!Number.isSafeInteger(gamePk) || gamePk <= 0) {
@@ -78,6 +81,16 @@ class MlbGameBundleService {
 
             const linescore = gameFeed?.liveData?.linescore
             const currentInning = Number(linescore?.currentInning)
+            const feedAwayScore = Number(linescore?.teams?.away?.runs)
+            const feedHomeScore = Number(linescore?.teams?.home?.runs)
+
+            const awayScore = Number.isFinite(feedAwayScore)
+                ? feedAwayScore
+                : scheduleAwayScore
+
+            const homeScore = Number.isFinite(feedHomeScore)
+                ? feedHomeScore
+                : scheduleHomeScore
 
             return {
                 gamePk,
@@ -316,11 +329,13 @@ class MlbGameBundleService {
 
 }
 
+
 interface MlbGameRoster {
     gamePk: number
     team: MlbTeam
     entries: MlbRosterEntry[]
 }
+
 
 interface MlbHittingStats {
     avg: number
@@ -329,6 +344,7 @@ interface MlbHittingStats {
     ops: number
 }
 
+
 interface MlbPitchingStats {
     era: number
     whip: number
@@ -336,21 +352,25 @@ interface MlbPitchingStats {
     bbPercent: number
 }
 
+
 interface MlbPlayerStats {
     playerId: string
     hitting: MlbHittingStats
     pitching: MlbPitchingStats
 }
 
+
 interface MlbTeamBundle extends TeamBundle {
     playerStats: MlbPlayerStats[]
     teamRating?: TeamRating
 }
 
+
 interface MlbGameScore {
     away: number
     home: number
 }
+
 
 interface MlbGameStatus {
     abstractGameState: string
@@ -358,6 +378,7 @@ interface MlbGameStatus {
     currentInning?: number
     inningState?: string
 }
+
 
 interface MlbGameBundle {
     gamePk: number
@@ -370,6 +391,7 @@ interface MlbGameBundle {
     homeFieldAdvantage: number
 }
 
+
 interface MlbDailyBundle {
     date: string
     pitchEnvironmentTarget: PitchEnvironmentTarget
@@ -377,9 +399,11 @@ interface MlbDailyBundle {
     games: MlbGameBundle[]
 }
 
+
 export {
     MlbGameBundleService
 }
+
 
 export type {
     MlbDailyBundle,
