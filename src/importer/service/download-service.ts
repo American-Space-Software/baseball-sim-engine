@@ -33,6 +33,22 @@ class DownloadService {
         return gamePks
     }
 
+    public syncGame(gamePk: number): void {
+        this.prepare()
+
+        const game = queries.getGame(
+            gamePk
+        )
+
+        if (!game) {
+            throw new Error(`Stored game not found: ${gamePk}.`)
+        }
+
+        syncGame(
+            game
+        )
+    }
+
     public async syncRatingHistory(endSeason: number, force = false): Promise<Map<number, Set<number>>> {
         this.validateEndSeason(endSeason)
         this.prepare()

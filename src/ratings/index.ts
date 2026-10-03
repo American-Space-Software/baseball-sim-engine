@@ -29,6 +29,7 @@ import { BaseballSavantService } from "./service/baseball-savant-service.js"
 import { TeamRatingService } from "./service/team-rating-service.js"
 import { TeamRatingRepository } from "./repository/team-rating-repository.js"
 import { StatService } from "../sim/service/stat-service.js"
+import { MlbRosterProjectionService } from "./service/mlb-roster-projection-service.js"
 
 
 const firstRatingSeason = 2008
@@ -58,6 +59,7 @@ const downloadService = new DownloadService(schemaService, playerRatingInputRepo
 const playerRatingService = new PlayerRatingService(playerRatingInputRepository, playerRatingSeasonInputRepository, playerRatingsRepository)
 
 const mlbRosterService = new MlbRosterService()
+const mlbRosterProjectionService = new MlbRosterProjectionService()
 const mlbPlayerPoolService = new MlbPlayerPoolService(
     playerRatingsRepository,
     playerRatingService,
@@ -76,7 +78,8 @@ const mlbGameBundleService = new MlbGameBundleService(
     playerRatingService,
     playerStatService,
     baseballSavantService,
-    teamRatingService
+    teamRatingService,
+    mlbRosterProjectionService
 )
 
 
@@ -256,6 +259,7 @@ if (process.argv[1] && path.basename(process.argv[1]) === "ratings.js") {
     const subject = process.argv[3]
     const startSeasonArgument = process.argv[4]
     const endSeasonArgument = process.argv[5]
+    const force = process.argv.includes("--force")
     const currentSeason = new Date().getUTCFullYear()
     const generateRatings = `${action ?? ""} ${subject ?? ""}`.trim() === "generate ratings"
 
@@ -265,7 +269,7 @@ if (process.argv[1] && path.basename(process.argv[1]) === "ratings.js") {
                 `Unknown command: ${process.argv.slice(2).join(" ") || "(none)"}`,
                 "",
                 "Supported commands:",
-                "  download [season|all]",
+                "  download [season|all] [--force]",
                 "  generate ratings [startSeason] [endSeason]"
             ].join("\n")
         )
@@ -273,7 +277,8 @@ if (process.argv[1] && path.basename(process.argv[1]) === "ratings.js") {
 
     if (action === "download" && subject === "all") {
         const result = await downloadService.syncRatingHistory(
-            currentSeason
+            currentSeason,
+            force
         )
 
         const gamesSynchronized = Array.from(result.values()).reduce(
@@ -304,7 +309,8 @@ if (process.argv[1] && path.basename(process.argv[1]) === "ratings.js") {
         }
 
         const result = await downloadService.syncSeason(
-            season
+            season,
+            force
         )
 
         console.log("")

@@ -1,12 +1,15 @@
+
 import fs from "fs"
 import path from "path"
 
 import { queries } from "baseball-database"
 
 import type { PitchEnvironmentTarget, Player, StadiumEnvironment } from "../../sim/service/interfaces.js"
+
 import { BaseballSavantService } from "./baseball-savant-service.js"
 import { GameLineupService } from "./game-lineup-service.js"
 import type { TeamBundle } from "./game-lineup-service.js"
+import { MlbRosterProjectionService } from "./mlb-roster-projection-service.js"
 import { MlbRosterService } from "./mlb-roster-service.js"
 import type { MlbRosterEntry, MlbTeam } from "./mlb-roster-service.js"
 import { PlayerRatingService } from "./player-rating-service.js"
@@ -29,6 +32,7 @@ class MlbGameBundleService {
         private readonly playerStatService: PlayerStatService,
         private readonly baseballSavantService: BaseballSavantService,
         private readonly teamRatingService: TeamRatingService,
+        private readonly mlbRosterProjectionService: MlbRosterProjectionService,
         private readonly baseDataDir = defaultBaseDataDir
     ) {}
 
@@ -61,6 +65,7 @@ class MlbGameBundleService {
             const gamePk = Number(scheduledGame?.gamePk)
             const awayTeamId = Number(scheduledGame?.teams?.away?.team?.id)
             const homeTeamId = Number(scheduledGame?.teams?.home?.team?.id)
+
             const scheduleAwayScore = Number(scheduledGame?.teams?.away?.score)
             const scheduleHomeScore = Number(scheduledGame?.teams?.home?.score)
             const scheduledGameDate = String(scheduledGame?.gameDate ?? "")
@@ -81,6 +86,7 @@ class MlbGameBundleService {
 
             const linescore = gameFeed?.liveData?.linescore
             const currentInning = Number(linescore?.currentInning)
+
             const feedAwayScore = Number(linescore?.teams?.away?.runs)
             const feedHomeScore = Number(linescore?.teams?.home?.runs)
 
@@ -123,7 +129,11 @@ class MlbGameBundleService {
             ])
         )
 
-        const playerIds = new Set(rosterEntries.flatMap(roster => roster.entries.map(entry => String(entry.playerId))))
+        const playerIds = new Set(
+            rosterEntries.flatMap(roster =>
+                roster.entries.map(entry => String(entry.playerId))
+            )
+        )
 
         const ratingsStartedAt = Date.now()
 
@@ -181,8 +191,14 @@ class MlbGameBundleService {
                     gamePk: game.gamePk,
                     date: gameDate,
                     gameDate: game.gameDate,
-                    away: this.addTeamRating(this.addPlayerStats(away, season, statsByPlayerId), awayTeamRating),
-                    home: this.addTeamRating(this.addPlayerStats(home, season, statsByPlayerId), homeTeamRating),
+                    away: this.addTeamRating(
+                        this.addPlayerStats(away, season, statsByPlayerId),
+                        awayTeamRating
+                    ),
+                    home: this.addTeamRating(
+                        this.addPlayerStats(home, season, statsByPlayerId),
+                        homeTeamRating
+                    ),
                     score: game.score,
                     status: game.status,
                     homeFieldAdvantage: this.getHomeFieldAdvantage(
@@ -228,9 +244,7 @@ class MlbGameBundleService {
             throw error
         }
 
-        const target = JSON.parse(
-            raw
-        ) as PitchEnvironmentTarget
+        const target = JSON.parse(raw) as PitchEnvironmentTarget
 
         if (target.season !== season) {
             throw new Error(`Pitch environment target season ${target.season} does not match requested season ${season}: ${filePath}`)
@@ -244,17 +258,32 @@ class MlbGameBundleService {
     }
 
     private async getGameRoster(gameDate: string, gamePk: number, team: MlbTeam): Promise<MlbGameRoster> {
+        const roster = await this.gameLineupService.getRoster(
+            gameDate,
+            team,
+            gamePk
+        )
+
+        const projection = this.mlbRosterProjectionService.project(
+            gameDate,
+            team,
+            roster,
+            gamePk
+        )
+
         return {
             gamePk,
             team,
-            entries: await this.gameLineupService.getRoster(gameDate, team, gamePk)
+            entries: projection.players
         }
     }
 
     private addPlayerStats(bundle: TeamBundle, season: number, statsByPlayerId: Map<string, PlayerStats>): MlbTeamBundle {
         return {
             ...bundle,
-            playerStats: bundle.players.map(player => this.buildPlayerStats(player, season, statsByPlayerId.get(player._id)))
+            playerStats: bundle.players.map(player =>
+                this.buildPlayerStats(player, season, statsByPlayerId.get(player._id))
+            )
         }
     }
 
@@ -298,6 +327,7 @@ class MlbGameBundleService {
 
     private getWhip(hits: number, walks: number, outs: number): number {
         if (outs <= 0) return 0
+
         return (hits + walks) / (outs / 3)
     }
 

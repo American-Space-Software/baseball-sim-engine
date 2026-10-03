@@ -10,6 +10,7 @@ declare class DownloadService {
     private readonly firstRatingSeason;
     constructor(schemaService: SchemaService, playerRatingInputRepository: PlayerRatingInputRepository, playerRatingSeasonInputRepository: PlayerRatingSeasonInputRepository, playerStatRepository: PlayerStatRepository);
     syncSeason(season: number, force?: boolean): Promise<Set<number>>;
+    syncGame(gamePk: number): void;
     syncRatingHistory(endSeason: number, force?: boolean): Promise<Map<number, Set<number>>>;
     rebuildAllGames(): Set<number>;
     rebuildRatingSeason(season: number): Promise<Set<number>>;
