@@ -2,6 +2,7 @@ import type { PitchEnvironmentTarget, StadiumEnvironment } from "../../sim/servi
 import { BaseballSavantService } from "./baseball-savant-service.js";
 import { GameLineupService } from "./game-lineup-service.js";
 import type { TeamBundle } from "./game-lineup-service.js";
+import { MlbRosterProjectionService } from "./mlb-roster-projection-service.js";
 import { MlbRosterService } from "./mlb-roster-service.js";
 import { PlayerRatingService } from "./player-rating-service.js";
 import { PlayerStatService } from "./player-stat-service.js";
@@ -14,8 +15,9 @@ declare class MlbGameBundleService {
     private readonly playerStatService;
     private readonly baseballSavantService;
     private readonly teamRatingService;
+    private readonly mlbRosterProjectionService;
     private readonly baseDataDir;
-    constructor(mlbRosterService: MlbRosterService, gameLineupService: GameLineupService, playerRatingService: PlayerRatingService, playerStatService: PlayerStatService, baseballSavantService: BaseballSavantService, teamRatingService: TeamRatingService, baseDataDir?: string);
+    constructor(mlbRosterService: MlbRosterService, gameLineupService: GameLineupService, playerRatingService: PlayerRatingService, playerStatService: PlayerStatService, baseballSavantService: BaseballSavantService, teamRatingService: TeamRatingService, mlbRosterProjectionService: MlbRosterProjectionService, baseDataDir?: string);
     build(gameDate: string): Promise<MlbDailyBundle>;
     private getPitchEnvironmentTarget;
     private getGameRoster;

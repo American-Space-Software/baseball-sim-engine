@@ -12,7 +12,6 @@ import type { MlbRosterEntry, MlbTeam } from "../src/ratings/service/mlb-roster-
 import type { GeneratedPlayerRatings } from "../src/ratings/service/player-rating-service.js"
 import type { TeamRatingSnapshot } from "../src/ratings/repository/team-rating-repository.js"
 
-
 class MlbGameBundleServiceTestHarness {
     public readonly gameDate = "2026-07-09"
     public readonly teams: MlbTeam[] = [
@@ -107,6 +106,7 @@ class MlbGameBundleServiceTestHarness {
         gamePk?: number | string
     }[] = []
     public readonly syncRosterCalls: string[] = []
+    public readonly getRostersCalls: string[] = []
     public readonly ratingCalls: {
         season: number
         gameDate: string
@@ -150,7 +150,14 @@ class MlbGameBundleServiceTestHarness {
             this.syncRosterCalls.push(gameDate)
         },
         getTeams: async (_season: number): Promise<MlbTeam[]> =>
-            this.teams
+            this.teams,
+        getRosters: async (gameDate: string) => {
+            this.getRostersCalls.push(gameDate)
+            return this.teams.map(team => ({
+                team,
+                players: this.rosters.get(team.id) ?? []
+            }))
+        }
     }
     public readonly playerRatingService = {
         buildPlayerRatingsForDate: async (
@@ -219,6 +226,7 @@ class MlbGameBundleServiceTestHarness {
             return bundle
         }
     }
+
     public createRoster(team: MlbTeam): MlbRosterEntry[] {
         return [
             {
@@ -246,6 +254,7 @@ class MlbGameBundleServiceTestHarness {
             return this.teamRatings
         }
     }
+
     public createBundle(team: MlbTeam): TeamBundle {
         return {
             team: {
@@ -253,7 +262,13 @@ class MlbGameBundleServiceTestHarness {
                 name: team.name,
                 abbrev: team.abbrev
             },
-            players: [],
+            players: [
+                {
+                    _id: `${team.id}001`,
+                    firstName: team.abbrev,
+                    lastName: "Player"
+                }
+            ],
             lineup: {
                 order: [],
                 valid: true
@@ -265,6 +280,7 @@ class MlbGameBundleServiceTestHarness {
             lineupSource: "confirmed"
         } as unknown as TeamBundle
     }
+
     public createService(baseDataDir: string): MlbGameBundleService {
         return new MlbGameBundleService(
             this.mlbRosterService as any,
@@ -279,13 +295,13 @@ class MlbGameBundleServiceTestHarness {
     }
 }
 
-
 describe("MlbGameBundleService", function () {
     let harness: MlbGameBundleServiceTestHarness
     let service: MlbGameBundleService
     let originalGetSchedule: typeof queries.getSchedule
     let originalGetGame: typeof queries.getGame
     let dataDir: string
+
     beforeEach(function () {
         harness = new MlbGameBundleServiceTestHarness()
         for (const team of harness.teams) {
@@ -309,6 +325,7 @@ describe("MlbGameBundleService", function () {
         )
         service = harness.createService(dataDir)
     })
+
     afterEach(function () {
         queries.getSchedule = originalGetSchedule
         queries.getGame = originalGetGame
@@ -320,6 +337,7 @@ describe("MlbGameBundleService", function () {
             }
         )
     })
+
     it("builds every scheduled game into the daily bundle", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
@@ -405,6 +423,7 @@ describe("MlbGameBundleService", function () {
         }) as unknown as typeof queries.getGame
         const result = await service.build(harness.gameDate)
         assert.deepEqual(harness.syncRosterCalls, [ harness.gameDate ])
+        assert.deepEqual(harness.getRostersCalls, [ harness.gameDate ])
         assert.equal(harness.ratingCalls.length, 1)
         assert.equal(harness.statCalls.length, 1)
         assert.equal(harness.statCalls[0].gameDate, harness.gameDate)
@@ -413,6 +432,7 @@ describe("MlbGameBundleService", function () {
         assert.deepEqual(result.pitchEnvironmentTarget, harness.pitchEnvironmentTarget)
         assert.deepEqual(result.stadiumEnvironments, harness.stadiumEnvironments)
         assert.equal(result.games.length, 2)
+        assert.deepEqual(result.inactiveTeams, [])
         assert.equal(result.games[0].gamePk, 1001)
         assert.equal(result.games[0].date, harness.gameDate)
         assert.equal(result.games[0].gameDate, "2026-07-09T17:05:00Z")
@@ -448,6 +468,7 @@ describe("MlbGameBundleService", function () {
         assert.deepEqual(result.games[1].away.teamRating, harness.teamRatings.teams["147"])
         assert.deepEqual(result.games[1].home.teamRating, harness.teamRatings.teams["111"])
     })
+
     it("sorts games by scheduled start time", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
@@ -516,6 +537,7 @@ describe("MlbGameBundleService", function () {
             ]
         )
     })
+
     it("loads every game roster before building ratings", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
@@ -566,7 +588,8 @@ describe("MlbGameBundleService", function () {
             ]
         )
     })
-    it("builds ratings once for every player in the daily rosters", async function () {
+
+    it("builds ratings once for players on scheduled and inactive teams", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
             downloadedAt: "2026-07-09T12:00:00.000Z",
@@ -586,21 +609,6 @@ describe("MlbGameBundleService", function () {
                                     home: {
                                         team: {
                                             id: 143
-                                        }
-                                    }
-                                }
-                            },
-                            {
-                                gamePk: 1002,
-                                teams: {
-                                    away: {
-                                        team: {
-                                            id: 147
-                                        }
-                                    },
-                                    home: {
-                                        team: {
-                                            id: 111
                                         }
                                     }
                                 }
@@ -616,9 +624,18 @@ describe("MlbGameBundleService", function () {
         assert.equal(ratingCall.season, 2026)
         assert.equal(ratingCall.gameDate, harness.gameDate)
         assert.deepEqual(ratingCall.pitchEnvironmentTarget, harness.pitchEnvironmentTarget)
-        assert.deepEqual(Array.from(ratingCall.playerIds).sort(), [ "111001", "134001", "143001", "147001" ])
+        assert.deepEqual(
+            Array.from(ratingCall.playerIds).sort(),
+            [
+                "111001",
+                "134001",
+                "143001",
+                "147001"
+            ]
+        )
     })
-    it("builds both team bundles with their rosters and shared ratings", async function () {
+
+    it("builds scheduled teams and inactive teams with their rosters and shared ratings", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
             downloadedAt: "2026-07-09T12:00:00.000Z",
@@ -647,8 +664,8 @@ describe("MlbGameBundleService", function () {
                 ]
             }
         })) as unknown as typeof queries.getSchedule
-        await service.build(harness.gameDate)
-        assert.equal(harness.buildCalls.length, 2)
+        const result = await service.build(harness.gameDate)
+        assert.equal(harness.buildCalls.length, 4)
         assert.deepEqual(
             harness.buildCalls.map(call => ({
                 gameDate: call.gameDate,
@@ -672,13 +689,55 @@ describe("MlbGameBundleService", function () {
                         "143001"
                     ],
                     gamePk: 1001
+                },
+                {
+                    gameDate: harness.gameDate,
+                    teamId: 147,
+                    playerIds: [
+                        "147001"
+                    ],
+                    gamePk: undefined
+                },
+                {
+                    gameDate: harness.gameDate,
+                    teamId: 111,
+                    playerIds: [
+                        "111001"
+                    ],
+                    gamePk: undefined
                 }
+            ]
+        )
+        assert.deepEqual(
+            result.inactiveTeams.map(team => team.team._id),
+            [
+                "111",
+                "147"
+            ]
+        )
+        assert.deepEqual(
+            result.inactiveTeams.map(team => team.players.map(player => player._id)),
+            [
+                [
+                    "111001"
+                ],
+                [
+                    "147001"
+                ]
+            ]
+        )
+        assert.deepEqual(
+            result.inactiveTeams.map(team => team.teamRating),
+            [
+                harness.teamRatings.teams["111"],
+                harness.teamRatings.teams["147"]
             ]
         )
         for (const call of harness.buildCalls) {
             assert.equal(call.ratings, harness.ratings)
         }
     })
+
     it("omits the score for an upcoming game and publishes preview status", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
@@ -729,6 +788,7 @@ describe("MlbGameBundleService", function () {
             }
         )
     })
+
     it("publishes the current score and inning state for a live game", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
@@ -814,6 +874,7 @@ describe("MlbGameBundleService", function () {
             }
         )
     })
+
     it("publishes the final score and final status for a completed game", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
@@ -869,7 +930,8 @@ describe("MlbGameBundleService", function () {
             }
         )
     })
-    it("returns an empty games collection when nothing is scheduled for the date", async function () {
+
+    it("publishes every active MLB team as inactive when nothing is scheduled for the date", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
             downloadedAt: "2026-07-09T12:00:00.000Z",
@@ -879,22 +941,57 @@ describe("MlbGameBundleService", function () {
         })) as unknown as typeof queries.getSchedule
         const result = await service.build(harness.gameDate)
         assert.deepEqual(harness.syncRosterCalls, [ harness.gameDate ])
+        assert.deepEqual(harness.getRostersCalls, [ harness.gameDate ])
         assert.equal(harness.getRosterCalls.length, 0)
         assert.equal(harness.ratingCalls.length, 1)
-        assert.deepEqual(Array.from(harness.ratingCalls[0].playerIds), [])
+        assert.deepEqual(
+            Array.from(harness.ratingCalls[0].playerIds).sort(),
+            [
+                "111001",
+                "134001",
+                "143001",
+                "147001"
+            ]
+        )
         assert.equal(harness.statCalls.length, 1)
-        assert.deepEqual(Array.from(harness.statCalls[0].playerIds), [])
+        assert.deepEqual(
+            Array.from(harness.statCalls[0].playerIds).sort(),
+            [
+                "111001",
+                "134001",
+                "143001",
+                "147001"
+            ]
+        )
         assert.equal(result.date, harness.gameDate)
         assert.deepEqual(result.pitchEnvironmentTarget, harness.pitchEnvironmentTarget)
         assert.deepEqual(result.stadiumEnvironments, harness.stadiumEnvironments)
         assert.deepEqual(result.games, [])
-        assert.equal(harness.buildCalls.length, 0)
+        assert.deepEqual(
+            result.inactiveTeams
+                .map(team => team.team._id)
+                .sort(),
+            [
+                "111",
+                "134",
+                "143",
+                "147"
+            ]
+        )
+        assert.equal(harness.buildCalls.length, 4)
+        assert.ok(
+            harness.buildCalls.every(call =>
+                call.gamePk === undefined
+            )
+        )
     })
+
     it("throws when the season schedule does not exist", async function () {
         queries.getSchedule = (() => undefined) as typeof queries.getSchedule
         await assert.rejects(service.build(harness.gameDate), /MLB schedule not found for season 2026/)
         assert.deepEqual(harness.syncRosterCalls, [])
     })
+
     it("throws when a scheduled team cannot be resolved", async function () {
         queries.getSchedule = (() => ({
             season: 2026,
@@ -927,10 +1024,12 @@ describe("MlbGameBundleService", function () {
         await assert.rejects(service.build(harness.gameDate), /MLB team 999 for game 1001 was not found/)
         assert.deepEqual(harness.syncRosterCalls, [ harness.gameDate ])
     })
+
     it("throws for an invalid game date", async function () {
         await assert.rejects(service.build("2026-02-30"), /Invalid MLB game date: 2026-02-30/)
         assert.deepEqual(harness.syncRosterCalls, [])
     })
+
     it("throws when the pitch environment target cannot be loaded", async function () {
         fs.rmSync(
             path.join(dataDir, "2026", "_pitch_environment_target.json")
@@ -947,6 +1046,7 @@ describe("MlbGameBundleService", function () {
             /Pitch environment target not found/
         )
     })
+
     it("throws when the pitch environment target season does not match the requested season", async function () {
         fs.writeFileSync(
             path.join(dataDir, "2026", "_pitch_environment_target.json"),
@@ -968,6 +1068,7 @@ describe("MlbGameBundleService", function () {
             /Pitch environment target season 2025 does not match requested season 2026/
         )
     })
+
     it("throws when the pitch environment target has no tuning", async function () {
         const target = {
             ...harness.pitchEnvironmentTarget
@@ -990,6 +1091,7 @@ describe("MlbGameBundleService", function () {
             /Pitch environment target has no tuning for season 2026/
         )
     })
+
     it("throws when stadium environments cannot be loaded", async function () {
         const failingService = new MlbGameBundleService(
             harness.mlbRosterService as any,
@@ -1014,6 +1116,7 @@ describe("MlbGameBundleService", function () {
         })) as unknown as typeof queries.getSchedule
         await assert.rejects(failingService.build(harness.gameDate), /Stadium environments unavailable/)
     })
+
     it("throws when team ratings cannot be loaded", async function () {
         const failingService = new MlbGameBundleService(
             harness.mlbRosterService as any,

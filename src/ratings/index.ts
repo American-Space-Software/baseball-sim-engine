@@ -18,7 +18,6 @@ import { PlayerRatingService } from "./service/player-rating-service.js"
 import { PlayerStatRepository } from "./repository/player-stat-repository.js"
 import { PlayerStatService } from "./service/player-stat-service.js"
 import { MlbGameBundleService } from "./service/mlb-game-bundle-service.js"
-import { MlbPlayerPoolService } from "./service/mlb-player-pool-service.js"
 import { MlbRosterService } from "./service/mlb-roster-service.js"
 import { GameLineupService } from "./service/game-lineup-service.js"
 import { PitcherAppearanceService } from "./service/pitcher-appearance-service.js"
@@ -60,11 +59,6 @@ const playerRatingService = new PlayerRatingService(playerRatingInputRepository,
 
 const mlbRosterService = new MlbRosterService()
 const mlbRosterProjectionService = new MlbRosterProjectionService()
-const mlbPlayerPoolService = new MlbPlayerPoolService(
-    playerRatingsRepository,
-    playerRatingService,
-    mlbRosterService
-)
 
 const pitcherAppearanceService = new PitcherAppearanceService(pitcherAppearanceRepository)
 const pitcherWorkloadService = new PitcherWorkloadService(pitcherAppearanceService)
@@ -244,11 +238,9 @@ export {
     playerRatingService,
     playerStatService,
     mlbGameBundleService,
-    mlbPlayerPoolService,
     mlbRosterService,
     MlbRosterService,
     MlbGameBundleService,
-    MlbPlayerPoolService,
     PlayerRatingService,
     PlayerStatService
 }

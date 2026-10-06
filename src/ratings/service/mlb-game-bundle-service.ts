@@ -1,11 +1,7 @@
-
 import fs from "fs"
 import path from "path"
-
 import { queries } from "baseball-database"
-
 import type { PitchEnvironmentTarget, Player, StadiumEnvironment } from "../../sim/service/interfaces.js"
-
 import { BaseballSavantService } from "./baseball-savant-service.js"
 import { GameLineupService } from "./game-lineup-service.js"
 import type { TeamBundle } from "./game-lineup-service.js"
@@ -18,10 +14,8 @@ import type { PlayerStats } from "./player-stat-service.js"
 import { TeamRatingService } from "./team-rating-service.js"
 import type { TeamRating } from "../repository/team-rating-repository.js"
 
-
 const TEAM_RATING_ADVANTAGE_PER_100_RATING_POINTS = 0.00
 const defaultBaseDataDir = process.env.DATA_DIR ?? "data"
-
 
 class MlbGameBundleService {
 
@@ -38,66 +32,51 @@ class MlbGameBundleService {
 
     public async build(gameDate: string): Promise<MlbDailyBundle> {
         this.validateGameDate(gameDate)
-
         const season = Number(gameDate.slice(0, 4))
         const schedule = queries.getSchedule(season)
-
         if (!schedule) {
             throw new Error(`MLB schedule not found for season ${season}.`)
         }
-
         const scheduleDate = (schedule.data.dates ?? []).find(date => String(date?.date ?? "") === gameDate)
-
         await this.mlbRosterService.syncRosters(gameDate)
-
-        const [teams, pitchEnvironmentTarget, teamRatings] = await Promise.all([
+        const [teams, activeRosters, pitchEnvironmentTarget, teamRatings] = await Promise.all([
             this.mlbRosterService.getTeams(season),
+            this.mlbRosterService.getRosters(gameDate),
             this.getPitchEnvironmentTarget(season),
             this.teamRatingService.getRatingsForDate(gameDate)
         ])
-
         const stadiumEnvironments = await this.baseballSavantService.getStadiumEnvironments(
             season,
             teams
         )
-
         const games = (scheduleDate?.games ?? []).map(scheduledGame => {
             const gamePk = Number(scheduledGame?.gamePk)
             const awayTeamId = Number(scheduledGame?.teams?.away?.team?.id)
             const homeTeamId = Number(scheduledGame?.teams?.home?.team?.id)
-
             const scheduleAwayScore = Number(scheduledGame?.teams?.away?.score)
             const scheduleHomeScore = Number(scheduledGame?.teams?.home?.score)
             const scheduledGameDate = String(scheduledGame?.gameDate ?? "")
-
             if (!Number.isSafeInteger(gamePk) || gamePk <= 0) {
                 throw new Error(`Invalid MLB game PK for ${gameDate}.`)
             }
-
             const gameFeed = queries.getGame(gamePk)?.data
             const feedStatus = gameFeed?.gameData?.status
             const scheduleStatus = scheduledGame?.status
-
             const status =
                 scheduleStatus?.detailedState === "Postponed" ||
                 scheduleStatus?.detailedState === "Cancelled"
                     ? scheduleStatus
                     : feedStatus ?? scheduleStatus
-
             const linescore = gameFeed?.liveData?.linescore
             const currentInning = Number(linescore?.currentInning)
-
             const feedAwayScore = Number(linescore?.teams?.away?.runs)
             const feedHomeScore = Number(linescore?.teams?.home?.runs)
-
             const awayScore = Number.isFinite(feedAwayScore)
                 ? feedAwayScore
                 : scheduleAwayScore
-
             const homeScore = Number.isFinite(feedHomeScore)
                 ? feedHomeScore
                 : scheduleHomeScore
-
             return {
                 gamePk,
                 gameDate: scheduledGameDate,
@@ -121,72 +100,66 @@ class MlbGameBundleService {
                 }
             }
         })
-
+        const scheduledTeamIds = new Set(
+            games.flatMap(game => [
+                game.awayTeam.id,
+                game.homeTeam.id
+            ])
+        )
+        const inactiveRosters = activeRosters.filter(roster =>
+            !scheduledTeamIds.has(roster.team.id)
+        )
         const rosterEntries = await Promise.all(
             games.flatMap(game => [
                 this.getGameRoster(gameDate, game.gamePk, game.awayTeam),
                 this.getGameRoster(gameDate, game.gamePk, game.homeTeam)
             ])
         )
-
         const playerIds = new Set(
-            rosterEntries.flatMap(roster =>
-                roster.entries.map(entry => String(entry.playerId))
+            activeRosters.flatMap(roster =>
+                roster.players.map(player => String(player.playerId))
             )
         )
-
         const ratingsStartedAt = Date.now()
-
         const ratings = await this.playerRatingService.buildPlayerRatingsForDate(
             season,
             gameDate,
             pitchEnvironmentTarget,
             playerIds
         )
-
         // console.log(
         //     `[BUNDLE PERF] player ratings: ${ratings.size} players in ${Date.now() - ratingsStartedAt}ms.`
         // )
-
         // const statsStartedAt = Date.now()
-
         const statsByPlayerId = this.playerStatService.getStats(
             gameDate,
             playerIds
         )
-
         // console.log(
         //     `[BUNDLE PERF] player stats: ${statsByPlayerId.size} players in ${Date.now() - statsStartedAt}ms.`
         // )
-
         const rosters = new Map(
             rosterEntries.map(roster => [
                 this.getRosterKey(roster.gamePk, roster.team.id),
                 roster.entries
             ])
         )
-
         const bundles = await Promise.all(
             games.map(async game => {
                 const awayRoster = rosters.get(this.getRosterKey(game.gamePk, game.awayTeam.id))
                 const homeRoster = rosters.get(this.getRosterKey(game.gamePk, game.homeTeam.id))
-
                 if (!awayRoster) {
                     throw new Error(`Roster for ${game.awayTeam.abbrev} was not found for game ${game.gamePk}.`)
                 }
-
                 if (!homeRoster) {
                     throw new Error(`Roster for ${game.homeTeam.abbrev} was not found for game ${game.gamePk}.`)
                 }
-
                 const awayTeamRating = teamRatings.teams[String(game.awayTeam.id)]
                 const homeTeamRating = teamRatings.teams[String(game.homeTeam.id)]
-
                 const [away, home] = await Promise.all([
                     this.gameLineupService.build(gameDate, game.awayTeam, awayRoster, ratings, game.gamePk),
                     this.gameLineupService.build(gameDate, game.homeTeam, homeRoster, ratings, game.gamePk)
                 ])
-
                 return {
                     gamePk: game.gamePk,
                     date: gameDate,
@@ -209,16 +182,32 @@ class MlbGameBundleService {
                 }
             })
         )
-
+        const inactiveTeams = await Promise.all(
+            inactiveRosters.map(async roster => {
+                const bundle = await this.gameLineupService.build(
+                    gameDate,
+                    roster.team,
+                    roster.players,
+                    ratings
+                )
+                return this.addTeamRating(
+                    this.addPlayerStats(bundle, season, statsByPlayerId),
+                    teamRatings.teams[String(roster.team.id)]
+                )
+            })
+        )
         bundles.sort((a, b) =>
             new Date(a.gameDate).getTime() - new Date(b.gameDate).getTime()
         )
-
+        inactiveTeams.sort((a, b) =>
+            a.team.name.localeCompare(b.team.name)
+        )
         return {
             date: gameDate,
             pitchEnvironmentTarget,
             stadiumEnvironments,
-            games: bundles
+            games: bundles,
+            inactiveTeams
         }
     }
 
@@ -228,9 +217,7 @@ class MlbGameBundleService {
             String(season),
             "_pitch_environment_target.json"
         )
-
         let raw: string
-
         try {
             raw = await fs.promises.readFile(
                 filePath,
@@ -240,20 +227,15 @@ class MlbGameBundleService {
             if (error?.code === "ENOENT") {
                 throw new Error(`Pitch environment target not found: ${filePath}`)
             }
-
             throw error
         }
-
         const target = JSON.parse(raw) as PitchEnvironmentTarget
-
         if (target.season !== season) {
             throw new Error(`Pitch environment target season ${target.season} does not match requested season ${season}: ${filePath}`)
         }
-
         if (!target.pitchEnvironmentTuning) {
             throw new Error(`Pitch environment target has no tuning for season ${season}: ${filePath}`)
         }
-
         return target
     }
 
@@ -263,14 +245,12 @@ class MlbGameBundleService {
             team,
             gamePk
         )
-
         const projection = this.mlbRosterProjectionService.project(
             gameDate,
             team,
             roster,
             gamePk
         )
-
         return {
             gamePk,
             team,
@@ -298,16 +278,13 @@ class MlbGameBundleService {
         if (!awayTeamRating || !homeTeamRating) {
             return 0
         }
-
         const ratingDifference = homeTeamRating.rating - awayTeamRating.rating
-
         return ratingDifference / 100 * TEAM_RATING_ADVANTAGE_PER_100_RATING_POINTS
     }
 
     private buildPlayerStats(player: Player, season: number, stats?: PlayerStats): MlbPlayerStats {
         const hitting = stats?.seasonHitterStats.find(entry => entry.season === season)?.stats
         const pitching = stats?.seasonPitcherStats.find(entry => entry.season === season)?.stats
-
         return {
             playerId: player._id,
             hitting: {
@@ -327,7 +304,6 @@ class MlbGameBundleService {
 
     private getWhip(hits: number, walks: number, outs: number): number {
         if (outs <= 0) return 0
-
         return (hits + walks) / (outs / 3)
     }
 
@@ -337,11 +313,9 @@ class MlbGameBundleService {
 
     private getTeam(teams: MlbTeam[], teamId: number, gamePk: number): MlbTeam {
         const team = teams.find(team => team.id === teamId)
-
         if (!team) {
             throw new Error(`MLB team ${teamId} for game ${gamePk} was not found.`)
         }
-
         return team
     }
 
@@ -349,23 +323,18 @@ class MlbGameBundleService {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(gameDate)) {
             throw new Error(`Invalid MLB game date: ${gameDate}.`)
         }
-
         const parsed = new Date(`${gameDate}T12:00:00.000Z`)
-
         if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== gameDate) {
             throw new Error(`Invalid MLB game date: ${gameDate}.`)
         }
     }
-
 }
-
 
 interface MlbGameRoster {
     gamePk: number
     team: MlbTeam
     entries: MlbRosterEntry[]
 }
-
 
 interface MlbHittingStats {
     avg: number
@@ -374,7 +343,6 @@ interface MlbHittingStats {
     ops: number
 }
 
-
 interface MlbPitchingStats {
     era: number
     whip: number
@@ -382,25 +350,21 @@ interface MlbPitchingStats {
     bbPercent: number
 }
 
-
 interface MlbPlayerStats {
     playerId: string
     hitting: MlbHittingStats
     pitching: MlbPitchingStats
 }
 
-
 interface MlbTeamBundle extends TeamBundle {
     playerStats: MlbPlayerStats[]
     teamRating?: TeamRating
 }
 
-
 interface MlbGameScore {
     away: number
     home: number
 }
-
 
 interface MlbGameStatus {
     abstractGameState: string
@@ -408,7 +372,6 @@ interface MlbGameStatus {
     currentInning?: number
     inningState?: string
 }
-
 
 interface MlbGameBundle {
     gamePk: number
@@ -421,19 +384,17 @@ interface MlbGameBundle {
     homeFieldAdvantage: number
 }
 
-
 interface MlbDailyBundle {
     date: string
     pitchEnvironmentTarget: PitchEnvironmentTarget
     stadiumEnvironments: StadiumEnvironment[]
     games: MlbGameBundle[]
+    inactiveTeams: MlbTeamBundle[]
 }
-
 
 export {
     MlbGameBundleService
 }
-
 
 export type {
     MlbDailyBundle,
