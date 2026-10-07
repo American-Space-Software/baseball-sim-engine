@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, it } from "mocha"
 import { queries } from "baseball-database"
 import type { PitchEnvironmentTarget, StadiumEnvironment } from "../src/sim/service/interfaces.js"
 import { MlbGameBundleService } from "../src/ratings/service/mlb-game-bundle-service.js"
-import { MlbRosterProjectionService } from "../src/ratings/service/mlb-roster-projection-service.js"
 import type { TeamBundle } from "../src/ratings/service/game-lineup-service.js"
 import type { MlbRosterEntry, MlbTeam } from "../src/ratings/service/mlb-roster-service.js"
 import type { GeneratedPlayerRatings } from "../src/ratings/service/player-rating-service.js"
@@ -107,6 +106,12 @@ class MlbGameBundleServiceTestHarness {
     }[] = []
     public readonly syncRosterCalls: string[] = []
     public readonly getRostersCalls: string[] = []
+    public readonly projectionCalls: {
+        gameDate: string
+        team: MlbTeam
+        roster: MlbRosterEntry[]
+        gamePk?: number
+    }[] = []
     public readonly ratingCalls: {
         season: number
         gameDate: string
@@ -182,6 +187,25 @@ class MlbGameBundleServiceTestHarness {
                 playerIds
             })
             return new Map()
+        }
+    }
+    public readonly mlbRosterProjectionService = {
+        project: (
+            gameDate: string,
+            team: MlbTeam,
+            roster: MlbRosterEntry[],
+            gamePk?: number
+        ) => {
+            this.projectionCalls.push({
+                gameDate,
+                team,
+                roster,
+                gamePk
+            })
+            return {
+                players: roster,
+                projected: false
+            }
         }
     }
     public readonly gameLineupService = {
@@ -289,7 +313,7 @@ class MlbGameBundleServiceTestHarness {
             this.playerStatService as any,
             this.baseballSavantService as any,
             this.teamRatingService as any,
-            new MlbRosterProjectionService(),
+            this.mlbRosterProjectionService as any,
            baseDataDir
         )
     }
@@ -667,6 +691,40 @@ describe("MlbGameBundleService", function () {
         const result = await service.build(harness.gameDate)
         assert.equal(harness.buildCalls.length, 4)
         assert.deepEqual(
+            harness.projectionCalls.map(call => ({
+                gameDate: call.gameDate,
+                teamId: call.team.id,
+                playerIds: call.roster.map(player => player.playerId),
+                gamePk: call.gamePk
+            })),
+            [
+                {
+                    gameDate: harness.gameDate,
+                    teamId: 134,
+                    playerIds: [ "134001" ],
+                    gamePk: 1001
+                },
+                {
+                    gameDate: harness.gameDate,
+                    teamId: 143,
+                    playerIds: [ "143001" ],
+                    gamePk: 1001
+                },
+                {
+                    gameDate: harness.gameDate,
+                    teamId: 147,
+                    playerIds: [ "147001" ],
+                    gamePk: undefined
+                },
+                {
+                    gameDate: harness.gameDate,
+                    teamId: 111,
+                    playerIds: [ "111001" ],
+                    gamePk: undefined
+                }
+            ]
+        )
+        assert.deepEqual(
             harness.buildCalls.map(call => ({
                 gameDate: call.gameDate,
                 teamId: call.team.id,
@@ -968,14 +1026,12 @@ describe("MlbGameBundleService", function () {
         assert.deepEqual(result.stadiumEnvironments, harness.stadiumEnvironments)
         assert.deepEqual(result.games, [])
         assert.deepEqual(
-            result.inactiveTeams
-                .map(team => team.team._id)
-                .sort(),
+            result.inactiveTeams.map(team => team.team._id),
             [
                 "111",
-                "134",
+                "147",
                 "143",
-                "147"
+                "134"
             ]
         )
         assert.equal(harness.buildCalls.length, 4)
@@ -1104,7 +1160,7 @@ describe("MlbGameBundleService", function () {
                 }
             } as any,
             harness.teamRatingService as any,
-            new MlbRosterProjectionService(),
+            harness.mlbRosterProjectionService as any,
            dataDir
         )
         queries.getSchedule = (() => ({
@@ -1129,7 +1185,7 @@ describe("MlbGameBundleService", function () {
                     throw new Error("Team ratings unavailable.")
                 }
             } as any,
-            new MlbRosterProjectionService(),
+            harness.mlbRosterProjectionService as any,
            dataDir
         )
         queries.getSchedule = (() => ({

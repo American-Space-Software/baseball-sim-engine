@@ -4,6 +4,7 @@ declare class MlbRosterProjectionService {
     private getPreviousRoster;
     private getRecentAppearances;
     private getConfirmedPlayerIds;
+    private getRecentStartingPitcherIds;
     private countPosition;
     private countHitters;
     private mapPosition;

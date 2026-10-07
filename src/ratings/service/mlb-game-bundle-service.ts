@@ -115,11 +115,18 @@ class MlbGameBundleService {
                 this.getGameRoster(gameDate, game.gamePk, game.homeTeam)
             ])
         )
-        const playerIds = new Set(
-            activeRosters.flatMap(roster =>
-                roster.players.map(player => String(player.playerId))
+        const playerIds = new Set([
+            ...activeRosters.flatMap(roster =>
+                roster.players.map(player =>
+                    String(player.playerId)
+                )
+            ),
+            ...rosterEntries.flatMap(roster =>
+                roster.entries.map(player =>
+                    String(player.playerId)
+                )
             )
-        )
+        ])
         const ratingsStartedAt = Date.now()
         const ratings = await this.playerRatingService.buildPlayerRatingsForDate(
             season,
@@ -184,10 +191,15 @@ class MlbGameBundleService {
         )
         const inactiveTeams = await Promise.all(
             inactiveRosters.map(async roster => {
+                const projectedRoster = this.mlbRosterProjectionService.project(
+                    gameDate,
+                    roster.team,
+                    roster.players
+                ).players
                 const bundle = await this.gameLineupService.build(
                     gameDate,
                     roster.team,
-                    roster.players,
+                    projectedRoster,
                     ratings
                 )
                 return this.addTeamRating(

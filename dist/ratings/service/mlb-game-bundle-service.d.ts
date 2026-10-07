@@ -76,6 +76,7 @@ interface MlbDailyBundle {
     pitchEnvironmentTarget: PitchEnvironmentTarget;
     stadiumEnvironments: StadiumEnvironment[];
     games: MlbGameBundle[];
+    inactiveTeams: MlbTeamBundle[];
 }
 export { MlbGameBundleService };
 export type { MlbDailyBundle, MlbGameBundle, MlbGameScore, MlbGameStatus, MlbHittingStats, MlbPitchingStats, MlbPlayerStats, MlbTeamBundle };
