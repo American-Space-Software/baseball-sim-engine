@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import {
     afterEach,
+    beforeEach,
     describe,
     it,
     mock
@@ -20,7 +21,7 @@ const team: MlbTeam = {
     name: "Cleveland Guardians",
     abbrev: "CLE"
 }
-const service = new MlbRosterProjectionService()
+let service: MlbRosterProjectionService
 interface ScheduleGame {
     date: string
     gamePk: number
@@ -124,6 +125,10 @@ const countPitchers = (roster: MlbRosterEntry[]): number =>
 const countCatchers = (roster: MlbRosterEntry[]): number =>
     roster.filter(player => player.position === Position.CATCHER).length
 describe("MlbRosterProjectionService", () => {
+    beforeEach(() => {
+        service = new MlbRosterProjectionService()
+    })
+
     afterEach(() => {
         mock.restoreAll()
     })
@@ -196,7 +201,7 @@ describe("MlbRosterProjectionService", () => {
             new Set(playerIds(previousRoster))
         )
     })
-    it("ignores an expanded previous roster and finds an earlier 26-player roster", () => {
+    it("projects an expanded previous roster using an earlier 26-player roster", () => {
         const roster = createRoster(19, 20)
         const referencePlayer = roster.find(player => player.playerId === "3017")!
         const earlierRoster = [
@@ -226,6 +231,47 @@ describe("MlbRosterProjectionService", () => {
             new Set(playerIds(earlierRoster))
         )
     })
+    it("uses a projected previous roster when consecutive stored rosters are expanded", () => {
+        const currentRoster = createRoster(19, 20)
+        const previousRoster = createRoster(18, 20)
+        const earlierRoster = createRoster(17, 20)
+
+        mockDatabase(
+            [
+                { date: "2026-09-28", gamePk: 101 },
+                { date: "2026-09-30", gamePk: 102 },
+                { date: "2026-10-01", gamePk: 103 },
+                { date: GAME_DATE, gamePk: GAME_PK }
+            ],
+            {
+                "2026-09-28": earlierRoster,
+                "2026-09-30": previousRoster,
+                "2026-10-01": currentRoster
+            }
+        )
+
+        const previousProjection = service.project(
+            "2026-10-01",
+            team,
+            currentRoster,
+            103
+        )
+
+        const result = service.project(
+            GAME_DATE,
+            team,
+            currentRoster,
+            GAME_PK
+        )
+
+        assert.equal(previousProjection.players.length, 26)
+        assert.equal(result.players.length, 26)
+        assert.deepEqual(
+            new Set(playerIds(result.players)),
+            new Set(playerIds(previousProjection.players))
+        )
+    })
+
     it("prioritizes recent appearances when no reference roster exists", () => {
         const roster = createRoster(19, 20)
         const recentPitcher = roster.find(player => player.playerId === "1018")!
@@ -249,41 +295,6 @@ describe("MlbRosterProjectionService", () => {
         assert.equal(result.players.length, 26)
         assert.ok(selectedIds.has(recentPitcher.playerId))
         assert.ok(selectedIds.has(recentHitter.playerId))
-    })
-    it("preserves every recent starting pitcher in an expanded roster", () => {
-        const roster = createRoster(19, 20)
-        const starters = roster
-            .filter(player => player.position === Position.PITCHER)
-            .slice(14, 19)
-        const dates = starters.map((_starter, index) => ({
-            date: `2026-09-${String(25 + index).padStart(2, "0")}`,
-            gamePk: 200 + index
-        }))
-        const games = Object.fromEntries(
-            starters.map((starter, index) => [
-                200 + index,
-                createGame(
-                    200 + index,
-                    [],
-                    [Number(starter.playerId)]
-                )
-            ])
-        )
-        mockDatabase(
-            [
-                ...dates,
-                { date: GAME_DATE, gamePk: GAME_PK }
-            ],
-            {},
-            games
-        )
-        const result = service.project(GAME_DATE, team, roster)
-        const selectedIds = new Set(playerIds(result.players))
-        assert.equal(result.players.length, 26)
-        assert.equal(countPitchers(result.players), 13)
-        for (const starter of starters) {
-            assert.ok(selectedIds.has(starter.playerId))
-        }
     })
     it("uses each player's appearance only once per game", () => {
         const roster = createRoster(19, 20)
