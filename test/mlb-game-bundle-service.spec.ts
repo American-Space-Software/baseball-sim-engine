@@ -12,7 +12,9 @@ import type { GeneratedPlayerRatings } from "../src/ratings/service/player-ratin
 import type { TeamRatingSnapshot } from "../src/ratings/repository/team-rating-repository.js"
 
 class MlbGameBundleServiceTestHarness {
+
     public readonly gameDate = "2026-07-09"
+
     public readonly teams: MlbTeam[] = [
         {
             id: 134,
@@ -35,6 +37,7 @@ class MlbGameBundleServiceTestHarness {
             abbrev: "BOS"
         }
     ]
+
     public readonly pitchEnvironmentTarget = {
         avgRating: 100,
         season: 2026,
@@ -43,6 +46,7 @@ class MlbGameBundleServiceTestHarness {
             tuning: {}
         }
     } as PitchEnvironmentTarget
+
     public readonly teamRatings: TeamRatingSnapshot = {
         date: "2026-07-08",
         teams: {
@@ -68,6 +72,7 @@ class MlbGameBundleServiceTestHarness {
             }
         }
     }
+
     public readonly stadiumEnvironments: StadiumEnvironment[] = [
         {
             team: "PIT",
@@ -92,6 +97,7 @@ class MlbGameBundleServiceTestHarness {
             strikeouts: 0.99
         }
     ]
+
     public readonly buildCalls: {
         gameDate: string
         team: MlbTeam
@@ -99,31 +105,49 @@ class MlbGameBundleServiceTestHarness {
         ratings: Map<string, GeneratedPlayerRatings>
         gamePk?: number | string
     }[] = []
+
     public readonly getRosterCalls: {
         gameDate: string
         team: MlbTeam
         gamePk?: number | string
     }[] = []
+
     public readonly syncRosterCalls: string[] = []
+
     public readonly getRostersCalls: string[] = []
+
+    public readonly getTeamRosterCalls: {
+        gameDate: string
+        teamId: number
+    }[] = []
+
+    public readonly projectionErrors = new Map<string, Error>()
+
+    public readonly rostersByDate = new Map<string, Map<number, MlbRosterEntry[]>>()
+
     public readonly projectionCalls: {
         gameDate: string
         team: MlbTeam
         roster: MlbRosterEntry[]
         gamePk?: number
     }[] = []
+
     public readonly ratingCalls: {
         season: number
         gameDate: string
         pitchEnvironmentTarget: PitchEnvironmentTarget
         playerIds: Set<string>
     }[] = []
+
     public readonly statCalls: {
         gameDate: string
         playerIds: Set<string>
     }[] = []
+
     public readonly bundles = new Map<number, TeamBundle>()
+
     public readonly rosters = new Map<number, MlbRosterEntry[]>()
+
     public readonly ratings = new Map<string, GeneratedPlayerRatings>([
         [
             "134001",
@@ -150,6 +174,7 @@ class MlbGameBundleServiceTestHarness {
             } as GeneratedPlayerRatings
         ]
     ])
+
     public readonly mlbRosterService = {
         syncRosters: async (gameDate: string): Promise<void> => {
             this.syncRosterCalls.push(gameDate)
@@ -158,12 +183,27 @@ class MlbGameBundleServiceTestHarness {
             this.teams,
         getRosters: async (gameDate: string) => {
             this.getRostersCalls.push(gameDate)
+            const rosters = this.rostersByDate.get(gameDate)
             return this.teams.map(team => ({
                 team,
-                players: this.rosters.get(team.id) ?? []
+                players: rosters?.get(team.id) ?? this.rosters.get(team.id) ?? []
             }))
+        },
+        getRoster: async (gameDate: string, team: MlbTeam): Promise<MlbRosterEntry[]> => {
+            this.getTeamRosterCalls.push({
+                gameDate,
+                teamId: team.id
+            })
+            const roster = this.rostersByDate.get(gameDate)?.get(team.id)
+            if (!roster) {
+                throw new Error(
+                    `Test roster not configured for team ${team.id} on ${gameDate}.`
+                )
+            }
+            return roster
         }
     }
+
     public readonly playerRatingService = {
         buildPlayerRatingsForDate: async (
             season: number,
@@ -180,6 +220,7 @@ class MlbGameBundleServiceTestHarness {
             return this.ratings
         }
     }
+
     public readonly playerStatService = {
         getStats: (gameDate: string, playerIds: Set<string>) => {
             this.statCalls.push({
@@ -189,6 +230,7 @@ class MlbGameBundleServiceTestHarness {
             return new Map()
         }
     }
+
     public readonly mlbRosterProjectionService = {
         project: (
             gameDate: string,
@@ -202,12 +244,19 @@ class MlbGameBundleServiceTestHarness {
                 roster,
                 gamePk
             })
+            const error = this.projectionErrors.get(
+                `${gameDate}:${team.id}`
+            )
+            if (error) {
+                throw error
+            }
             return {
                 players: roster,
                 projected: false
             }
         }
     }
+
     public readonly gameLineupService = {
         getRoster: async (
             gameDate: string,
@@ -260,6 +309,7 @@ class MlbGameBundleServiceTestHarness {
             } as MlbRosterEntry
         ]
     }
+
     public readonly baseballSavantService = {
         getStadiumEnvironments: async (_season: number, teams: MlbTeam[]): Promise<StadiumEnvironment[]> => {
             assert.equal(
@@ -269,6 +319,7 @@ class MlbGameBundleServiceTestHarness {
             return this.stadiumEnvironments
         }
     }
+
     public readonly teamRatingService = {
         getRatingsForDate: async (gameDate: string): Promise<TeamRatingSnapshot> => {
             assert.equal(
@@ -318,7 +369,6 @@ class MlbGameBundleServiceTestHarness {
         )
     }
 }
-
 describe("MlbGameBundleService", function () {
     let harness: MlbGameBundleServiceTestHarness
     let service: MlbGameBundleService
@@ -491,6 +541,318 @@ describe("MlbGameBundleService", function () {
         })
         assert.deepEqual(result.games[1].away.teamRating, harness.teamRatings.teams["147"])
         assert.deepEqual(result.games[1].home.teamRating, harness.teamRatings.teams["111"])
+    })
+
+    it("uses the most recent valid roster when a postponed game's current roster cannot be projected", async function () {
+        const previousDate = "2026-07-08"
+        const previousRoster = [
+            {
+                playerId: "134999",
+                fullName: "Previous PIT Player",
+                position: "P"
+            } as MlbRosterEntry
+        ]
+        harness.rostersByDate.set(
+            previousDate,
+            new Map([
+                [
+                    134,
+                    previousRoster
+                ]
+            ])
+        )
+        harness.ratings.set(
+            "134999",
+            {
+                playerId: "134999"
+            } as GeneratedPlayerRatings
+        )
+        harness.projectionErrors.set(
+            `${harness.gameDate}:134`,
+            new Error("Unable to project PIT roster.")
+        )
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: [
+                    {
+                        date: previousDate,
+                        games: [
+                            {
+                                gamePk: 9001,
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        }
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        date: harness.gameDate,
+                        games: [
+                            {
+                                gamePk: 1001,
+                                gameDate: "2026-07-09T17:05:00Z",
+                                status: {
+                                    abstractGameState: "Final",
+                                    detailedState: "Postponed"
+                                },
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        }
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        })) as unknown as typeof queries.getSchedule
+        const result = await service.build(
+            harness.gameDate
+        )
+        assert.equal(
+            result.games[0].status.detailedState,
+            "Postponed"
+        )
+        assert.deepEqual(
+            harness.getTeamRosterCalls,
+            [
+                {
+                    gameDate: previousDate,
+                    teamId: 134
+                }
+            ]
+        )
+        assert.deepEqual(
+            harness.buildCalls.find(call =>
+                call.team.id === 134
+            )?.roster,
+            previousRoster
+        )
+        assert.ok(
+            harness.ratingCalls[0].playerIds.has(
+                "134999"
+            )
+        )
+    })
+
+    it("uses the most recent valid roster when a cancelled game's current roster cannot be projected", async function () {
+        const previousDate = "2026-07-08"
+        const previousRoster = harness.createRoster(
+            harness.teams[0]
+        )
+        harness.rostersByDate.set(
+            previousDate,
+            new Map([
+                [
+                    134,
+                    previousRoster
+                ]
+            ])
+        )
+        harness.projectionErrors.set(
+            `${harness.gameDate}:134`,
+            new Error("Unable to project PIT roster.")
+        )
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: [
+                    {
+                        date: previousDate,
+                        games: [
+                            {
+                                gamePk: 9001,
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        }
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        date: harness.gameDate,
+                        games: [
+                            {
+                                gamePk: 1001,
+                                gameDate: "2026-07-09T17:05:00Z",
+                                status: {
+                                    abstractGameState: "Final",
+                                    detailedState: "Cancelled"
+                                },
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        }
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        })) as unknown as typeof queries.getSchedule
+        const result = await service.build(
+            harness.gameDate
+        )
+        assert.equal(
+            result.games[0].status.detailedState,
+            "Cancelled"
+        )
+        assert.deepEqual(
+            harness.buildCalls.find(call =>
+                call.team.id === 134
+            )?.roster,
+            previousRoster
+        )
+    })
+
+    it("does not fall back to a previous roster when an active game's roster cannot be projected", async function () {
+        harness.projectionErrors.set(
+            `${harness.gameDate}:134`,
+            new Error("Unable to project PIT roster.")
+        )
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: [
+                    {
+                        date: "2026-07-08",
+                        games: [
+                            {
+                                gamePk: 9001,
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        }
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        date: harness.gameDate,
+                        games: [
+                            {
+                                gamePk: 1001,
+                                gameDate: "2026-07-09T17:05:00Z",
+                                status: {
+                                    abstractGameState: "Preview",
+                                    detailedState: "Scheduled"
+                                },
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        }
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        })) as unknown as typeof queries.getSchedule
+        await assert.rejects(
+            service.build(
+                harness.gameDate
+            ),
+            /Unable to project PIT roster/
+        )
+        assert.deepEqual(
+            harness.getTeamRosterCalls,
+            []
+        )
+    })
+
+    it("rethrows the current roster projection error when no previous valid roster exists for a postponed game", async function () {
+        harness.projectionErrors.set(
+            `${harness.gameDate}:134`,
+            new Error("Unable to project PIT roster.")
+        )
+        queries.getSchedule = (() => ({
+            season: 2026,
+            downloadedAt: "2026-07-09T12:00:00.000Z",
+            data: {
+                dates: [
+                    {
+                        date: harness.gameDate,
+                        games: [
+                            {
+                                gamePk: 1001,
+                                gameDate: "2026-07-09T17:05:00Z",
+                                status: {
+                                    abstractGameState: "Final",
+                                    detailedState: "Postponed"
+                                },
+                                teams: {
+                                    away: {
+                                        team: {
+                                            id: 134
+                                        }
+                                    },
+                                    home: {
+                                        team: {
+                                            id: 143
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        })) as unknown as typeof queries.getSchedule
+        await assert.rejects(
+            service.build(
+                harness.gameDate
+            ),
+            /Unable to project PIT roster/
+        )
     })
 
     it("sorts games by scheduled start time", async function () {
@@ -709,18 +1071,6 @@ describe("MlbGameBundleService", function () {
                     teamId: 143,
                     playerIds: [ "143001" ],
                     gamePk: 1001
-                },
-                {
-                    gameDate: harness.gameDate,
-                    teamId: 147,
-                    playerIds: [ "147001" ],
-                    gamePk: undefined
-                },
-                {
-                    gameDate: harness.gameDate,
-                    teamId: 111,
-                    playerIds: [ "111001" ],
-                    gamePk: undefined
                 }
             ]
         )

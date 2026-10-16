@@ -3,13 +3,16 @@ import type { PitcherAppearance } from "../repository/pitcher-appearance-reposit
 import { PitcherAppearanceService } from "./pitcher-appearance-service.js";
 declare class PitcherWorkloadService {
     private readonly pitcherAppearanceService;
+    private readonly appearancesByDate;
     constructor(pitcherAppearanceService: PitcherAppearanceService);
     getPitcherWorkloads(gameDate: string, playerIds: string[]): Promise<Map<string, PitcherWorkload>>;
     getPitcherWorkload(gameDate: string, playerId: string): Promise<PitcherWorkload>;
     getBullpenRoles(gameDate: string, playerIds: string[], startingPitcherId?: string): Promise<SynthesizedPitchingRole[]>;
     private selectBullpenProfiles;
     private isRotationStarter;
+    private getRecentRoleAppearances;
     private getAppearances;
+    private getAppearancesForDate;
     private buildRoleProfile;
     private assignBullpenRoles;
     private takeBest;
@@ -43,6 +46,8 @@ interface PitcherRoleProfile {
     appearances: number;
     reliefAppearances: number;
     starts: number;
+    starterScore: number;
+    reliefScore: number;
     saves: number;
     holds: number;
     blownSaves: number;

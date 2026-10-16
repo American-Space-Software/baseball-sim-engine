@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import {
     afterEach,
-    beforeEach,
     describe,
     it,
     mock
@@ -12,8 +11,21 @@ import {
 import { Position } from "../src/sim/service/enums.js"
 import { MlbRosterProjectionService } from "../src/ratings/service/mlb-roster-projection-service.js"
 import type { MlbRosterEntry, MlbTeam } from "../src/ratings/service/mlb-roster-service.js"
-const GAME_DATE = "2026-10-03"
-const PREVIOUS_DATE = "2026-09-30"
+const GAME_DATE = "2026-07-31"
+const PREVIOUS_DATE = "2026-07-30"
+const HISTORICAL_GAME_DATE = "2009-07-31"
+const HISTORICAL_PREVIOUS_DATE = "2009-07-30"
+const COVID_EXPANDED_ROSTER_DATE = "2020-07-27"
+const COVID_REDUCED_ROSTER_DATE = "2020-08-06"
+const SEASON_2021_DATE = "2021-04-14"
+const SEPTEMBER_2021_DATE = "2021-09-15"
+const OPENING_2022_DATE = "2022-04-07"
+const MAY_2022_DATE = "2022-05-15"
+const LAST_14_PITCHER_2022_DATE = "2022-06-19"
+const PITCHER_LIMIT_2022_DATE = "2022-06-20"
+const DOUBLEHEADER_DATE = "2025-07-29"
+const SEPTEMBER_DOUBLEHEADER_DATE = "2025-09-15"
+const POSTSEASON_DOUBLEHEADER_DATE = "2025-10-05"
 const TEAM_ID = 114
 const GAME_PK = 12345
 const team: MlbTeam = {
@@ -21,11 +33,12 @@ const team: MlbTeam = {
     name: "Cleveland Guardians",
     abbrev: "CLE"
 }
-let service: MlbRosterProjectionService
+const service = new MlbRosterProjectionService()
 interface ScheduleGame {
     date: string
     gamePk: number
     probablePitcherId?: number
+    gameType?: string
 }
 interface TestBoxscorePlayer {
     person: {
@@ -51,26 +64,37 @@ const createRoster = (pitcherCount: number, hitterCount: number, catcherCount = 
 ]
 const createSchedule = (dates: ScheduleGame[]) => ({
     data: {
-        dates: dates.map(date => ({
-            date: date.date,
-            games: [{
-                gamePk: date.gamePk,
-                teams: {
-                    away: {
-                        team: {
-                            id: 145
-                        }
-                    },
-                    home: {
-                        team: {
-                            id: TEAM_ID
+        dates: Array.from(
+            new Set(
+                dates.map(date =>
+                    date.date
+                )
+            )
+        ).map(gameDate => ({
+            date: gameDate,
+            games: dates
+                .filter(date =>
+                    date.date === gameDate
+                )
+                .map(date => ({
+                    gamePk: date.gamePk,
+                    gameType: date.gameType,
+                    teams: {
+                        away: {
+                            team: {
+                                id: 145
+                            }
                         },
-                        probablePitcher: date.probablePitcherId
-                            ? { id: date.probablePitcherId }
-                            : undefined
+                        home: {
+                            team: {
+                                id: TEAM_ID
+                            },
+                            probablePitcher: date.probablePitcherId
+                                ? { id: date.probablePitcherId }
+                                : undefined
+                        }
                     }
-                }
-            }]
+                }))
         }))
     }
 })
@@ -125,10 +149,6 @@ const countPitchers = (roster: MlbRosterEntry[]): number =>
 const countCatchers = (roster: MlbRosterEntry[]): number =>
     roster.filter(player => player.position === Position.CATCHER).length
 describe("MlbRosterProjectionService", () => {
-    beforeEach(() => {
-        service = new MlbRosterProjectionService()
-    })
-
     afterEach(() => {
         mock.restoreAll()
     })
@@ -139,6 +159,20 @@ describe("MlbRosterProjectionService", () => {
         assert.strictEqual(result.players, roster)
         assert.equal(result.players.length, 26)
     })
+    it("returns an existing 25-player historical roster without projecting", () => {
+        const roster = createRoster(13, 12)
+
+        const result = service.project(
+            HISTORICAL_GAME_DATE,
+            team,
+            roster
+        )
+
+        assert.equal(result.projected, false)
+        assert.strictEqual(result.players, roster)
+        assert.equal(result.players.length, 25)
+    })
+
     it("returns a smaller roster without projecting", () => {
         const roster = createRoster(12, 12)
         const result = service.project(GAME_DATE, team, roster)
@@ -155,6 +189,210 @@ describe("MlbRosterProjectionService", () => {
         assert.equal(countPitchers(result.players), 13)
         assert.equal(countCatchers(result.players), 2)
     })
+    it("projects an expanded historical roster to 25 players", () => {
+        mockDatabase()
+
+        const roster = createRoster(19, 20)
+        const result = service.project(
+            HISTORICAL_GAME_DATE,
+            team,
+            roster
+        )
+
+        assert.equal(result.projected, true)
+        assert.equal(result.players.length, 25)
+        assert.equal(countPitchers(result.players), 13)
+        assert.equal(countCatchers(result.players), 2)
+    })
+
+    it("projects a historical roster with 13 pitchers and 12 hitters without requiring a 26th player", () => {
+        mockDatabase()
+
+        const roster = createRoster(19, 12)
+        const result = service.project(
+            HISTORICAL_GAME_DATE,
+            team,
+            roster
+        )
+
+        assert.equal(result.projected, true)
+        assert.equal(result.players.length, 25)
+        assert.equal(countPitchers(result.players), 13)
+        assert.equal(
+            result.players.filter(player =>
+                player.position !== Position.PITCHER
+            ).length,
+            12
+        )
+    })
+
+    it("allows pitcher overflow on a 2020 30-player roster", () => {
+        mockDatabase()
+        const roster = createRoster(18, 14)
+        const result = service.project(
+            COVID_EXPANDED_ROSTER_DATE,
+            team,
+            roster
+        )
+        assert.equal(result.players.length, 30)
+        assert.equal(countPitchers(result.players), 16)
+    })
+
+    it("allows pitcher overflow on a 2020 28-player roster", () => {
+        mockDatabase()
+        const roster = createRoster(17, 12)
+        const result = service.project(
+            COVID_REDUCED_ROSTER_DATE,
+            team,
+            roster
+        )
+        assert.equal(result.players.length, 28)
+        assert.equal(countPitchers(result.players), 16)
+    })
+
+    it("allows pitcher overflow on a 2021 26-player roster", () => {
+        mockDatabase()
+        const roster = createRoster(18, 12)
+        const result = service.project(
+            SEASON_2021_DATE,
+            team,
+            roster
+        )
+        assert.equal(result.players.length, 26)
+        assert.equal(countPitchers(result.players), 14)
+    })
+
+    it("allows pitcher overflow on a September 2021 28-player roster", () => {
+        mockDatabase()
+        const roster = createRoster(18, 12)
+        const result = service.project(
+            SEPTEMBER_2021_DATE,
+            team,
+            roster
+        )
+        assert.equal(result.players.length, 28)
+        assert.equal(countPitchers(result.players), 16)
+    })
+
+    it("allows pitcher overflow on the 2022 opening 28-player roster", () => {
+        mockDatabase()
+        const roster = createRoster(20, 12)
+        const result = service.project(
+            OPENING_2022_DATE,
+            team,
+            roster
+        )
+        assert.equal(result.players.length, 28)
+        assert.equal(countPitchers(result.players), 16)
+    })
+
+    it("allows up to 14 pitchers on a 2022 May 26-player roster", () => {
+        mockDatabase()
+        const roster = createRoster(16, 12)
+        const result = service.project(
+            MAY_2022_DATE,
+            team,
+            roster
+        )
+        assert.equal(result.players.length, 26)
+        assert.equal(countPitchers(result.players), 14)
+    })
+
+    it("allows up to 14 pitchers through 2022-06-19", () => {
+        mockDatabase()
+        const roster = createRoster(16, 12)
+        const result = service.project(
+            LAST_14_PITCHER_2022_DATE,
+            team,
+            roster
+        )
+        assert.equal(result.players.length, 26)
+        assert.equal(countPitchers(result.players), 14)
+    })
+
+    it("returns to the 13-pitcher limit on 2022-06-20", () => {
+        mockDatabase()
+        const roster = createRoster(20, 20)
+        const result = service.project(
+            PITCHER_LIMIT_2022_DATE,
+            team,
+            roster
+        )
+        assert.equal(result.players.length, 26)
+        assert.equal(countPitchers(result.players), 13)
+    })
+
+    it("allows a 27th player and 14th pitcher for a modern doubleheader", () => {
+        mockDatabase([
+            {
+                date: DOUBLEHEADER_DATE,
+                gamePk: 1001
+            },
+            {
+                date: DOUBLEHEADER_DATE,
+                gamePk: 1002
+            }
+        ])
+
+        const roster = createRoster(16, 14)
+        const result = service.project(
+            DOUBLEHEADER_DATE,
+            team,
+            roster
+        )
+
+        assert.equal(result.players.length, 27)
+        assert.equal(countPitchers(result.players), 14)
+    })
+
+    it("allows a 29th player and 15th pitcher for a September doubleheader", () => {
+        mockDatabase([
+            {
+                date: SEPTEMBER_DOUBLEHEADER_DATE,
+                gamePk: 1001
+            },
+            {
+                date: SEPTEMBER_DOUBLEHEADER_DATE,
+                gamePk: 1002
+            }
+        ])
+
+        const roster = createRoster(17, 15)
+        const result = service.project(
+            SEPTEMBER_DOUBLEHEADER_DATE,
+            team,
+            roster
+        )
+
+        assert.equal(result.players.length, 29)
+        assert.equal(countPitchers(result.players), 15)
+    })
+
+    it("does not expand the roster for a postseason doubleheader", () => {
+        mockDatabase([
+            {
+                date: POSTSEASON_DOUBLEHEADER_DATE,
+                gamePk: 1001,
+                gameType: "D"
+            },
+            {
+                date: POSTSEASON_DOUBLEHEADER_DATE,
+                gamePk: 1002,
+                gameType: "D"
+            }
+        ])
+
+        const roster = createRoster(16, 14)
+        const result = service.project(
+            POSTSEASON_DOUBLEHEADER_DATE,
+            team,
+            roster
+        )
+
+        assert.equal(result.players.length, 26)
+        assert.equal(countPitchers(result.players), 13)
+    })
+
     it("never selects more than 13 pitchers", () => {
         mockDatabase()
         const roster = createRoster(20, 20)
@@ -201,7 +439,7 @@ describe("MlbRosterProjectionService", () => {
             new Set(playerIds(previousRoster))
         )
     })
-    it("projects an expanded previous roster using an earlier 26-player roster", () => {
+    it("ignores an expanded previous roster and finds an earlier 26-player roster", () => {
         const roster = createRoster(19, 20)
         const referencePlayer = roster.find(player => player.playerId === "3017")!
         const earlierRoster = [
@@ -215,13 +453,13 @@ describe("MlbRosterProjectionService", () => {
         assert.equal(earlierRoster.length, 26)
         mockDatabase(
             [
-                { date: "2026-09-28", gamePk: 101 },
-                { date: "2026-10-01", gamePk: 102 },
+                { date: "2026-07-28", gamePk: 101 },
+                { date: PREVIOUS_DATE, gamePk: 102 },
                 { date: GAME_DATE, gamePk: GAME_PK }
             ],
             {
-                "2026-09-28": earlierRoster,
-                "2026-10-01": roster
+                "2026-07-28": earlierRoster,
+                [PREVIOUS_DATE]: roster
             }
         )
         const result = service.project(GAME_DATE, team, roster)
@@ -231,44 +469,71 @@ describe("MlbRosterProjectionService", () => {
             new Set(playerIds(earlierRoster))
         )
     })
-    it("uses a projected previous roster when consecutive stored rosters are expanded", () => {
-        const currentRoster = createRoster(19, 20)
-        const previousRoster = createRoster(18, 20)
-        const earlierRoster = createRoster(17, 20)
+    it("uses a 25-player historical roster as the previous roster reference", () => {
+        const roster = createRoster(19, 20)
+
+        const previousRoster = [
+            ...roster
+                .filter(player =>
+                    player.position === Position.PITCHER
+                )
+                .slice(
+                    6,
+                    19
+                ),
+            ...roster
+                .filter(player =>
+                    player.position !== Position.PITCHER
+                )
+                .slice(
+                    0,
+                    12
+                )
+        ]
+
+        assert.equal(
+            previousRoster.length,
+            25
+        )
 
         mockDatabase(
             [
-                { date: "2026-09-28", gamePk: 101 },
-                { date: "2026-09-30", gamePk: 102 },
-                { date: "2026-10-01", gamePk: 103 },
-                { date: GAME_DATE, gamePk: GAME_PK }
+                {
+                    date: HISTORICAL_PREVIOUS_DATE,
+                    gamePk: 200
+                },
+                {
+                    date: HISTORICAL_GAME_DATE,
+                    gamePk: GAME_PK
+                }
             ],
             {
-                "2026-09-28": earlierRoster,
-                "2026-09-30": previousRoster,
-                "2026-10-01": currentRoster
+                [HISTORICAL_PREVIOUS_DATE]: previousRoster
             }
         )
 
-        const previousProjection = service.project(
-            "2026-10-01",
-            team,
-            currentRoster,
-            103
-        )
-
         const result = service.project(
-            GAME_DATE,
+            HISTORICAL_GAME_DATE,
             team,
-            currentRoster,
-            GAME_PK
+            roster
         )
 
-        assert.equal(previousProjection.players.length, 26)
-        assert.equal(result.players.length, 26)
+        assert.equal(
+            result.players.length,
+            25
+        )
+
         assert.deepEqual(
-            new Set(playerIds(result.players)),
-            new Set(playerIds(previousProjection.players))
+            new Set(
+                playerIds(
+                    result.players
+                )
+            ),
+            new Set(
+                playerIds(
+                    previousRoster
+                )
+            )
         )
     })
 

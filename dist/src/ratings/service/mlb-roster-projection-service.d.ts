@@ -2,6 +2,10 @@ import type { MlbRosterEntry, MlbTeam } from "./mlb-roster-service.js";
 declare class MlbRosterProjectionService {
     project(gameDate: string, team: MlbTeam, roster: MlbRosterEntry[], gamePk?: number): RosterProjection;
     private projectRoster;
+    private getRosterRules;
+    private getBaseRosterRules;
+    private isDoubleheader;
+    private isPostseason;
     private getPreviousRoster;
     private getRecentAppearances;
     private getConfirmedPlayerIds;

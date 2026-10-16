@@ -51,6 +51,8 @@ declare abstract class BaseGameLineupProvider implements GameLineupProvider {
     protected getStartingPitcherIdFromFeed(feed: any, side: "home" | "away"): string | undefined;
     protected getLineupFromFeed(feed: any, side: "home" | "away"): Lineup;
     protected getStartingPosition(boxscorePlayer: any, usedPositions: Set<Position>): Position | undefined;
+    protected usesDesignatedHitter(gameDate: string, feed: any, side: "home" | "away"): boolean;
+    protected getLineupModeFromFeed(feed: any, side: "home" | "away"): "dh" | "pitcher" | undefined;
     private getAvailableOutfieldPosition;
 }
 declare class ConfirmedGameLineupProvider extends BaseGameLineupProvider {
@@ -71,7 +73,7 @@ declare class PreviousSimilarGameLineupProvider extends BaseGameLineupProvider {
 }
 declare class FallbackGameLineupProvider extends BaseGameLineupProvider {
     readonly name = "fallback";
-    build(gameDate: string, mlbTeam: MlbTeam, team: Team, players: Player[], _gamePk?: number | string): Promise<TeamBundle | undefined>;
+    build(gameDate: string, mlbTeam: MlbTeam, team: Team, players: Player[], gamePk?: number | string): Promise<TeamBundle | undefined>;
     private getMostConstrainedPosition;
     private getPositionPriority;
     private defensivePositions;

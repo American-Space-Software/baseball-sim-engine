@@ -354,4 +354,201 @@ describe("PitcherWorkloadService role classification", () => {
         )
     })
 
+
+    it("excludes the four strongest rotation pitchers after today's starter", async () => {
+        const rotationIds = [
+            "601",
+            "602",
+            "603",
+            "604",
+            "605"
+        ]
+
+        const bullpenIds = [
+            "606",
+            "607",
+            "608",
+            "609",
+            "610"
+        ]
+
+        const appearances = [
+            ...rotationIds.flatMap((playerId, playerIndex) =>
+                [
+                    "2009-04-06",
+                    "2009-04-01",
+                    "2008-09-28",
+                    "2008-09-23",
+                    "2008-09-18",
+                    "2008-09-13",
+                    "2008-09-08",
+                    "2008-09-03"
+                ].map((gameDate, appearanceIndex) =>
+                    buildAppearance(
+                        playerId,
+                        gameDate,
+                        6000 + playerIndex * 100 + appearanceIndex,
+                        true
+                    )
+                )
+            ),
+            ...harness.buildRelievers(
+                bullpenIds,
+                [
+                    "2009-04-06",
+                    "2009-04-05"
+                ]
+            )
+        ]
+
+        const service = harness.buildService(
+            appearances
+        )
+
+        const roles = await service.getBullpenRoles(
+            GAME_DATE,
+            [
+                ...rotationIds,
+                ...bullpenIds
+            ]
+        )
+
+        const excludedRotationIds = rotationIds.filter(playerId =>
+            !roles.some(role =>
+                role.playerId === playerId
+            )
+        )
+
+        assert.equal(
+            excludedRotationIds.length,
+            4
+        )
+
+        const availableRotationIds = rotationIds.filter(playerId =>
+            roles.some(role =>
+                role.playerId === playerId
+            )
+        )
+
+        assert.equal(
+            availableRotationIds.length,
+            1
+        )
+
+        const availableRotation = roles.find(role =>
+            role.playerId === availableRotationIds[0]
+        )
+
+        assert.ok(
+            availableRotation
+        )
+
+        assert.ok(
+            availableRotation.profile.starterScore >
+            availableRotation.profile.reliefScore
+        )
+
+        assert.deepEqual(
+            roles
+                .map(role =>
+                    role.playerId
+                )
+                .sort(),
+            [
+                ...bullpenIds,
+                availableRotationIds[0]
+            ].sort()
+        )
+    })
+
+
+    it("keeps a normal five-man rotation out of the bullpen", async () => {
+        const todaysStarterId = "701"
+
+        const otherRotationIds = [
+            "702",
+            "703",
+            "704",
+            "705"
+        ]
+
+        const bullpenIds = [
+            "706",
+            "707",
+            "708",
+            "709",
+            "710",
+            "711",
+            "712",
+            "713"
+        ]
+
+        const rotationAppearances = [
+            todaysStarterId,
+            ...otherRotationIds
+        ].flatMap((playerId, playerIndex) =>
+            [
+                "2009-04-06",
+                "2009-04-01",
+                "2008-09-28",
+                "2008-09-23",
+                "2008-09-18",
+                "2008-09-13",
+                "2008-09-08",
+                "2008-09-03"
+            ].map((gameDate, appearanceIndex) =>
+                buildAppearance(
+                    playerId,
+                    gameDate,
+                    7000 + playerIndex * 100 + appearanceIndex,
+                    true
+                )
+            )
+        )
+
+        const service = harness.buildService([
+            ...rotationAppearances,
+            ...harness.buildRelievers(
+                bullpenIds,
+                [
+                    "2009-04-06",
+                    "2009-04-05"
+                ]
+            )
+        ])
+
+        const roles = await service.getBullpenRoles(
+            GAME_DATE,
+            [
+                todaysStarterId,
+                ...otherRotationIds,
+                ...bullpenIds
+            ],
+            todaysStarterId
+        )
+
+        assert.deepEqual(
+            roles
+                .map(role =>
+                    role.playerId
+                )
+                .sort(),
+            [
+                ...bullpenIds
+            ].sort()
+        )
+
+        for (const playerId of [
+            todaysStarterId,
+            ...otherRotationIds
+        ]) {
+            assert.equal(
+                roles.some(role =>
+                    role.playerId === playerId
+                ),
+                false
+            )
+        }
+    })
+
 })

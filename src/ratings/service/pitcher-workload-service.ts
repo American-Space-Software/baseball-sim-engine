@@ -127,58 +127,47 @@ class PitcherWorkloadService {
             roles
         )
     }
+
     private selectBullpenProfiles(profiles: PitcherRoleProfile[]): PitcherRoleProfile[] {
-        const bullpenProfiles = profiles.filter(profile =>
-            !this.isRotationStarter(profile)
-        )
-        if (bullpenProfiles.length >= MINIMUM_BULLPEN_PITCHERS) {
-            return bullpenProfiles
-        }
         const rotationProfiles = profiles
             .filter(profile =>
                 this.isRotationStarter(profile)
             )
-            .sort((a, b) => {
-                const reliefDifference =
-                    b.reliefAppearances -
-                    a.reliefAppearances
-                if (reliefDifference !== 0) {
-                    return reliefDifference
-                }
-                const startDifference =
-                    a.starts -
-                    b.starts
-                if (startDifference !== 0) {
-                    return startDifference
-                }
-                const appearanceDifference =
-                    a.appearances -
-                    b.appearances
-                if (appearanceDifference !== 0) {
-                    return appearanceDifference
-                }
-                return a.playerId.localeCompare(
+            .sort((a, b) =>
+                (b.starterScore - b.reliefScore) -
+                (a.starterScore - a.reliefScore) ||
+                b.starts - a.starts ||
+                a.playerId.localeCompare(
                     b.playerId
                 )
-            })
-        const selected = [
-            ...bullpenProfiles
-        ]
-        for (const profile of rotationProfiles) {
-            if (selected.length >= MINIMUM_BULLPEN_PITCHERS) {
-                break
-            }
-            selected.push(
-                profile
             )
-        }
-        if (selected.length < MINIMUM_BULLPEN_PITCHERS) {
-            throw new Error(
-                `Cannot synthesize bullpen roles with only ${selected.length} eligible pitchers.`
+
+        const maximumRotationPitchersToExclude = Math.min(
+            4,
+            Math.max(
+                0,
+                profiles.length - MINIMUM_BULLPEN_PITCHERS
             )
-        }
-        return selected
+        )
+
+        const rotationPlayerIds = new Set(
+            rotationProfiles
+                .slice(
+                    0,
+                    maximumRotationPitchersToExclude
+                )
+                .map(profile =>
+                    profile.playerId
+                )
+        )
+
+        return profiles.filter(profile =>
+            !rotationPlayerIds.has(
+                profile.playerId
+            )
+        )
     }
+    
     private isRotationStarter(profile: PitcherRoleProfile): boolean {
         if (profile.appearances === 0) {
             return false
@@ -456,77 +445,83 @@ class PitcherWorkloadService {
             mopUpScore
         }
     }
+
     private assignBullpenRoles(profiles: PitcherRoleProfile[]): Map<string, PitchingRoleType> {
         const assignments = new Map<string, PitchingRoleType>()
+
         const remaining = new Map(
             profiles.map(profile => [
                 profile.playerId,
                 profile
             ])
         )
+
         const closer = this.takeBest(
             remaining,
             profile =>
                 profile.closerScore
         )
+
         assignments.set(
             closer.playerId,
             PitchingRoleType.CLOSER
         )
+
         const setup = this.takeBest(
             remaining,
             profile =>
                 profile.setupScore
         )
+
         assignments.set(
             setup.playerId,
             PitchingRoleType.SETUP
         )
+
+        const middle = this.takeBest(
+            remaining,
+            profile =>
+                profile.setupScore +
+                profile.lateInningAppearances
+        )
+
+        assignments.set(
+            middle.playerId,
+            PitchingRoleType.MIDDLE
+        )
+
         const long = this.takeBest(
             remaining,
             profile =>
                 profile.longScore
         )
+
         assignments.set(
             long.playerId,
             PitchingRoleType.LONG
         )
+
         const mopUp = this.takeBest(
             remaining,
             profile =>
                 profile.mopUpScore
         )
+
         assignments.set(
             mopUp.playerId,
             PitchingRoleType.MOP_UP
         )
-        const middleProfiles = [
-            ...remaining.values()
-        ].sort((a, b) => {
-            const aScore =
-                a.setupScore +
-                a.lateInningAppearances
-            const bScore =
-                b.setupScore +
-                b.lateInningAppearances
-            return bScore - aScore ||
-                a.playerId.localeCompare(
-                    b.playerId
-                )
-        })
-        if (middleProfiles.length === 0) {
-            throw new Error(
-                "Cannot synthesize bullpen without a middle reliever."
-            )
-        }
-        for (const profile of middleProfiles) {
+
+        for (const profile of remaining.values()) {
             assignments.set(
                 profile.playerId,
                 PitchingRoleType.MIDDLE
             )
         }
+
         return assignments
     }
+
     private takeBest(remaining: Map<string, PitcherRoleProfile>, score: (profile: PitcherRoleProfile) => number): PitcherRoleProfile {
         const best = [
             ...remaining.values()

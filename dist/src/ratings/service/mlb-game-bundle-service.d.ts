@@ -21,6 +21,7 @@ declare class MlbGameBundleService {
     build(gameDate: string): Promise<MlbDailyBundle>;
     private getPitchEnvironmentTarget;
     private getGameRoster;
+    private getPreviousProjectedRoster;
     private addPlayerStats;
     private addTeamRating;
     private getHomeFieldAdvantage;

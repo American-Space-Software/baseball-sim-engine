@@ -359,8 +359,7 @@ class GameLineupService {
             .filter(abbreviation =>
                 abbreviation &&
                 abbreviation !== "PH" &&
-                abbreviation !== "PR" &&
-                abbreviation !== "P"
+                abbreviation !== "PR"
             )
 
         if (abbreviations.includes("DH")) {
@@ -377,6 +376,10 @@ class GameLineupService {
             if (abbreviation === "CF") return Position.CENTER_FIELD
             if (abbreviation === "RF") return Position.RIGHT_FIELD
             if (abbreviation === "OF") return Position.CENTER_FIELD
+        }
+
+        if (abbreviations.includes("P")) {
+            return Position.PITCHER
         }
 
         return Position.DESIGNATED_HITTER
@@ -1257,6 +1260,93 @@ abstract class BaseGameLineupProvider implements GameLineupProvider {
             }
         }
 
+        if (
+            abbreviations.includes("P") &&
+            !usedPositions.has(Position.PITCHER)
+        ) {
+            return Position.PITCHER
+        }
+
+        return undefined
+    }
+
+    protected usesDesignatedHitter(gameDate: string, feed: any, side: "home" | "away"): boolean {
+        const lineupMode = this.getLineupModeFromFeed(
+            feed,
+            side
+        )
+
+        if (lineupMode) {
+            return lineupMode === "dh"
+        }
+
+        const year = Number(
+            gameDate.slice(
+                0,
+                4
+            )
+        )
+
+        if (
+            year === 2020 ||
+            year >= 2022
+        ) {
+            return true
+        }
+
+        const homeLeagueId = Number(
+            feed?.gameData?.teams?.home?.league?.id
+        )
+
+        if (homeLeagueId === 103) {
+            return true
+        }
+
+        if (homeLeagueId === 104) {
+            return false
+        }
+
+        throw new Error(
+            `Unable to determine designated-hitter rules for ${gameDate}.`
+        )
+    }
+
+    protected getLineupModeFromFeed(feed: any, side: "home" | "away"): "dh" | "pitcher" | undefined {
+        const boxscorePlayers = Object.values(
+            feed?.liveData?.boxscore?.teams?.[side]?.players ??
+            {}
+        ) as any[]
+
+        const starters = boxscorePlayers.filter(player => {
+            const battingOrder = Number(
+                player?.battingOrder
+            )
+
+            return Number.isInteger(battingOrder) &&
+                battingOrder >= 100 &&
+                battingOrder <= 900 &&
+                battingOrder % 100 === 0
+        })
+
+        const abbreviations = starters.flatMap(player =>
+            [
+                ...(player?.allPositions ?? []),
+                player?.position
+            ]
+                .map((entry: any) =>
+                    String(entry?.abbreviation ?? "")
+                )
+                .filter(Boolean)
+        )
+
+        if (abbreviations.includes("DH")) {
+            return "dh"
+        }
+
+        if (abbreviations.includes("P")) {
+            return "pitcher"
+        }
+
         return undefined
     }
 
@@ -1414,11 +1504,19 @@ class PreviousSimilarGameLineupProvider extends BaseGameLineupProvider {
             return undefined
         }
 
+        const usesDesignatedHitter = this.usesDesignatedHitter(
+            gameDate,
+            todayFeed,
+            todaySide
+        )
+
         const lineup = this.getPreviousUsableLineupAgainstHand(
             gameDate,
             mlbTeam.id,
             players,
-            targetPitcherHand
+            targetPitcherHand,
+            todayStartingPitcherId,
+            usesDesignatedHitter
         )
 
         if (
@@ -1439,7 +1537,7 @@ class PreviousSimilarGameLineupProvider extends BaseGameLineupProvider {
         )
     }
 
-    private getPreviousUsableLineupAgainstHand(gameDate: string, teamId: number, players: Player[], targetPitcherHand: string): Lineup | undefined {
+    private getPreviousUsableLineupAgainstHand(gameDate: string, teamId: number, players: Player[], targetPitcherHand: string, startingPitcherId: string, usesDesignatedHitter: boolean): Lineup | undefined {
         const previousGames = this.getPreviousGames(
             gameDate,
             teamId
@@ -1476,6 +1574,16 @@ class PreviousSimilarGameLineupProvider extends BaseGameLineupProvider {
                 previousOpponentStarterId
             )
 
+            if (
+                this.usesDesignatedHitter(
+                    previousGame.scheduleDate,
+                    previousFeed,
+                    previousSide
+                ) !== usesDesignatedHitter
+            ) {
+                continue
+            }
+
             const previousLineup = this.getLineupFromFeed(
                 previousFeed,
                 previousSide
@@ -1490,7 +1598,8 @@ class PreviousSimilarGameLineupProvider extends BaseGameLineupProvider {
 
             const repairedLineup = this.repairLineup(
                 players,
-                previousLineup
+                previousLineup,
+                startingPitcherId
             )
 
             if (!repairedLineup) {
@@ -1579,7 +1688,7 @@ class PreviousSimilarGameLineupProvider extends BaseGameLineupProvider {
             ?.code
     }
 
-    private repairLineup(players: Player[], lineup: Lineup): Lineup | undefined {
+    private repairLineup(players: Player[], lineup: Lineup, startingPitcherId: string): Lineup | undefined {
         const playerIds = new Set(
             players.map(player =>
                 player._id
@@ -1595,6 +1704,26 @@ class PreviousSimilarGameLineupProvider extends BaseGameLineupProvider {
                 !spot.position
             ) {
                 return undefined
+            }
+
+            if (spot.position === Position.PITCHER) {
+                if (
+                    !playerIds.has(startingPitcherId) ||
+                    used.has(startingPitcherId)
+                ) {
+                    return undefined
+                }
+
+                used.add(
+                    startingPitcherId
+                )
+
+                repaired.push({
+                    _id: startingPitcherId,
+                    position: Position.PITCHER
+                })
+
+                continue
             }
 
             if (
@@ -1649,16 +1778,67 @@ class FallbackGameLineupProvider extends BaseGameLineupProvider {
 
     public readonly name = "fallback"
 
-    public async build(gameDate: string, mlbTeam: MlbTeam, team: Team, players: Player[], _gamePk?: number | string): Promise<TeamBundle | undefined> {
-        const startingPitcher = players.find(player =>
-            this.isPitcher(player)
-        )
+    public async build(gameDate: string, mlbTeam: MlbTeam, team: Team, players: Player[], gamePk?: number | string): Promise<TeamBundle | undefined> {
+        const resolvedGamePk =
+            gamePk ??
+            this.getScheduleGameForTeam(
+                gameDate,
+                mlbTeam.id
+            )?.gamePk
+
+        const feed = resolvedGamePk
+            ? this.getGameFeed(
+                resolvedGamePk
+            )
+            : undefined
+
+        const side = feed
+            ? this.getTeamSide(
+                feed,
+                mlbTeam.id
+            )
+            : undefined
+
+        const startingPitcherId = feed && side
+            ? this.getStartingPitcherIdFromFeed(
+                feed,
+                side
+            )
+            : undefined
+
+        const startingPitcher =
+            players.find(player =>
+                player._id === startingPitcherId &&
+                this.isPitcher(player)
+            ) ??
+            players.find(player =>
+                this.isPitcher(player)
+            )
 
         if (!startingPitcher) {
             throw new Error(
                 `No active pitcher was available for ${mlbTeam.abbrev}.`
             )
         }
+
+        const usesDesignatedHitter = feed && side
+            ? this.usesDesignatedHitter(
+                gameDate,
+                feed,
+                side
+            )
+            : Number(
+                gameDate.slice(
+                    0,
+                    4
+                )
+            ) === 2020 ||
+            Number(
+                gameDate.slice(
+                    0,
+                    4
+                )
+            ) >= 2022
 
         const used = new Set<string>()
         const order: LineupPlayer[] = []
@@ -1728,22 +1908,29 @@ class FallbackGameLineupProvider extends BaseGameLineupProvider {
             )
         }
 
-        const designatedHitter = this.findBestPositionPlayer(
-            players,
-            used,
-            Position.DESIGNATED_HITTER
-        )
-
-        if (!designatedHitter) {
-            throw new Error(
-                `Unable to find a designated hitter for ${mlbTeam.abbrev}.`
+        if (usesDesignatedHitter) {
+            const designatedHitter = this.findBestPositionPlayer(
+                players,
+                used,
+                Position.DESIGNATED_HITTER
             )
-        }
 
-        order.push({
-            _id: designatedHitter._id,
-            position: Position.DESIGNATED_HITTER
-        })
+            if (!designatedHitter) {
+                throw new Error(
+                    `Unable to find a designated hitter for ${mlbTeam.abbrev}.`
+                )
+            }
+
+            order.push({
+                _id: designatedHitter._id,
+                position: Position.DESIGNATED_HITTER
+            })
+        } else {
+            order.push({
+                _id: startingPitcher._id,
+                position: Position.PITCHER
+            })
+        }
 
         return this.buildTeamBundle(
             gameDate,

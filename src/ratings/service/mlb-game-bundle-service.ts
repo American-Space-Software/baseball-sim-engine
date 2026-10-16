@@ -15,6 +15,7 @@ import { TeamRatingService } from "./team-rating-service.js"
 import type { TeamRating } from "../repository/team-rating-repository.js"
 
 const TEAM_RATING_ADVANTAGE_PER_100_RATING_POINTS = 0.00
+
 const defaultBaseDataDir = process.env.DATA_DIR ?? "data"
 
 class MlbGameBundleService {
@@ -110,21 +111,22 @@ class MlbGameBundleService {
             !scheduledTeamIds.has(roster.team.id)
         )
         const rosterEntries = await Promise.all(
-            games.flatMap(game => [
-                this.getGameRoster(gameDate, game.gamePk, game.awayTeam),
-                this.getGameRoster(gameDate, game.gamePk, game.homeTeam)
-            ])
+            games.flatMap(game => {
+                const allowPreviousRoster =
+                    game.status.detailedState === "Postponed" ||
+                    game.status.detailedState === "Cancelled"
+                return [
+                    this.getGameRoster(gameDate, game.gamePk, game.awayTeam, allowPreviousRoster),
+                    this.getGameRoster(gameDate, game.gamePk, game.homeTeam, allowPreviousRoster)
+                ]
+            })
         )
         const playerIds = new Set([
             ...activeRosters.flatMap(roster =>
-                roster.players.map(player =>
-                    String(player.playerId)
-                )
+                roster.players.map(player => String(player.playerId))
             ),
             ...rosterEntries.flatMap(roster =>
-                roster.entries.map(player =>
-                    String(player.playerId)
-                )
+                roster.entries.map(player => String(player.playerId))
             )
         ])
         const ratingsStartedAt = Date.now()
@@ -191,17 +193,13 @@ class MlbGameBundleService {
         )
         const inactiveTeams = await Promise.all(
             inactiveRosters.map(async roster => {
-                const projectedRoster = this.mlbRosterProjectionService.project(
-                    gameDate,
-                    roster.team,
-                    roster.players
-                ).players
                 const bundle = await this.gameLineupService.build(
                     gameDate,
                     roster.team,
-                    projectedRoster,
+                    roster.players,
                     ratings
                 )
+
                 return this.addTeamRating(
                     this.addPlayerStats(bundle, season, statsByPlayerId),
                     teamRatings.teams[String(roster.team.id)]
@@ -251,23 +249,105 @@ class MlbGameBundleService {
         return target
     }
 
-    private async getGameRoster(gameDate: string, gamePk: number, team: MlbTeam): Promise<MlbGameRoster> {
+    private async getGameRoster(gameDate: string, gamePk: number, team: MlbTeam, allowPreviousRoster = false): Promise<MlbGameRoster> {
         const roster = await this.gameLineupService.getRoster(
             gameDate,
             team,
             gamePk
         )
-        const projection = this.mlbRosterProjectionService.project(
-            gameDate,
-            team,
-            roster,
-            gamePk
-        )
-        return {
-            gamePk,
-            team,
-            entries: projection.players
+        try {
+            const projection = this.mlbRosterProjectionService.project(
+                gameDate,
+                team,
+                roster,
+                gamePk
+            )
+            return {
+                gamePk,
+                team,
+                entries: projection.players
+            }
+        } catch (error) {
+            if (!allowPreviousRoster) {
+                throw error
+            }
+            const previousRoster = await this.getPreviousProjectedRoster(
+                gameDate,
+                team
+            )
+            if (!previousRoster) {
+                throw error
+            }
+            return {
+                gamePk,
+                team,
+                entries: previousRoster
+            }
         }
+    }
+
+    private async getPreviousProjectedRoster(gameDate: string, team: MlbTeam): Promise<MlbRosterEntry[] | undefined> {
+        const schedule = queries.getSchedule(
+            Number(
+                gameDate.slice(
+                    0,
+                    4
+                )
+            )
+        )
+        const dates = (
+            schedule?.data.dates ?? []
+        )
+            .filter(date =>
+                date.date < gameDate &&
+                (
+                    date.games ?? []
+                ).some(game =>
+                    Number(
+                        game?.teams?.away?.team?.id
+                    ) === team.id ||
+                    Number(
+                        game?.teams?.home?.team?.id
+                    ) === team.id
+                )
+            )
+            .sort((a, b) =>
+                b.date.localeCompare(
+                    a.date
+                )
+            )
+        for (const date of dates) {
+            const gamePk = Number(
+                (
+                    date.games ?? []
+                ).find(game =>
+                    Number(
+                        game?.teams?.away?.team?.id
+                    ) === team.id ||
+                    Number(
+                        game?.teams?.home?.team?.id
+                    ) === team.id
+                )?.gamePk
+            )
+            try {
+                const roster = await this.mlbRosterService.getRoster(
+                    date.date,
+                    team
+                )
+                const projection = this.mlbRosterProjectionService.project(
+                    date.date,
+                    team,
+                    roster,
+                    Number.isSafeInteger(gamePk) && gamePk > 0
+                        ? gamePk
+                        : undefined
+                )
+                return projection.players
+            } catch {
+                continue
+            }
+        }
+        return undefined
     }
 
     private addPlayerStats(bundle: TeamBundle, season: number, statsByPlayerId: Map<string, PlayerStats>): MlbTeamBundle {
