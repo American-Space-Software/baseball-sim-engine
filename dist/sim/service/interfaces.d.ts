@@ -104,8 +104,7 @@ interface GameSubstitution {
 }
 interface Player {
     _id: string;
-    tokenId?: number;
-    transactionHash?: string;
+    sourceId?: string;
     firstName: string;
     lastName: string;
     readonly fullName: string;
@@ -129,6 +128,7 @@ interface Player {
 }
 interface Team {
     _id: string;
+    sourceId?: string;
     name?: string;
     abbrev?: string;
     colors: Colors;
@@ -136,6 +136,7 @@ interface Team {
 }
 interface TeamInfo {
     _id?: string;
+    sourceId?: string;
     name: string;
     abbrev: string;
     homeAway: HomeAway;
@@ -157,6 +158,7 @@ interface PitchingRole {
 }
 interface GamePlayerBio {
     _id: string;
+    sourceId?: string;
     fullName: string;
     age: number;
     throws: Handedness;
@@ -376,6 +378,7 @@ interface HittingHandednessRatings {
 }
 interface GamePlayer {
     _id: string;
+    sourceId?: string;
     fullName: string;
     firstName: string;
     lastName: string;

@@ -32,6 +32,9 @@ import type {
 
 const STARTER_MAX_PITCH_COUNT = 100
 
+// American League club IDs; Houston (117) joined the AL in 2013.
+const AMERICAN_LEAGUE_TEAM_IDS = new Set([108, 110, 111, 114, 116, 118, 133, 136, 139, 140, 141, 142, 145, 147])
+
 const BULLPEN_MAX_PITCH_COUNT: Record<string, number> = {
     [PitchingRoleType.CLOSER]: 25,
     [PitchingRoleType.SETUP]: 30,
@@ -1821,24 +1824,11 @@ class FallbackGameLineupProvider extends BaseGameLineupProvider {
             )
         }
 
+        const season = Number(gameDate.slice(0, 4))
         const usesDesignatedHitter = feed && side
-            ? this.usesDesignatedHitter(
-                gameDate,
-                feed,
-                side
-            )
-            : Number(
-                gameDate.slice(
-                    0,
-                    4
-                )
-            ) === 2020 ||
-            Number(
-                gameDate.slice(
-                    0,
-                    4
-                )
-            ) >= 2022
+            ? this.usesDesignatedHitter(gameDate, feed, side)
+            : season === 2020 || season >= 2022 ||
+                (season >= 1973 && (AMERICAN_LEAGUE_TEAM_IDS.has(mlbTeam.id) || (mlbTeam.id === 117 && season >= 2013)))
 
         const used = new Set<string>()
         const order: LineupPlayer[] = []

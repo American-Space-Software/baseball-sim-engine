@@ -75,8 +75,30 @@ class SimService {
 
     }
 
+
     public startGame(command: StartGameCommand): Game {
         const game = command.game
+
+        if (!command.away._id || !command.home._id) {
+            throw new Error("Both teams must have an instance ID.")
+        }
+
+        if (command.away._id === command.home._id) {
+            throw new Error(`Duplicate team instance ID: ${command.away._id}.`)
+        }
+
+        const playerIds = [
+            ...command.awayPlayers.map(player => player._id),
+            ...command.homePlayers.map(player => player._id)
+        ]
+
+        if (playerIds.some(id => typeof id !== "string" || !id.trim())) {
+            throw new Error("Every player must have a valid instance ID.")
+        }
+
+        if (new Set(playerIds).size !== playerIds.length) {
+            throw new Error("Player instance IDs must be unique across the game.")
+        }
 
         game.useDH = command.useDH
 
@@ -149,6 +171,7 @@ class SimService {
 
         return game
     }
+
     
     public finishGame(game: Game): void {
 
@@ -1898,6 +1921,7 @@ class GamePlayers {
 
             gamePlayers.push({
                 _id: p._id,
+                sourceId: p.sourceId,
                 fullName: p.fullName,
                 firstName: p.firstName,
                 lastName: p.lastName,
@@ -2207,6 +2231,12 @@ class GameInfo {
         if (pitcherSpots.length !== 1) {
             throw new Error("Non-DH lineup must contain exactly one pitcher batting spot.")
         }
+
+
+        if (pitcherSpots[0]._id !== startingPitcher._id) {
+            throw new Error("Starting pitcher must occupy the pitcher batting spot in a non-DH lineup.")
+        }
+
     }
 
     buildTeamInfo(pitchEnvironmentTarget: PitchEnvironmentTarget, team: Team, lineup: Lineup, availablePitchers: PitchingRole[], players: Player[], startingPitcher: RotationPitcher, color1: string, color2: string, homeAway: HomeAway, startingId: number, useDH: boolean, teamOptions?: any): TeamInfo {
@@ -2273,6 +2303,7 @@ class GameInfo {
 
         const teamInfo: TeamInfo = Object.assign({
             _id: team._id,
+            sourceId: team.sourceId,
 
             name: team.name,
             abbrev: team.abbrev,

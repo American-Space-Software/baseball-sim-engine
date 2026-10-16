@@ -145,9 +145,7 @@ interface GameSubstitution {
 interface Player {
 
     _id: string
-
-    tokenId?: number
-    transactionHash?: string
+    sourceId?: string   
 
     firstName: string
     lastName: string
@@ -183,6 +181,7 @@ interface Player {
 interface Team {
 
     _id: string
+    sourceId?: string 
 
     name?: string
     abbrev?: string
@@ -197,7 +196,8 @@ interface Team {
 interface TeamInfo {
 
     _id?:string
-
+    sourceId?: string   
+    
     name:string
     abbrev:string
     homeAway:HomeAway
@@ -231,6 +231,7 @@ interface PitchingRole {
 interface GamePlayerBio {
 
     _id:string
+    sourceId?: string
     fullName: string
     // ratingBefore:Rating
 
@@ -506,6 +507,8 @@ interface HittingHandednessRatings {
 interface GamePlayer {
     
     _id:string
+    sourceId?: string 
+
     fullName: string
     firstName:string
     lastName:string

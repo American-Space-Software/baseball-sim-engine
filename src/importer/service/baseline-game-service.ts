@@ -12,6 +12,9 @@ class BaselineGameService {
         const awayPlayers = this.buildBaselinePlayers()
         const homePlayers = this.buildBaselinePlayers()
 
+        this.assignInstanceIds(awayPlayers, "away")
+        this.assignInstanceIds(homePlayers, "home")
+
         const awayLineup = this.buildBaselineLineup(awayPlayers, useDH)
         const homeLineup = this.buildBaselineLineup(homePlayers, useDH)
 
@@ -96,6 +99,9 @@ class BaselineGameService {
             this.replaceBaselineLineupPlayer(awayPlayers, player, useDH)
         }
 
+        this.assignInstanceIds(awayPlayers, "away")
+        this.assignInstanceIds(homePlayers, "home")
+
         const awayLineup = this.buildBaselineLineup(awayPlayers, useDH)
         const homeLineup = this.buildBaselineLineup(homePlayers, useDH)
 
@@ -168,6 +174,13 @@ class BaselineGameService {
             useDH,
             date: new Date()
         })
+    }
+
+    private assignInstanceIds(players: Player[], side: "away" | "home"): void {
+        for (const player of players) {
+            player.sourceId = player.sourceId ?? player._id
+            player._id = `${side}-${player._id}`
+        }
     }
 
     private replaceBaselineLineupPlayer(players: Player[], player: Player, useDH: boolean): void {

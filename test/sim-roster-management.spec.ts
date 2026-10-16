@@ -40,6 +40,7 @@ import type {
     PitchEnvironmentTarget,
     Player,
     RotationPitcher,
+    StartGameCommand,
     Team,
     TeamInfo
 } from "../src/sim/service/interfaces.js"
@@ -143,6 +144,14 @@ const buildTwoWayDHGame = (seed: string): Game => {
         true
     )
 
+    for (const player of homePlayers) {
+        player.sourceId = player._id
+        player._id = `home-${player._id}`
+    }
+    for (const spot of homeLineup.order) {
+        spot._id = `home-${spot._id}`
+    }
+
     const awayStartingPitcher: RotationPitcher = {
         _id: twoWayPlayer._id
     }
@@ -222,6 +231,48 @@ const buildTwoWayDHGame = (seed: string): Game => {
     })
 }
 
+const buildStartGameCommand = (seed: string, useDH = false): StartGameCommand => {
+    const environment = clone(pitchEnvironment)
+    environment.pitchEnvironmentTuning = pitchEnvironmentService.seedPitchEnvironmentTuning(environment)
+
+    const awayPlayers = baselineGameService.buildBaselinePlayers().map(player => ({
+        ...player,
+        sourceId: player._id,
+        _id: `away-${player._id}`
+    }))
+    const homePlayers = baselineGameService.buildBaselinePlayers().map(player => ({
+        ...player,
+        sourceId: player._id,
+        _id: `home-${player._id}`
+    }))
+    const awayLineup = baselineGameService.buildBaselineLineup(awayPlayers, useDH)
+    const homeLineup = baselineGameService.buildBaselineLineup(homePlayers, useDH)
+    const awayStartingPitcher = { _id: awayPlayers.find(player => player.primaryPosition === Position.PITCHER)!._id }
+    const homeStartingPitcher = { _id: homePlayers.find(player => player.primaryPosition === Position.PITCHER)!._id }
+    const availablePitchers = (players: Player[], starterId: string) => players
+        .filter(player => player.primaryPosition === Position.PITCHER && player._id !== starterId)
+        .map((player, index) => ({ playerId: player._id, role: PitchingRoleType.MIDDLE, priority: index + 1 }))
+
+    return {
+        game: { _id: seed } as Game,
+        away: { _id: `${seed}-away`, sourceId: "original-team", name: "Away", abbrev: "AWAY", colors: { color1: "#ff0000", color2: "#ffffff" } },
+        home: { _id: `${seed}-home`, sourceId: "original-team", name: "Home", abbrev: "HOME", colors: { color1: "#0000ff", color2: "#ffffff" } },
+        awayTeamOptions: {},
+        homeTeamOptions: {},
+        awayPlayers,
+        homePlayers,
+        awayLineup,
+        homeLineup,
+        awayStartingPitcher,
+        homeStartingPitcher,
+        awayAvailablePitchers: availablePitchers(awayPlayers, awayStartingPitcher._id),
+        homeAvailablePitchers: availablePitchers(homePlayers, homeStartingPitcher._id),
+        pitchEnvironmentTarget: environment,
+        useDH,
+        date: new Date("2025-01-01T00:00:00.000Z")
+    }
+}
+
 const getBenchPlayerForPosition = (team: TeamInfo, position: Position): GamePlayer => {
     const player = team.players.find(p =>
         !team.lineupIds.includes(p._id) &&
@@ -282,6 +333,88 @@ const setAllBenchHittersForPosition = (team: TeamInfo, pitcher: GamePlayer, posi
 const substitutionService = simService.substitutionService
 
 describe("Baseball Sim Engine Substitutions", async () => {
+
+    it("should reject matching team instance IDs", () => {
+        const command = buildStartGameCommand("duplicate-teams")
+        command.home._id = command.away._id
+
+        assert.throws(() => simService.startGame(command), /duplicate team instance id/i)
+    })
+
+    it("should reject missing team instance IDs", () => {
+        const command = buildStartGameCommand("missing-team")
+        command.away._id = ""
+
+        assert.throws(() => simService.startGame(command), /both teams must have an instance id/i)
+    })
+
+    it("should reject duplicate player instance IDs across opposing rosters", () => {
+        const command = buildStartGameCommand("duplicate-opposing-players")
+        command.homePlayers[0]._id = command.awayPlayers[0]._id
+
+        assert.throws(() => simService.startGame(command), /player instance ids must be unique across the game/i)
+    })
+
+    it("should reject duplicate player instance IDs within one roster", () => {
+        const command = buildStartGameCommand("duplicate-roster-players")
+        command.awayPlayers[1]._id = command.awayPlayers[0]._id
+
+        assert.throws(() => simService.startGame(command), /player instance ids must be unique across the game/i)
+    })
+
+    it("should reject empty player instance IDs", () => {
+        const command = buildStartGameCommand("empty-player-id")
+        command.homePlayers[0]._id = " "
+
+        assert.throws(() => simService.startGame(command), /every player must have a valid instance id/i)
+    })
+
+    it("should allow matching team and player source IDs when instance IDs differ", () => {
+        const command = buildStartGameCommand("shared-source-ids")
+        const game = simService.startGame(command)
+
+        assert.notEqual(game.away._id, game.home._id)
+        assert.equal(game.away.sourceId, "original-team")
+        assert.equal(game.home.sourceId, "original-team")
+        assert.equal(game.away.players[0].sourceId, game.home.players[0].sourceId)
+        assert.notEqual(game.away.players[0]._id, game.home.players[0]._id)
+        assert.equal(game.away.players[0].teamId, game.away._id)
+        assert.equal(game.home.players[0].teamId, game.home._id)
+    })
+
+    it("should allow the same source player to have multiple distinct roster instances", () => {
+        const command = buildStartGameCommand("player-clones")
+        const sourceId = command.awayPlayers[0].sourceId
+        command.awayPlayers[1].sourceId = sourceId
+
+        const game = simService.startGame(command)
+        assert.equal(game.away.players[0].sourceId, sourceId)
+        assert.equal(game.away.players[1].sourceId, sourceId)
+        assert.notEqual(game.away.players[0]._id, game.away.players[1]._id)
+    })
+
+    it("should reject a non-DH lineup whose pitcher spot does not match the starting pitcher", () => {
+        const command = buildStartGameCommand("mismatched-pitcher")
+        const pitcherSpot = command.awayLineup.order.find(spot => spot.position === Position.PITCHER)
+        const otherPitcher = command.awayAvailablePitchers[0]
+        assert.ok(pitcherSpot)
+        assert.ok(otherPitcher)
+        pitcherSpot._id = otherPitcher.playerId
+
+        assert.throws(() => simService.startGame(command), /starting pitcher must occupy the pitcher batting spot/i)
+    })
+
+    it("should allow a non-DH starting pitcher to bat outside the ninth spot", () => {
+        const command = buildStartGameCommand("pitcher-bats-first")
+        const pitcherIndex = command.awayLineup.order.findIndex(spot => spot.position === Position.PITCHER)
+        assert.ok(pitcherIndex >= 0)
+        const first = command.awayLineup.order[0]
+        command.awayLineup.order[0] = command.awayLineup.order[pitcherIndex]
+        command.awayLineup.order[pitcherIndex] = first
+
+        const game = simService.startGame(command)
+        assert.equal(game.away.lineupIds[0], command.awayStartingPitcher._id)
+    })
 
     it("should start a baseline game", () => {
         const game = buildGame("start-baseline-game")

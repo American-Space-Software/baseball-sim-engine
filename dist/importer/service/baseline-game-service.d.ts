@@ -6,6 +6,7 @@ declare class BaselineGameService {
     constructor(simService: SimService);
     buildStartedBaselineGame(pitchEnvironment: PitchEnvironmentTarget, gameId?: string, useDH?: boolean, stadiumEnvironment?: StadiumEnvironment): Game;
     buildStartedBaselineGameWithPlayer(pitchEnvironment: PitchEnvironmentTarget, player: Player, gameId?: string, useDH?: boolean, stadiumEnvironment?: StadiumEnvironment): Game;
+    private assignInstanceIds;
     private replaceBaselineLineupPlayer;
     private replaceBaselineStartingPitcher;
     buildBaselinePlayer(id: string, position: Position): Player;
