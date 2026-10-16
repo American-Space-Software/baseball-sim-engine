@@ -1,3 +1,4 @@
+
 # ⚾ baseball-sim-engine
 
 [![npm version](https://img.shields.io/npm/v/baseball-sim-engine.svg)](https://www.npmjs.com/package/baseball-sim-engine)
@@ -23,6 +24,8 @@ The simulation runtime and presentation layer work in browser environments. MLB 
 - Pitch-by-pitch game simulation
 - Deterministic outcomes with caller-supplied RNG
 - Ratings-driven hitters, pitchers, runners, and fielders
+- Unique simulation identities for teams and players
+- Optional source identities for historical and custom matchups
 - Configurable league-wide pitch environments
 - Configurable home-field advantage
 - Game-specific stadium environments
@@ -140,9 +143,7 @@ import {
     GamePlaybackService
 } from "baseball-sim-engine/presentation"
 
-const gamePlaybackService = new GamePlaybackService(
-    simService
-)
+const gamePlaybackService = new GamePlaybackService(simService)
 ```
 
 Framework7 components are also exported:
@@ -236,27 +237,23 @@ const command: StartGameCommand = {
     stadiumEnvironment,
 
     useDH: true,
-
     date: new Date("2026-09-21T12:00:00.000Z")
 }
 
 simService.startGame(command)
 
-const rng = seedrandom(
-    "example-seed"
-)
+const rng = seedrandom("example-seed")
 
 while (!game.isComplete) {
-    simService.simPitch(
-        game,
-        rng
-    )
+    simService.simPitch(game, rng)
 }
 
 simService.finishGame(game)
 ```
 
 The same inputs and RNG sequence produce the same game.
+
+Each team in the command must have a unique `_id`, and every player across both rosters must have a unique `_id`. Original identities can be retained using `sourceId`.
 
 ---
 
@@ -273,17 +270,12 @@ import {
     GamePlaybackService
 } from "baseball-sim-engine/presentation"
 
-const playback = new GamePlaybackService(
-    simService
-)
+const playback = new GamePlaybackService(simService)
 
-const game = playback.start(
-    command,
-    {
-        automatic: false,
-        seed: "example-seed"
-    }
-)
+const game = playback.start(command, {
+    automatic: false,
+    seed: "example-seed"
+})
 
 playback.advance()
 ```
@@ -314,9 +306,7 @@ import {
     mlbGameBundleService
 } from "baseball-sim-engine/ratings"
 
-const bundle = await mlbGameBundleService.build(
-    "2026-09-21"
-)
+const bundle = await mlbGameBundleService.build("2026-09-21")
 ```
 
 The resulting daily bundle contains the information required to construct and simulate the scheduled games for that date.
@@ -442,36 +432,39 @@ The MLB bundle pipeline can derive pitcher availability and bullpen assignments 
 The project separates the simulation runtime, presentation layer, and MLB data preparation.
 
 ```text
-                         baseball-database
-                                │
-              ┌─────────────────┼─────────────────┐
-              ▼                 ▼                 ▼
-      Player stat inputs   Rating inputs      MLB schedules
-              │                 │                 │
-              ▼                 ▼                 ▼
-       PlayerStatService  PlayerRatingService  Rosters
-              │                 │                 │
-              └────────────┬────┴────────────┬────┘
-                           │                 │
-                           ▼                 ▼
-                 Stadium environments   Team ratings
-                           │                 │
-                           └────────┬────────┘
-                                    ▼
-                           MlbGameBundleService
-                                    │
-                                    ▼
-                              MlbDailyBundle
-                                    │
-                                    ▼
-                               SimService
-                                    │
-                         ┌──────────┴──────────┐
-                         ▼                     ▼
-             Deterministic games      Presentation services
-                                               │
-                                               ▼
-                             View models / playback / components
+                        baseball-database
+                               |
+             +-----------------+-----------------+
+             |                 |                 |
+             v                 v                 v
+     Player stat inputs   Rating inputs      MLB schedules
+             |                 |                 |
+             v                 v                 v
+      PlayerStatService  PlayerRatingService  Rosters
+             |                 |                 |
+             +------------+----+-----------------+
+                          |                 |
+                          v                 v
+                Stadium environments   Team ratings
+                          |                 |
+                          +--------+--------+
+                                   |
+                                   v
+                          MlbGameBundleService
+                                   |
+                                   v
+                             MlbDailyBundle
+                                   |
+                                   v
+                              SimService
+                                   |
+                        +----------+----------+
+                        |                     |
+                        v                     v
+            Deterministic games      Presentation services
+                                              |
+                                              v
+                            View models / playback / components
 ```
 
 ### Simulation Runtime
@@ -569,14 +562,10 @@ Every game follows the same lifecycle:
 
 ```ts
 simService.initGame(game)
-
 simService.startGame(command)
 
 while (!game.isComplete) {
-    simService.simPitch(
-        game,
-        rng
-    )
+    simService.simPitch(game, rng)
 }
 
 simService.finishGame(game)
@@ -599,6 +588,8 @@ Loads:
 - Stadium environment
 - Designated hitter setting
 - Game date
+
+It also validates that the two team instance IDs differ, that all player instance IDs are globally unique within the game, and that the lineups are valid.
 
 ### `simPitch`
 
@@ -628,6 +619,7 @@ import type {
 
 const player: Player = {
     _id: "player-1",
+    sourceId: "original-player-1",
 
     firstName: "Example",
     lastName: "Player",
@@ -641,10 +633,7 @@ const player: Player = {
 
     primaryPosition: Position.SHORTSTOP,
     secondaryPositions: [],
-
-    positions: [
-        Position.SHORTSTOP
-    ],
+    positions: [Position.SHORTSTOP],
 
     hittingRatings: {
         // Contact, discipline, gap power, home-run power,
@@ -664,6 +653,77 @@ const player: Player = {
 Ratings are interpreted relative to the active `PitchEnvironmentTarget`.
 
 A rating does not define a fixed outcome rate by itself. It shifts player behavior around the environment baseline.
+
+### Simulation Identities
+
+Every team and player has an `_id` that identifies that specific instance within the game.
+
+An optional `sourceId` can preserve the identity of the original team or player from which the instance was created.
+
+- `_id` is the identity used internally by the simulation.
+- `sourceId` identifies the original source, when one exists.
+- Away and home teams must have different `_id` values.
+- Player `_id` values must be unique across both teams, including reserves.
+- Multiple instances may share the same `sourceId`.
+- `sourceId` is optional and has no requirement to contain an MLB identifier.
+
+For example, a game can use two versions of the same team:
+
+```ts
+const awayTeam = {
+    _id: "away-team-1",
+    sourceId: "team-109",
+    name: "Example Team",
+    abbrev: "EXA",
+    colors: {
+        color1: "#002D62",
+        color2: "#FFFFFF"
+    }
+}
+
+const homeTeam = {
+    _id: "home-team-1",
+    sourceId: "team-109",
+    name: "Example Team",
+    abbrev: "EXA",
+    colors: {
+        color1: "#002D62",
+        color2: "#FFFFFF"
+    }
+}
+```
+
+The two teams have distinct simulation identities but share the same original identity.
+
+The same rule applies to players. A simulation can contain multiple copies of a player, provided each copy has its own `_id`.
+
+For example:
+
+```ts
+const firstPlayer = {
+    _id: "away-player-1",
+    sourceId: "player-123"
+}
+
+const secondPlayer = {
+    _id: "home-player-1",
+    sourceId: "player-123"
+}
+```
+
+These values illustrate identity fields; complete players must also provide the required ratings and player attributes.
+
+Lineups, starting pitchers, bullpen assignments, substitutions, and game events refer to simulation instance IDs.
+
+This allows:
+
+- Historical versions of the same franchise to play each other
+- Duplicate players within or across teams
+- Teams consisting of multiple copies of one player
+- Fictional teams and players
+- Simulations that do not use MLB identities
+
+The host application is responsible for assigning unique simulation identities before starting a game. The simulation runtime does not automatically generate or remap those identities.
 
 ---
 
@@ -799,49 +859,23 @@ import type {
 
 const lineup: Lineup = {
     order: [
-        {
-            _id: "player-1",
-            position: Position.CENTER_FIELD
-        },
-        {
-            _id: "player-2",
-            position: Position.SHORTSTOP
-        },
-        {
-            _id: "player-3",
-            position: Position.FIRST_BASE
-        },
-        {
-            _id: "player-4",
-            position: Position.RIGHT_FIELD
-        },
-        {
-            _id: "player-5",
-            position: Position.LEFT_FIELD
-        },
-        {
-            _id: "player-6",
-            position: Position.THIRD_BASE
-        },
-        {
-            _id: "player-7",
-            position: Position.SECOND_BASE
-        },
-        {
-            _id: "player-8",
-            position: Position.CATCHER
-        },
-        {
-            _id: "player-9",
-            position: Position.DESIGNATED_HITTER
-        }
+        { _id: "player-1", position: Position.CENTER_FIELD },
+        { _id: "player-2", position: Position.SHORTSTOP },
+        { _id: "player-3", position: Position.FIRST_BASE },
+        { _id: "player-4", position: Position.RIGHT_FIELD },
+        { _id: "player-5", position: Position.LEFT_FIELD },
+        { _id: "player-6", position: Position.THIRD_BASE },
+        { _id: "player-7", position: Position.SECOND_BASE },
+        { _id: "player-8", position: Position.CATCHER },
+        { _id: "player-9", position: Position.DESIGNATED_HITTER }
     ],
-
     valid: true
 }
 ```
 
 When `useDH` is `false`, the starting pitcher may occupy a batting-order position instead.
+
+The `_id` values in a lineup identify the corresponding simulation player instances, not their optional source identities.
 
 ---
 
@@ -852,7 +886,6 @@ The engine supports games with or without a designated hitter.
 ```ts
 const command: StartGameCommand = {
     // ...
-
     useDH: true
 }
 ```
@@ -905,7 +938,6 @@ It can influence:
 ```ts
 const command: StartGameCommand = {
     // ...
-
     pitchEnvironmentTarget
 }
 ```
@@ -921,7 +953,6 @@ The supplied environment is used as the baseline for the game without requiring 
 ```ts
 const pitchEnvironmentTarget: PitchEnvironmentTarget = {
     // ...
-
     homeFieldAdvantage: 0.0425
 } as PitchEnvironmentTarget
 ```
@@ -962,7 +993,6 @@ const stadiumEnvironment: StadiumEnvironment = {
 ```ts
 const command: StartGameCommand = {
     // ...
-
     pitchEnvironmentTarget,
     stadiumEnvironment
 }
@@ -986,10 +1016,7 @@ The engine advances exactly one pitch per call.
 
 ```ts
 while (!game.isComplete) {
-    simService.simPitch(
-        game,
-        rng
-    )
+    simService.simPitch(game, rng)
 }
 ```
 
@@ -1183,14 +1210,9 @@ the engine produces identical:
 - Final game state
 
 ```ts
-const rng = seedrandom(
-    "stable-seed"
-)
+const rng = seedrandom("stable-seed")
 
-simService.simPitch(
-    game,
-    rng
-)
+simService.simPitch(game, rng)
 ```
 
 This makes the engine suitable for:
@@ -1234,17 +1256,11 @@ import {
     queries
 } from "baseball-database"
 
-await downloadSeason(
-    2025
-)
+await downloadSeason(2025)
 
-const schedule = queries.getSchedule(
-    2025
-)
+const schedule = queries.getSchedule(2025)
 
-const game = queries.getGame(
-    778557
-)
+const game = queries.getGame(778557)
 ```
 
 `baseball-database` uses the official MLB Stats API through the separately maintained [`mlb-stats-api`](https://www.npmjs.com/package/mlb-stats-api) package.
@@ -1264,10 +1280,7 @@ import {
     exportPitchEnvironmentTarget
 } from "baseball-sim-engine/importer"
 
-const result = await exportPitchEnvironmentTarget(
-    2025,
-    "./data"
-)
+const result = await exportPitchEnvironmentTarget(2025, "./data")
 ```
 
 The importer:
@@ -1290,10 +1303,7 @@ import {
     exportPlayerRatings
 } from "baseball-sim-engine/ratings"
 
-const playerRatings = await exportPlayerRatings(
-    2025,
-    "./data"
-)
+const playerRatings = await exportPlayerRatings(2025, "./data")
 ```
 
 A pitch environment must already exist for the requested season.
@@ -1387,6 +1397,7 @@ The engine is tested both functionally and statistically.
 Functional tests cover systems including:
 
 - Starting and finishing games
+- Simulation instance identity validation
 - Lineup validation
 - DH and non-DH games
 - Two-way players
@@ -1515,6 +1526,7 @@ The runtime includes:
 - Baseball game state
 - Pitch-by-pitch simulation
 - Player and team simulation inputs
+- Unique simulation identities
 - Lineups
 - Pitching roles
 - Substitution logic
