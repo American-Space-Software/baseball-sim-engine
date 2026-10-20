@@ -937,6 +937,7 @@ class StatAccumulatorService {
         return {
             count: 0,
             totalExitVelo: 0,
+            totalExitVeloSquared: 0,
             avgExitVelo: 0
         }
     }
@@ -945,6 +946,7 @@ class StatAccumulatorService {
         return {
             count: 0,
             totalLaunchAngle: 0,
+            totalLaunchAngleSquared: 0,
             avgLaunchAngle: 0
         }
     }
@@ -953,6 +955,7 @@ class StatAccumulatorService {
         return {
             count: 0,
             totalDistance: 0,
+            totalDistanceSquared: 0,
             avgDistance: 0
         }
     }
@@ -979,7 +982,12 @@ class StatAccumulatorService {
     private emptyPitchTypeMovementStat(): PitchTypeMovementStat {
         return {
             count: 0,
+            horizontalBreakCount: 0,
+            verticalBreakCount: 0,
             totalMph: 0,
+            totalMphSquared: 0,
+            totalHorizontalBreakSquared: 0,
+            totalVerticalBreakSquared: 0,
             avgMph: 0,
             totalHorizontalBreak: 0,
             avgHorizontalBreak: 0,
@@ -1190,6 +1198,7 @@ class StatAccumulatorService {
 
         stat.count++
         stat.totalLaunchAngle += launchAngle as number
+        stat.totalLaunchAngleSquared += ( launchAngle as number ) * ( launchAngle as number )
         stat.avgLaunchAngle = Number((stat.totalLaunchAngle / stat.count).toFixed(3))
     }
 
@@ -1198,6 +1207,7 @@ class StatAccumulatorService {
 
         stat.count++
         stat.totalDistance += totalDistance as number
+        stat.totalDistanceSquared += ( totalDistance as number ) * ( totalDistance as number )
         stat.avgDistance = Number((stat.totalDistance / stat.count).toFixed(3))
     }
 
@@ -1549,17 +1559,22 @@ class StatAccumulatorService {
         if (Number.isFinite(startSpeed) && (startSpeed as number) > 0) {
             current.count++
             current.totalMph += startSpeed as number
+            current.totalMphSquared += (startSpeed as number) * (startSpeed as number)
             current.avgMph = Number((current.totalMph / current.count).toFixed(3))
         }
 
         if (Number.isFinite(horizontalBreak)) {
+            current.horizontalBreakCount++
             current.totalHorizontalBreak += horizontalBreak as number
-            current.avgHorizontalBreak = Number((current.totalHorizontalBreak / current.count).toFixed(3))
+            current.totalHorizontalBreakSquared += (horizontalBreak as number) * (horizontalBreak as number)
+            current.avgHorizontalBreak = Number((current.totalHorizontalBreak / current.horizontalBreakCount).toFixed(3))
         }
 
         if (Number.isFinite(verticalBreak)) {
+            current.verticalBreakCount++
             current.totalVerticalBreak += verticalBreak as number
-            current.avgVerticalBreak = Number((current.totalVerticalBreak / current.count).toFixed(3))
+            current.totalVerticalBreakSquared += (verticalBreak as number) * (verticalBreak as number)
+            current.avgVerticalBreak = Number((current.totalVerticalBreak / current.verticalBreakCount).toFixed(3))
         }
 
         player.pitching.pitchTypes[pitchType] = current
@@ -1570,6 +1585,7 @@ class StatAccumulatorService {
 
         stat.count++
         stat.totalExitVelo += launchSpeed as number
+        stat.totalExitVeloSquared += ( launchSpeed as number ) * ( launchSpeed as number )
         stat.avgExitVelo = Number((stat.totalExitVelo / stat.count).toFixed(3))
     }
 

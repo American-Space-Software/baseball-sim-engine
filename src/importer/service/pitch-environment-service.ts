@@ -357,7 +357,7 @@ class PitchEnvironmentService {
             velocity: createMomentStat(),
             horizontalBreak: createMomentStat(),
             verticalBreak: createMomentStat(),
-            byPitchType: {} as Record<string, { count: number, totalVelocity: number, totalVelocitySquared: number, avgVelocity: number, totalHorizontalBreak: number, totalHorizontalBreakSquared: number, avgHorizontalBreak: number, totalVerticalBreak: number, totalVerticalBreakSquared: number, avgVerticalBreak: number }>
+            byPitchType: {} as Record<string, { count: number, horizontalBreakCount: number, verticalBreakCount: number, totalVelocity: number, totalVelocitySquared: number, avgVelocity: number, totalHorizontalBreak: number, totalHorizontalBreakSquared: number, avgHorizontalBreak: number, totalVerticalBreak: number, totalVerticalBreakSquared: number, avgVerticalBreak: number }>
         }
 
         return {
@@ -1461,7 +1461,7 @@ class PitchEnvironmentService {
     }
 
     private static accumulatePitchEnvironmentPhysics(player: PlayerImportRaw, hittingPhysicsTotals: any, pitchingPhysicsTotals: any): void {
-        const addMomentStat = (target: { count: number, total: number, totalSquared: number, avg: number }, stat?: { count?: number, totalExitVelo?: number, avgExitVelo?: number, totalLaunchAngle?: number, avgLaunchAngle?: number, totalDistance?: number, avgDistance?: number }, totalKey?: "totalExitVelo" | "totalLaunchAngle" | "totalDistance", avgKey?: "avgExitVelo" | "avgLaunchAngle" | "avgDistance"): void => {
+        const addMomentStat = (target: { count: number, total: number, totalSquared: number, avg: number }, stat?: { count?: number, totalExitVelo?: number, totalExitVeloSquared?: number, avgExitVelo?: number, totalLaunchAngle?: number, totalLaunchAngleSquared?: number, avgLaunchAngle?: number, totalDistance?: number, totalDistanceSquared?: number, avgDistance?: number }, totalKey?: "totalExitVelo" | "totalLaunchAngle" | "totalDistance", avgKey?: "avgExitVelo" | "avgLaunchAngle" | "avgDistance"): void => {
             if (!stat || !totalKey || !avgKey) return
 
             const count = Number(stat.count ?? 0)
@@ -1472,11 +1472,11 @@ class PitchEnvironmentService {
 
             target.count += count
             target.total += total
-            target.totalSquared += count * avg * avg
+            target.totalSquared += Number((stat as any)[`${totalKey}Squared`] ?? 0)
             target.avg = target.count > 0 ? Number((target.total / target.count).toFixed(3)) : 0
         }
 
-        const addTrajectoryPhysics = (target: { count: number, totalExitVelocity: number, totalExitVelocitySquared: number, avgExitVelocity: number, totalLaunchAngle: number, totalLaunchAngleSquared: number, avgLaunchAngle: number, totalDistance: number, totalDistanceSquared: number, avgDistance: number }, stat?: { exitVelocity?: { count?: number, totalExitVelo?: number, avgExitVelo?: number }, launchAngle?: { count?: number, totalLaunchAngle?: number, avgLaunchAngle?: number }, distance?: { count?: number, totalDistance?: number, avgDistance?: number } }): void => {
+        const addTrajectoryPhysics = (target: { count: number, totalExitVelocity: number, totalExitVelocitySquared: number, avgExitVelocity: number, totalLaunchAngle: number, totalLaunchAngleSquared: number, avgLaunchAngle: number, totalDistance: number, totalDistanceSquared: number, avgDistance: number }, stat?: { exitVelocity?: { count?: number, totalExitVelo?: number, totalExitVeloSquared?: number, avgExitVelo?: number }, launchAngle?: { count?: number, totalLaunchAngle?: number, totalLaunchAngleSquared?: number, avgLaunchAngle?: number }, distance?: { count?: number, totalDistance?: number, totalDistanceSquared?: number, avgDistance?: number } }): void => {
             if (!stat) return
 
             const evCount = Number(stat.exitVelocity?.count ?? 0)
@@ -1495,17 +1495,17 @@ class PitchEnvironmentService {
 
             if (evCount > 0 && Number.isFinite(evTotal) && Number.isFinite(evAvg)) {
                 target.totalExitVelocity += evTotal
-                target.totalExitVelocitySquared += evCount * evAvg * evAvg
+                target.totalExitVelocitySquared += Number(stat.exitVelocity?.totalExitVeloSquared ?? 0)
             }
 
             if (laCount > 0 && Number.isFinite(laTotal) && Number.isFinite(laAvg)) {
                 target.totalLaunchAngle += laTotal
-                target.totalLaunchAngleSquared += laCount * laAvg * laAvg
+                target.totalLaunchAngleSquared += Number(stat.launchAngle?.totalLaunchAngleSquared ?? 0)
             }
 
             if (distCount > 0 && Number.isFinite(distTotal) && Number.isFinite(distAvg)) {
                 target.totalDistance += distTotal
-                target.totalDistanceSquared += distCount * distAvg * distAvg
+                target.totalDistanceSquared += Number(stat.distance?.totalDistanceSquared ?? 0)
             }
         }
 
@@ -1513,7 +1513,9 @@ class PitchEnvironmentService {
             if (!stat) return
 
             const count = Number(stat.count ?? 0)
-            if (count <= 0) return
+            const horizontalBreakCount = Number(stat.horizontalBreakCount ?? 0)
+            const verticalBreakCount = Number(stat.verticalBreakCount ?? 0)
+            if (count <= 0 && horizontalBreakCount <= 0 && verticalBreakCount <= 0) return
 
             const totalMph = Number(stat.totalMph ?? 0)
             const avgMph = Number(stat.avgMph ?? 0)
@@ -1524,6 +1526,8 @@ class PitchEnvironmentService {
 
             const current = pitchingPhysicsTotals.byPitchType[pitchTypeKey] ?? {
                 count: 0,
+                horizontalBreakCount: 0,
+                verticalBreakCount: 0,
                 totalVelocity: 0,
                 totalVelocitySquared: 0,
                 avgVelocity: 0,
@@ -1536,30 +1540,32 @@ class PitchEnvironmentService {
             }
 
             current.count += count
+            current.horizontalBreakCount += horizontalBreakCount
+            current.verticalBreakCount += verticalBreakCount
             current.totalVelocity += totalMph
-            current.totalVelocitySquared += count * avgMph * avgMph
+            current.totalVelocitySquared += Number(stat.totalMphSquared ?? 0)
             current.totalHorizontalBreak += totalHorizontalBreak
-            current.totalHorizontalBreakSquared += count * avgHorizontalBreak * avgHorizontalBreak
+            current.totalHorizontalBreakSquared += Number(stat.totalHorizontalBreakSquared ?? 0)
             current.totalVerticalBreak += totalVerticalBreak
-            current.totalVerticalBreakSquared += count * avgVerticalBreak * avgVerticalBreak
+            current.totalVerticalBreakSquared += Number(stat.totalVerticalBreakSquared ?? 0)
 
             current.avgVelocity = current.count > 0 ? Number((current.totalVelocity / current.count).toFixed(3)) : 0
-            current.avgHorizontalBreak = current.count > 0 ? Number((current.totalHorizontalBreak / current.count).toFixed(3)) : 0
-            current.avgVerticalBreak = current.count > 0 ? Number((current.totalVerticalBreak / current.count).toFixed(3)) : 0
+            current.avgHorizontalBreak = current.horizontalBreakCount > 0 ? Number((current.totalHorizontalBreak / current.horizontalBreakCount).toFixed(3)) : 0
+            current.avgVerticalBreak = current.verticalBreakCount > 0 ? Number((current.totalVerticalBreak / current.verticalBreakCount).toFixed(3)) : 0
 
             pitchingPhysicsTotals.byPitchType[pitchTypeKey] = current
 
             pitchingPhysicsTotals.velocity.count += count
             pitchingPhysicsTotals.velocity.total += totalMph
-            pitchingPhysicsTotals.velocity.totalSquared += count * avgMph * avgMph
+            pitchingPhysicsTotals.velocity.totalSquared += Number(stat.totalMphSquared ?? 0)
 
-            pitchingPhysicsTotals.horizontalBreak.count += count
+            pitchingPhysicsTotals.horizontalBreak.count += horizontalBreakCount
             pitchingPhysicsTotals.horizontalBreak.total += totalHorizontalBreak
-            pitchingPhysicsTotals.horizontalBreak.totalSquared += count * avgHorizontalBreak * avgHorizontalBreak
+            pitchingPhysicsTotals.horizontalBreak.totalSquared += Number(stat.totalHorizontalBreakSquared ?? 0)
 
-            pitchingPhysicsTotals.verticalBreak.count += count
+            pitchingPhysicsTotals.verticalBreak.count += verticalBreakCount
             pitchingPhysicsTotals.verticalBreak.total += totalVerticalBreak
-            pitchingPhysicsTotals.verticalBreak.totalSquared += count * avgVerticalBreak * avgVerticalBreak
+            pitchingPhysicsTotals.verticalBreak.totalSquared += Number(stat.totalVerticalBreakSquared ?? 0)
         }
 
         addMomentStat(hittingPhysicsTotals.exitVelocity, player.hitting.exitVelocity, "totalExitVelo", "avgExitVelo")
@@ -1660,8 +1666,8 @@ class PitchEnvironmentService {
         for (const pitchTypeKey of Object.keys(pitchingPhysicsTotals.byPitchType)) {
             const stat = pitchingPhysicsTotals.byPitchType[pitchTypeKey]
             stat.avgVelocity = stat.count > 0 ? Number((stat.totalVelocity / stat.count).toFixed(3)) : 0
-            stat.avgHorizontalBreak = stat.count > 0 ? Number((stat.totalHorizontalBreak / stat.count).toFixed(3)) : 0
-            stat.avgVerticalBreak = stat.count > 0 ? Number((stat.totalVerticalBreak / stat.count).toFixed(3)) : 0
+            stat.avgHorizontalBreak = stat.horizontalBreakCount > 0 ? Number((stat.totalHorizontalBreak / stat.horizontalBreakCount).toFixed(3)) : 0
+            stat.avgVerticalBreak = stat.verticalBreakCount > 0 ? Number((stat.totalVerticalBreak / stat.verticalBreakCount).toFixed(3)) : 0
             stat.totalVelocity = Number(stat.totalVelocity.toFixed(3))
             stat.totalVelocitySquared = Number(stat.totalVelocitySquared.toFixed(3))
             stat.totalHorizontalBreak = Number(stat.totalHorizontalBreak.toFixed(3))
@@ -1684,12 +1690,7 @@ class PitchEnvironmentService {
 
         target.totalDistance = Number(target.totalDistance.toFixed(3))
 
-        const distanceMeanSquare = target.count > 0 ? target.totalDistanceSquared / target.count : 0
-        const distanceVariance = Math.max(0, distanceMeanSquare - Math.pow(target.avgDistance, 2))
-
-        target.totalDistanceSquared = Number(
-            (target.count * (distanceVariance + Math.pow(target.avgDistance, 2))).toFixed(3)
-        )
+        target.totalDistanceSquared = Number(target.totalDistanceSquared.toFixed(3))
 
         return target
     }

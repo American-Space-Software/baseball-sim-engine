@@ -42,6 +42,7 @@ class SchemaService {
                 hitting_balls_in_play INTEGER NOT NULL,
                 hitting_exit_velocity_count REAL NOT NULL,
                 hitting_total_exit_velocity REAL NOT NULL,
+                hitting_total_exit_velocity_squared REAL NOT NULL,
 
                 pitching_games INTEGER NOT NULL,
                 pitching_starts INTEGER NOT NULL,
@@ -204,6 +205,7 @@ class SchemaService {
                 hitting_balls_in_play INTEGER NOT NULL,
                 hitting_exit_velocity_count REAL NOT NULL,
                 hitting_total_exit_velocity REAL NOT NULL,
+                hitting_total_exit_velocity_squared REAL NOT NULL,
 
                 pitching_games INTEGER NOT NULL,
                 pitching_starts INTEGER NOT NULL,

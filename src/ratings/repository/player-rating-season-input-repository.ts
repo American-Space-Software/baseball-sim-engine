@@ -42,6 +42,7 @@ interface PlayerRatingSeasonInputRow {
     hittingBallsInPlay: number
     hittingExitVelocityCount: number
     hittingTotalExitVelocity: number
+    hittingTotalExitVelocitySquared: number
     pitchingGames: number
     pitchingStarts: number
     pitchingBattersFaced: number
@@ -193,6 +194,7 @@ class PlayerRatingSeasonInputRepository {
                 player_rating_season_inputs.hitting_balls_in_play AS hittingBallsInPlay,
                 player_rating_season_inputs.hitting_exit_velocity_count AS hittingExitVelocityCount,
                 player_rating_season_inputs.hitting_total_exit_velocity AS hittingTotalExitVelocity,
+                player_rating_season_inputs.hitting_total_exit_velocity_squared AS hittingTotalExitVelocitySquared,
                 player_rating_season_inputs.pitching_games AS pitchingGames,
                 player_rating_season_inputs.pitching_starts AS pitchingStarts,
                 player_rating_season_inputs.pitching_batters_faced AS pitchingBattersFaced,
@@ -336,6 +338,7 @@ class PlayerRatingSeasonInputRepository {
                 player_rating_season_inputs.hitting_balls_in_play AS hittingBallsInPlay,
                 player_rating_season_inputs.hitting_exit_velocity_count AS hittingExitVelocityCount,
                 player_rating_season_inputs.hitting_total_exit_velocity AS hittingTotalExitVelocity,
+                player_rating_season_inputs.hitting_total_exit_velocity_squared AS hittingTotalExitVelocitySquared,
                 player_rating_season_inputs.pitching_games AS pitchingGames,
                 player_rating_season_inputs.pitching_starts AS pitchingStarts,
                 player_rating_season_inputs.pitching_batters_faced AS pitchingBattersFaced,
@@ -556,6 +559,7 @@ class PlayerRatingSeasonInputRepository {
                 exitVelocity: {
                     count: row.hittingExitVelocityCount,
                     totalExitVelo: row.hittingTotalExitVelocity,
+                    totalExitVeloSquared: row.hittingTotalExitVelocitySquared,
                     avgExitVelo: this.getAverage(
                         row.hittingTotalExitVelocity,
                         row.hittingExitVelocityCount
@@ -737,6 +741,7 @@ const createQuery = `
                         player_rating_inputs.hitting_balls_in_play,
                         player_rating_inputs.hitting_exit_velocity_count,
                         player_rating_inputs.hitting_total_exit_velocity,
+                        player_rating_inputs.hitting_total_exit_velocity_squared,
                         player_rating_inputs.pitching_games,
                         player_rating_inputs.pitching_starts,
                         player_rating_inputs.pitching_batters_faced,
@@ -859,6 +864,7 @@ const createQuery = `
                         SUM(season_rows.hitting_balls_in_play) AS hitting_balls_in_play,
                         SUM(season_rows.hitting_exit_velocity_count) AS hitting_exit_velocity_count,
                         SUM(season_rows.hitting_total_exit_velocity) AS hitting_total_exit_velocity,
+                        SUM(season_rows.hitting_total_exit_velocity_squared) AS hitting_total_exit_velocity_squared,
                         SUM(season_rows.pitching_games) AS pitching_games,
                         SUM(season_rows.pitching_starts) AS pitching_starts,
                         SUM(season_rows.pitching_batters_faced) AS pitching_batters_faced,
@@ -947,9 +953,14 @@ const createQuery = `
                     season_rows.player_id,
                     pitch_type.key AS pitch_type,
                     SUM(COALESCE(json_extract(pitch_type.value, '$.count'), 0)) AS count,
+                    SUM(COALESCE(json_extract(pitch_type.value, '$.horizontalBreakCount'), 0)) AS horizontal_break_count,
+                    SUM(COALESCE(json_extract(pitch_type.value, '$.verticalBreakCount'), 0)) AS vertical_break_count,
                     SUM(COALESCE(json_extract(pitch_type.value, '$.totalMph'), 0)) AS total_mph,
+                    SUM(COALESCE(json_extract(pitch_type.value, '$.totalMphSquared'), 0)) AS total_mph_squared,
                     SUM(COALESCE(json_extract(pitch_type.value, '$.totalHorizontalBreak'), 0)) AS total_horizontal_break,
-                    SUM(COALESCE(json_extract(pitch_type.value, '$.totalVerticalBreak'), 0)) AS total_vertical_break
+                    SUM(COALESCE(json_extract(pitch_type.value, '$.totalHorizontalBreakSquared'), 0)) AS total_horizontal_break_squared,
+                    SUM(COALESCE(json_extract(pitch_type.value, '$.totalVerticalBreak'), 0)) AS total_vertical_break,
+                    SUM(COALESCE(json_extract(pitch_type.value, '$.totalVerticalBreakSquared'), 0)) AS total_vertical_break_squared
                 FROM season_rows
                 INNER JOIN json_each(season_rows.pitch_types) pitch_type
                 GROUP BY
@@ -963,7 +974,10 @@ const createQuery = `
                         pitch_type_totals.pitch_type,
                         json_object(
                             'count', pitch_type_totals.count,
+                            'horizontalBreakCount', pitch_type_totals.horizontal_break_count,
+                            'verticalBreakCount', pitch_type_totals.vertical_break_count,
                             'totalMph', pitch_type_totals.total_mph,
+                            'totalMphSquared', pitch_type_totals.total_mph_squared,
                             'avgMph', CASE
                                 WHEN pitch_type_totals.count > 0
                                 THEN ROUND(
@@ -974,21 +988,23 @@ const createQuery = `
                                 ELSE 0
                             END,
                             'totalHorizontalBreak', pitch_type_totals.total_horizontal_break,
+                            'totalHorizontalBreakSquared', pitch_type_totals.total_horizontal_break_squared,
                             'avgHorizontalBreak', CASE
-                                WHEN pitch_type_totals.count > 0
+                                WHEN pitch_type_totals.horizontal_break_count > 0
                                 THEN ROUND(
                                     pitch_type_totals.total_horizontal_break /
-                                    pitch_type_totals.count,
+                                    pitch_type_totals.horizontal_break_count,
                                     3
                                 )
                                 ELSE 0
                             END,
                             'totalVerticalBreak', pitch_type_totals.total_vertical_break,
+                            'totalVerticalBreakSquared', pitch_type_totals.total_vertical_break_squared,
                             'avgVerticalBreak', CASE
-                                WHEN pitch_type_totals.count > 0
+                                WHEN pitch_type_totals.vertical_break_count > 0
                                 THEN ROUND(
                                     pitch_type_totals.total_vertical_break /
-                                    pitch_type_totals.count,
+                                    pitch_type_totals.vertical_break_count,
                                     3
                                 )
                                 ELSE 0
@@ -1072,6 +1088,7 @@ const createQuery = `
                 hitting_balls_in_play,
                 hitting_exit_velocity_count,
                 hitting_total_exit_velocity,
+                hitting_total_exit_velocity_squared,
                 pitching_games,
                 pitching_starts,
                 pitching_batters_faced,
@@ -1188,6 +1205,7 @@ const createQuery = `
                 player_totals.hitting_balls_in_play,
                 player_totals.hitting_exit_velocity_count,
                 player_totals.hitting_total_exit_velocity,
+                player_totals.hitting_total_exit_velocity_squared,
                 player_totals.pitching_games,
                 player_totals.pitching_starts,
                 player_totals.pitching_batters_faced,
@@ -1308,6 +1326,7 @@ const createQuery = `
                 hitting_balls_in_play = excluded.hitting_balls_in_play,
                 hitting_exit_velocity_count = excluded.hitting_exit_velocity_count,
                 hitting_total_exit_velocity = excluded.hitting_total_exit_velocity,
+                hitting_total_exit_velocity_squared = excluded.hitting_total_exit_velocity_squared,
                 pitching_games = excluded.pitching_games,
                 pitching_starts = excluded.pitching_starts,
                 pitching_batters_faced = excluded.pitching_batters_faced,

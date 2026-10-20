@@ -437,21 +437,31 @@ describe("StatAccumulatorService", function () {
 
         assert.deepEqual(pitcher.pitching.pitchTypes[PitchType.FF], {
             count: 2,
+            horizontalBreakCount: 2,
+            verticalBreakCount: 2,
             totalMph: 192,
+            totalMphSquared: 95 ** 2 + 97 ** 2,
             avgMph: 96,
             totalHorizontalBreak: 10,
+            totalHorizontalBreakSquared: 4 ** 2 + 6 ** 2,
             avgHorizontalBreak: 5,
             totalVerticalBreak: -22,
+            totalVerticalBreakSquared: (-10) ** 2 + (-12) ** 2,
             avgVerticalBreak: -11
         })
 
         assert.deepEqual(pitcher.pitching.pitchTypes[PitchType.SL], {
             count: 1,
+            horizontalBreakCount: 1,
+            verticalBreakCount: 1,
             totalMph: 87,
+            totalMphSquared: 87 ** 2,
             avgMph: 87,
             totalHorizontalBreak: 8,
+            totalHorizontalBreakSquared: 8 ** 2,
             avgHorizontalBreak: 8,
             totalVerticalBreak: -3,
+            totalVerticalBreakSquared: (-3) ** 2,
             avgVerticalBreak: -3
         })
     })
@@ -473,16 +483,19 @@ describe("StatAccumulatorService", function () {
         assert.deepEqual(batter.hitting.exitVelocity, {
             count: 1,
             totalExitVelo: 102.4,
+            totalExitVeloSquared: 102.4 ** 2,
             avgExitVelo: 102.4
         })
         assert.deepEqual(batter.hitting.launchAngle, {
             count: 1,
             totalLaunchAngle: 14,
+            totalLaunchAngleSquared: 14 ** 2,
             avgLaunchAngle: 14
         })
         assert.deepEqual(batter.hitting.distance, {
             count: 1,
             totalDistance: 224,
+            totalDistanceSquared: 224 ** 2,
             avgDistance: 224
         })
         assert.deepEqual(batter.hitting.coordinates, {
@@ -552,6 +565,7 @@ describe("StatAccumulatorService", function () {
         assert.deepEqual(pitcher.pitching.exitVelocityAllowed, {
             count: 1,
             totalExitVelo: 102.4,
+            totalExitVeloSquared: 102.4 ** 2,
             avgExitVelo: 102.4
         })
         assert.equal(pitcher.pitching.battedBallLocationAllowed["7"], 1)
@@ -987,5 +1001,54 @@ describe("StatAccumulatorService", function () {
         assert.equal(runner.running.pickoffAttemptsFaced, 1)
     })
 
+
+
+    it("preserves per-pitch squared moments when movement readings are missing", function () {
+        const harness = new StatAccumulatorServiceTestHarness()
+        const first = harness.buildPlay().playEvents[0]
+        const second = structuredClone(first)
+        const third = structuredClone(first)
+        first.pitchData = { ...first.pitchData, startSpeed: 90, breaks: { breakHorizontal: 5, breakVertical: -10 } }
+        second.pitchData = { ...second.pitchData, startSpeed: 100, breaks: { breakHorizontal: 7, breakVertical: -6 } }
+        third.pitchData = { ...third.pitchData, startSpeed: 95, breaks: {} }
+        first.details.isInPlay = false
+        second.details.isInPlay = false
+        third.details.isInPlay = false
+        harness.accumulate({ allPlays: [harness.buildPlay({ playEvents: [first, second, third] })] })
+
+        const stat = harness.getPlayer("201").pitching.pitchTypes[PitchType.FF]!
+        assert.equal(stat.count, 3)
+        assert.equal(stat.totalMph, 285)
+        assert.equal(stat.totalMphSquared, 90 ** 2 + 100 ** 2 + 95 ** 2)
+        assert.equal(stat.horizontalBreakCount, 2)
+        assert.equal(stat.verticalBreakCount, 2)
+        assert.equal(stat.totalHorizontalBreakSquared, 5 ** 2 + 7 ** 2)
+        assert.equal(stat.totalVerticalBreakSquared, (-10) ** 2 + (-6) ** 2)
+        assert.equal(stat.avgHorizontalBreak, 6)
+        assert.equal(stat.avgVerticalBreak, -8)
+    })
+
+    it("preserves within-player batted-ball variance and trajectory physics", function () {
+        const harness = new StatAccumulatorServiceTestHarness()
+        const first = harness.buildPlay({ atBatIndex: 1, about: { atBatIndex: 1 }, playEvents: [harness.buildPlay().playEvents[0]] })
+        const second = harness.buildPlay({
+            atBatIndex: 2,
+            about: { atBatIndex: 2 },
+            playEvents: [structuredClone(first.playEvents[0])]
+        })
+        first.playEvents[0].hitData = { ...first.playEvents[0].hitData, launchSpeed: 80, launchAngle: 10, totalDistance: 200 }
+        second.playEvents[0].hitData = { ...second.playEvents[0].hitData, launchSpeed: 100, launchAngle: 30, totalDistance: 300 }
+        harness.accumulate({ allPlays: [first, second] })
+
+        const hitting = harness.getPlayer("101").hitting
+        const lineDrive = hitting.physicsByTrajectory.lineDrive
+        assert.equal(hitting.exitVelocity.totalExitVeloSquared, 80 ** 2 + 100 ** 2)
+        assert.equal(hitting.launchAngle.totalLaunchAngleSquared, 10 ** 2 + 30 ** 2)
+        assert.equal(hitting.distance.totalDistanceSquared, 200 ** 2 + 300 ** 2)
+        assert.equal(lineDrive.exitVelocity.totalExitVeloSquared, 80 ** 2 + 100 ** 2)
+        assert.equal(lineDrive.launchAngle.totalLaunchAngleSquared, 10 ** 2 + 30 ** 2)
+        assert.equal(lineDrive.distance.totalDistanceSquared, 200 ** 2 + 300 ** 2)
+        assert.equal(harness.getPlayer("201").pitching.exitVelocityAllowed.totalExitVeloSquared, 80 ** 2 + 100 ** 2)
+    })
 
 })

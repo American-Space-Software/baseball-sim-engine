@@ -936,6 +936,8 @@ interface PitchPhysics {
     }
     byPitchType: Partial<Record<PitchType, {
         count: number
+        horizontalBreakCount: number
+        verticalBreakCount: number
         totalVelocity: number
         totalVelocitySquared: number
         avgVelocity: number
@@ -1532,18 +1534,21 @@ interface PlayerPitchingSplitStats {
 interface ExitVelocityStat {
     count: number
     totalExitVelo: number
+    totalExitVeloSquared: number
     avgExitVelo: number
 }
 
 interface LaunchAngleStat {
     count: number
     totalLaunchAngle: number
+    totalLaunchAngleSquared: number
     avgLaunchAngle: number
 }
 
 interface DistanceStat {
     count: number
     totalDistance: number
+    totalDistanceSquared: number
     avgDistance: number
 }
 
@@ -1564,12 +1569,19 @@ interface BattedBallPhysicsStat {
 
 interface PitchTypeMovementStat {
     count: number
+    horizontalBreakCount: number
+    verticalBreakCount: number
+    
     totalMph: number
     avgMph: number
     totalHorizontalBreak: number
     avgHorizontalBreak: number
     totalVerticalBreak: number
     avgVerticalBreak: number
+
+    totalMphSquared: number
+    totalHorizontalBreakSquared: number
+    totalVerticalBreakSquared: number    
 }
 
 interface PlayerRunningStatsRaw {

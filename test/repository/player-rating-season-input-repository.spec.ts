@@ -236,6 +236,7 @@ class PlayerRatingSeasonInputRepositoryTestHarness {
                 exitVelocity: {
                     count: plateAppearances,
                     totalExitVelo: plateAppearances * 90,
+                    totalExitVeloSquared: plateAppearances * 8100,
                     avgExitVelo: plateAppearances > 0
                         ? 90
                         : 0
@@ -370,19 +371,29 @@ class PlayerRatingSeasonInputRepositoryTestHarness {
             FF: {
                 count: 1,
                 totalMph: 95,
+                totalMphSquared: 9025,
+                horizontalBreakCount: 1,
+                verticalBreakCount: 1,
                 avgMph: 95,
                 totalHorizontalBreak: 5,
+                totalHorizontalBreakSquared: 25,
                 avgHorizontalBreak: 5,
                 totalVerticalBreak: 12,
+                totalVerticalBreakSquared: 144,
                 avgVerticalBreak: 12
             },
             SL: {
                 count: 1,
                 totalMph: 86,
+                totalMphSquared: 7396,
+                horizontalBreakCount: 1,
+                verticalBreakCount: 1,
                 avgMph: 86,
                 totalHorizontalBreak: 8,
+                totalHorizontalBreakSquared: 64,
                 avgHorizontalBreak: 8,
                 totalVerticalBreak: 4,
+                totalVerticalBreakSquared: 16,
                 avgVerticalBreak: 4
             }
         }
@@ -1024,6 +1035,50 @@ describe("PlayerRatingSeasonInputRepository", function () {
             ),
             /filters must contain positive numeric player IDs/
         )
+    })
+})
+
+describe("PlayerRatingSeasonInputRepository physics variance", function () {
+    let harness: PlayerRatingSeasonInputRepositoryTestHarness
+    beforeEach(function () { harness = new PlayerRatingSeasonInputRepositoryTestHarness() })
+    afterEach(function () { harness.close() })
+
+    it("sums squared exit velocities rather than squaring the total", function () {
+        harness.putGame(1, "2025-04-01")
+        harness.putGame(2, "2025-04-02")
+        harness.putInput(1, harness.buildInput("101", 2))
+        harness.putInput(2, harness.buildInput("101", 3))
+        harness.repository.create(2025)
+        const data = harness.repository.getBySeason(2025)[0]?.data
+        assert.ok(data)
+        assert.equal(data.hitting.exitVelocity.count, 5)
+        assert.equal(data.hitting.exitVelocity.totalExitVeloSquared, 40500)
+    })
+
+    it("retains squared pitch moments and independent movement counts across the season", function () {
+        harness.putGame(1, "2025-04-01")
+        harness.putGame(2, "2025-04-02")
+        for (const gamePk of [1, 2]) {
+            const input = harness.buildInput("101", 1)
+            input.pitching.pitchTypes = {
+                FF: {
+                    count: 2, horizontalBreakCount: 1, verticalBreakCount: 2,
+                    totalMph: 190, totalMphSquared: 18052, avgMph: 95,
+                    totalHorizontalBreak: 5, totalHorizontalBreakSquared: 25, avgHorizontalBreak: 5,
+                    totalVerticalBreak: 20, totalVerticalBreakSquared: 208, avgVerticalBreak: 10
+                }
+            }
+            harness.putInput(gamePk, input)
+        }
+        harness.repository.create(2025)
+        const pitch = harness.repository.getBySeason(2025)[0]?.data.pitching.pitchTypes.FF
+        assert.ok(pitch)
+        assert.equal(pitch.count, 4)
+        assert.equal(pitch.horizontalBreakCount, 2)
+        assert.equal(pitch.verticalBreakCount, 4)
+        assert.equal(pitch.totalMphSquared, 36104)
+        assert.equal(pitch.totalHorizontalBreakSquared, 50)
+        assert.equal(pitch.totalVerticalBreakSquared, 416)
     })
 })
 

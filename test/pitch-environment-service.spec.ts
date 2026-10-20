@@ -524,6 +524,85 @@ describe("PitchEnvironmentService", function () {
             )
         })
 
+
+        it("preserves imported pitch moments and independent movement counts", function () {
+            const player = createPlayer("velocity")
+            const ff = player.pitching.pitchTypes!.FF!
+            ff.count = 3
+            ff.totalMph = 285
+            ff.totalMphSquared = 90 ** 2 + 95 ** 2 + 100 ** 2
+            ff.horizontalBreakCount = 2
+            ff.totalHorizontalBreak = 12
+            ff.totalHorizontalBreakSquared = 5 ** 2 + 7 ** 2
+            ff.verticalBreakCount = 2
+            ff.totalVerticalBreak = -16
+            ff.totalVerticalBreakSquared = (-10) ** 2 + (-6) ** 2
+
+            const target = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(2026, new Map([["velocity", player]]), 0.0425)
+            const physics = target.importReference.pitcher.physics
+            const actual = physics.byPitchType.FF!
+            assert.equal(actual.count, 3)
+            assert.equal(actual.horizontalBreakCount, 2)
+            assert.equal(actual.verticalBreakCount, 2)
+            assert.equal(actual.totalVelocitySquared, 90 ** 2 + 95 ** 2 + 100 ** 2)
+            assert.equal(actual.avgVelocity, 95)
+            assert.equal(actual.totalHorizontalBreakSquared, 5 ** 2 + 7 ** 2)
+            assert.equal(actual.avgHorizontalBreak, 6)
+            assert.equal(actual.avgVerticalBreak, -8)
+            assert.equal(physics.velocity.totalSquared, actual.totalVelocitySquared)
+            assert.equal(physics.horizontalBreak.count, 2)
+            assert.equal(physics.verticalBreak.count, 2)
+            assert.ok(physics.velocity.totalSquared / physics.velocity.count - physics.velocity.avg ** 2 > 0)
+        })
+
+        it("preserves hitting squared totals through finalization", function () {
+            const player = createPlayer("hitting")
+            player.hitting.exitVelocity = { count: 2, totalExitVelo: 180, totalExitVeloSquared: 80 ** 2 + 100 ** 2, avgExitVelo: 90 }
+            player.hitting.launchAngle = { count: 2, totalLaunchAngle: 40, totalLaunchAngleSquared: 10 ** 2 + 30 ** 2, avgLaunchAngle: 20 }
+            player.hitting.distance = { count: 2, totalDistance: 500, totalDistanceSquared: 200 ** 2 + 300 ** 2, avgDistance: 250 }
+            player.hitting.physicsByTrajectory.flyBall = {
+                exitVelocity: structuredClone(player.hitting.exitVelocity),
+                launchAngle: structuredClone(player.hitting.launchAngle),
+                distance: structuredClone(player.hitting.distance),
+                coordinates: { count: 0, totalCoordX: 0, avgCoordX: 0, totalCoordY: 0, avgCoordY: 0 }
+            }
+            const target = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(2026, new Map([["hitting", player]]), 0.0425)
+            const physics = target.importReference.hitter.physics
+            assert.equal(physics.exitVelocity.totalSquared, 80 ** 2 + 100 ** 2)
+            assert.equal(physics.launchAngle.totalSquared, 10 ** 2 + 30 ** 2)
+            assert.equal(physics.distance.totalSquared, 200 ** 2 + 300 ** 2)
+            assert.equal(physics.byTrajectory.flyBall.totalExitVelocitySquared, 80 ** 2 + 100 ** 2)
+            assert.equal(physics.byTrajectory.flyBall.totalLaunchAngleSquared, 10 ** 2 + 30 ** 2)
+            assert.equal(physics.byTrajectory.flyBall.totalDistanceSquared, 200 ** 2 + 300 ** 2)
+        })
+
+        it("retains squared moments when rolling aggregates are added and subtracted", function () {
+            const player = createPlayer("variance")
+            const ff = player.pitching.pitchTypes!.FF!
+            ff.count = 2
+            ff.totalMph = 190
+            ff.totalMphSquared = 90 ** 2 + 100 ** 2
+            ff.horizontalBreakCount = 2
+            ff.totalHorizontalBreak = 12
+            ff.totalHorizontalBreakSquared = 5 ** 2 + 7 ** 2
+            ff.verticalBreakCount = 2
+            ff.totalVerticalBreak = -16
+            ff.totalVerticalBreakSquared = (-10) ** 2 + (-6) ** 2
+            const source = PitchEnvironmentService.getPitchEnvironmentStatsForPlayers(new Map([["variance", player]]))
+            const combined = PitchEnvironmentService.createPitchEnvironmentStats()
+            PitchEnvironmentService.addPitchEnvironmentStats(combined, source)
+            PitchEnvironmentService.addPitchEnvironmentStats(combined, source)
+            const target = PitchEnvironmentService.getPitchEnvironmentTargetForStats(2026, combined, 0.0425)
+            const doubled = target.importReference.pitcher.physics.byPitchType.FF!
+            assert.equal(doubled.count, 4)
+            assert.equal(doubled.horizontalBreakCount, 4)
+            assert.equal(doubled.totalVelocitySquared, 2 * (90 ** 2 + 100 ** 2))
+            assert.equal(doubled.totalHorizontalBreakSquared, 2 * (5 ** 2 + 7 ** 2))
+            PitchEnvironmentService.subtractPitchEnvironmentStats(combined, source)
+            const original = PitchEnvironmentService.getPitchEnvironmentTargetForStats(2026, combined, 0.0425)
+            assert.equal(original.importReference.pitcher.physics.byPitchType.FF!.totalVelocitySquared, ff.totalMphSquared)
+        })
+
         it("aggregates multiple player imports before deriving the target", function () {
             const onePlayer = PitchEnvironmentService.getPitchEnvironmentTargetForSeason(
                 2026,
@@ -1173,16 +1252,19 @@ function createPlayer(playerId: string): PlayerImportRaw {
             exitVelocity: {
                 count: 100,
                 totalExitVelo: 9000,
+                totalExitVeloSquared: 100 * 90 ** 2,
                 avgExitVelo: 90
             },
             launchAngle: {
                 count: 100,
                 totalLaunchAngle: 1200,
+                totalLaunchAngleSquared: 100 * 12 ** 2,
                 avgLaunchAngle: 12
             },
             distance: {
                 count: 100,
                 totalDistance: 25000,
+                totalDistanceSquared: 100 * 250 ** 2,
                 avgDistance: 250
             },
             physicsByTrajectory: {
@@ -1195,11 +1277,13 @@ function createPlayer(playerId: string): PlayerImportRaw {
                     launchAngle: {
                         count: 100,
                         totalLaunchAngle: 0,
+                        totalLaunchAngleSquared: 0,
                         avgLaunchAngle: 0
                     },
                     distance: {
                         count: 100,
                         totalDistance: 12000,
+                        totalDistanceSquared: 100 * 120 ** 2,
                         avgDistance: 120
                     }
                 }
@@ -1236,11 +1320,16 @@ function createPlayer(playerId: string): PlayerImportRaw {
             pitchTypes: {
                 FF: {
                     count: 100,
+                    horizontalBreakCount: 100,
+                    verticalBreakCount: 100,
                     totalMph: 9500,
+                    totalMphSquared: 100 * 95 ** 2,
                     avgMph: 95,
                     totalHorizontalBreak: 500,
+                    totalHorizontalBreakSquared: 100 * 5 ** 2,
                     avgHorizontalBreak: 5,
                     totalVerticalBreak: 1200,
+                    totalVerticalBreakSquared: 100 * 12 ** 2,
                     avgVerticalBreak: 12
                 }
             }

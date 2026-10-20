@@ -94,7 +94,7 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
   `:" "}
 
-`}}M.id="1d93a2a1e2",M.style="\n\n";const W=M;function Y(e){const t=e.playbyplay??[],s=e.gameplayers??{},i=e.gameviewservice,a=e.startdescriptions??[],r=!0===e.complete||"true"===e.complete,n=t.filter(e=>void 0!==e.play?.result),o=r?[...n].reverse():n;return function(e){e.$;var t=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,t`
+`}}M.id="433ee715f6",M.style="\n\n";const W=M;function Y(e){const t=e.playbyplay??[],s=e.gameplayers??{},i=e.gameviewservice,a=e.startdescriptions??[],r=!0===e.complete||"true"===e.complete,n=t.filter(e=>void 0!==e.play?.result),o=r?[...n].reverse():n;return function(e){e.$;var t=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,t`
     <div class="game-log">
         <div class="list cards-list game-log-list">
             <ul>
@@ -171,14 +171,13 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
             </ul>
         </div>
     </div>
-`}}Y.id="b65db51bae",Y.style="\n\n";const j=Y;function K(e,{$h:t}){let s=e.vm,i=e.gameviewservice,a=e.fieldimageurl,r=e.getplayerimageurl,n=e.getplayerhref,o=e.getboxscorehref,l=e.advancecallback,c=e.pausecallback,d=e.resumecallback,h=e.simtoendcallback;const u="#0A3161",p="#B31942",m=(e,t)=>e?.color1??e?.colors?.color1??t,g=(e,t)=>e?.color2??e?.colors?.color2??(e=>{const t=String(e).replace("#","");return.299*parseInt(t.substring(0,2),16)+.587*parseInt(t.substring(2,4),16)+.114*parseInt(t.substring(4,6),16)>160?"#000000":"#ffffff"})(m(e,t)),f=m(s.game.away,u),$=m(s.game.home,p),v=g(s.game.away,u),y=g(s.game.home,p),b=e=>e.lineupIds.map(t=>e.players.find(e=>e._id===t)).filter(e=>e),P=e=>{const t=(e=>{if(e)return s.game.away.players?.some(t=>t._id===e._id)?s.game.away:s.game.home.players?.some(t=>t._id===e._id)?s.game.home:void 0})(e);return t?._id===s.game.away._id?v:t?._id===s.game.home._id?y:"#ffffff"},R=e=>null==e?"color-gray":e>=146?"color-green":e>=122?"color-blue":e>=83?"color-yellow":e>=47?"color-orange":"color-red",I=e=>null==e?"":e>=170?"A+":e>=158?"A":e>=146?"A-":e>=134?"B+":e>=122?"B":e>=110?"B-":e>=95?"C+":e>=83?"C":e>=71?"C-":e>=59?"D+":e>=47?"D":e>=35?"D-":"F",T=async()=>{l&&await l()},S=async()=>{c&&await c()},E=async()=>{d&&await d()},w=async()=>{h&&await h()};return function(t){t.$;var l=t.$h;return t.$root,t.$f7,t.$f7route,t.$f7router,t.$theme,t.$update,t.$store,l`
-  <div class="game-state ${s.isTopInning?"top-inning":"bottom-inning"}" style="--away-color: ${f}; --home-color: ${$}; --away-font-color: ${v}; --home-font-color: ${y};">
-
+`}}Y.id="d2c1f41e30",Y.style="\n\n";const j=Y;function K(e,{$h:t}){let s=e.vm,i=e.gameviewservice,a=e.fieldimageurl,r=e.getplayerimageurl,n=e.getplayerhref,o=e.getboxscorehref,l=e.advancecallback,c=e.pausecallback,d=e.resumecallback,h=e.simtoendcallback,u=e.copylinkcallback;const p="#0A3161",m="#B31942",g=(e,t)=>e?.color1??e?.colors?.color1??t,f=(e,t)=>e?.color2??e?.colors?.color2??(e=>{const t=String(e).replace("#","");return.299*parseInt(t.substring(0,2),16)+.587*parseInt(t.substring(2,4),16)+.114*parseInt(t.substring(4,6),16)>160?"#000000":"#ffffff"})(g(e,t)),$=g(s.game.away,p),v=g(s.game.home,m),y=f(s.game.away,p),b=f(s.game.home,m),P=e=>e.lineupIds.map(t=>e.players.find(e=>e._id===t)).filter(e=>e),R=e=>{const t=(e=>{if(e)return s.game.away.players?.some(t=>t._id===e._id)?s.game.away:s.game.home.players?.some(t=>t._id===e._id)?s.game.home:void 0})(e);return t?._id===s.game.away._id?y:t?._id===s.game.home._id?b:"#ffffff"},I=e=>null==e?"color-gray":e>=146?"color-green":e>=122?"color-blue":e>=83?"color-yellow":e>=47?"color-orange":"color-red",T=e=>null==e?"":e>=170?"A+":e>=158?"A":e>=146?"A-":e>=134?"B+":e>=122?"B":e>=110?"B-":e>=95?"C+":e>=83?"C":e>=71?"C-":e>=59?"D+":e>=47?"D":e>=35?"D-":"F",S=async()=>{l&&await l()},E=async()=>{c&&await c()},w=async()=>{d&&await d()},B=async()=>{h&&await h()},x=async()=>{u&&await u()};return function(t){t.$;var l=t.$h;return t.$root,t.$f7,t.$f7route,t.$f7router,t.$theme,t.$update,t.$store,l`
+  <div class="game-state ${s.isTopInning?"top-inning":"bottom-inning"}" style="--away-color: ${$}; --home-color: ${v}; --away-font-color: ${y}; --home-font-color: ${b};">
     <div class="game-summary">
       <div class="game-score">
         <table>
           <tr class="${s.isTopInning?"at-bat":""}">
-            <td class="name" style="background-color: ${f}; color: ${v};">
+            <td class="name" style="background-color: ${$}; color: ${y};">
               <strong>${s.game.away.abbrev}</strong>
             </td>
             <td class="runs">${s.score.away}</td>
@@ -186,23 +185,20 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
               ${s.isTopInning?l`▲ ${s.currentInning}`:l`${s.currentInning} ▼`}
             </td>
           </tr>
-
           <tr class="${s.isTopInning?"":"at-bat"}">
-            <td class="name" style="background-color: ${$}; color: ${y};">
+            <td class="name" style="background-color: ${v}; color: ${b};">
               <strong>${s.game.home.abbrev}</strong>
             </td>
             <td class="runs">${s.score.home}</td>
           </tr>
         </table>
       </div>
-
       <div class="state-info">
         <div class="info-wrapper">
           <span class="label">B</span>${i.getBalls(3,s.balls)}<br />
           <span class="label">S</span>${i.getBalls(2,s.strikes)}<br />
           <span class="label">O</span>${i.getBalls(2,s.outs)}
         </div>
-
         <div class="diamond-wrapper">
           <div class="diamond">
             <div class="first base ${s.runner1B?"runner":""}"></div>
@@ -212,15 +208,13 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
         </div>
       </div>
     </div>
-
     <div class="game-main">
       <div class="left">
         <div class="content">
           <div class="card card-raised ${s.atBatBoxscore.team._id===s.awayBoxscore.team._id?"card-atbat":"card-notatbat"}">
-            <div class="card-header" style="background-color: ${f}; color: ${v};">
+            <div class="card-header" style="background-color: ${$}; color: ${y};">
               ${s.awayBoxscore.team.name??s.awayBoxscore.team.abbrev}
             </div>
-
             <div class="card-content card-content-padding">
               <table class="lineup">
                 <thead>
@@ -233,18 +227,15 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                     <th class="stats">Today</th>
                   </tr>
                 </thead>
-
                 <tbody>
-                  ${b(s.awayBoxscore.team).map((e,t)=>l`
+                  ${P(s.awayBoxscore.team).map((e,t)=>l`
                     <tr class="${s.atBatBoxscore.team._id===s.awayBoxscore.team._id&&s.awayBoxscore.team.currentHitterIndex===t?"at-bat":""}">
                       <td class="num order">${t+1}</td>
-
                       <td class="image">
                         ${r?l`
                           <img src="${r(e)}" />
                         `:l``}
                       </td>
-
                       <td class="name">
                         ${n?l`
                           <a href="${n(e)}">${e.displayName??e.fullName}</a>
@@ -252,7 +243,6 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                           ${e.displayName??e.fullName}
                         `}
                       </td>
-
                       <td>${e.hits}</td>
                       <td class="pos">${e.currentPosition}</td>
                       <td class="stats">${i.getHitterGameStatsShort(e)}</td>
@@ -264,29 +254,25 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
           </div>
         </div>
       </div>
-
       <div class="middle">
         <div class="game-info">
           <div class="field-layer">
             ${a?l`
               <img src="${a}" class="field-image" />
             `:l``}
-
             ${s.showHitter&&s.hitter?l`
-              <a href="${n?n(s.hitter):"#"}" class="runner hitter offense-player ${"R"===s.matchupHandedness?.hits?"rhb":"lhb"}" style="color: ${P(s.hitter)};">
+              <a href="${n?n(s.hitter):"#"}" class="runner hitter offense-player ${"R"===s.matchupHandedness?.hits?"rhb":"lhb"}" style="color: ${R(s.hitter)};">
                 ${"L"===s.matchupHandedness?.hits&&r?l`
                   <div class="image">
                     <img src="${r(s.hitter)}" />
                   </div>
                 `:l``}
-
                 <div class="wrapper">
                   <div class="text">${s.hitter.displayName??s.hitter.fullName}</div>
                   <div class="game-stats">
                     ${i.getHitterGameStatsShort(s.hitter)}
                   </div>
                 </div>
-
                 ${"R"===s.matchupHandedness?.hits&&r?l`
                   <div class="image">
                     <img src="${r(s.hitter)}" />
@@ -294,39 +280,35 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 `:l``}
               </a>
             `:l``}
-
             ${s.runner1B?l`
-              <a href="${n?n(s.runner1B):"#"}" class="runner firstBase offense-player" style="color: ${P(s.runner1B)};">
+              <a href="${n?n(s.runner1B):"#"}" class="runner firstBase offense-player" style="color: ${R(s.runner1B)};">
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.runner1B)}" />
                   </div>
                 `:l``}
-
                 <div class="wrapper">
                   <div class="text">${s.runner1B.displayName??s.runner1B.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.runner1B.hittingRatings.speed)}">${I(s.runner1B.hittingRatings.speed)}</div>
+                      <div class="chip-media bg-${I(s.runner1B.hittingRatings.speed)}">${T(s.runner1B.hittingRatings.speed)}</div>
                       <div class="chip-label">SPD</div>
                     </div>
                   </div>
                 </div>
               </a>
             `:l``}
-
             ${s.runner2B?l`
-              <a href="${n?n(s.runner2B):"#"}" class="runner secondBase offense-player" style="color: ${P(s.runner2B)};">
+              <a href="${n?n(s.runner2B):"#"}" class="runner secondBase offense-player" style="color: ${R(s.runner2B)};">
                 <div class="wrapper">
                   <div class="text">${s.runner2B.displayName??s.runner2B.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.runner2B.hittingRatings.speed)}">${I(s.runner2B.hittingRatings.speed)}</div>
+                      <div class="chip-media bg-${I(s.runner2B.hittingRatings.speed)}">${T(s.runner2B.hittingRatings.speed)}</div>
                       <div class="chip-label">SPD</div>
                     </div>
                   </div>
                 </div>
-
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.runner2B)}" />
@@ -334,36 +316,32 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 `:l``}
               </a>
             `:l``}
-
             ${s.runner3B?l`
-              <a href="${n?n(s.runner3B):"#"}" class="runner thirdBase offense-player" style="color: ${P(s.runner3B)};">
+              <a href="${n?n(s.runner3B):"#"}" class="runner thirdBase offense-player" style="color: ${R(s.runner3B)};">
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.runner3B)}" />
                   </div>
                 `:l``}
-
                 <div class="wrapper">
                   <div class="text">${s.runner3B.displayName??s.runner3B.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.runner3B.hittingRatings.speed)}">${I(s.runner3B.hittingRatings.speed)}</div>
+                      <div class="chip-media bg-${I(s.runner3B.hittingRatings.speed)}">${T(s.runner3B.hittingRatings.speed)}</div>
                       <div class="chip-label">SPD</div>
                     </div>
                   </div>
                 </div>
               </a>
             `:l``}
-
             ${s.showPitcher&&s.pitcher?l`
-              <a href="${n?n(s.pitcher):"#"}" class="defender p defense-player" data-pos="P" style="color: ${P(s.pitcher)};">
+              <a href="${n?n(s.pitcher):"#"}" class="defender p defense-player" data-pos="P" style="color: ${R(s.pitcher)};">
                 <div class="wrapper">
                   <div class="text">${s.pitcher.displayName??s.pitcher.fullName}</div>
                   <div class="game-stats">
                     ${i.getPitcherGameStatsShort(s.pitcher)}
                   </div>
                 </div>
-
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.pitcher)}" />
@@ -371,39 +349,35 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 `:l``}
               </a>
             `:l``}
-
             ${s.showPitcher&&s.catcher?l`
-              <a href="${n?n(s.catcher):"#"}" class="defender c top defense-player" data-pos="C" style="color: ${P(s.catcher)};">
+              <a href="${n?n(s.catcher):"#"}" class="defender c top defense-player" data-pos="C" style="color: ${R(s.catcher)};">
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.catcher)}" />
                   </div>
                 `:l``}
-
                 <div class="wrapper">
                   <div class="text">${s.catcher.displayName??s.catcher.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.catcher.hittingRatings.arm)}">${I(s.catcher.hittingRatings.arm)}</div>
+                      <div class="chip-media bg-${I(s.catcher.hittingRatings.arm)}">${T(s.catcher.hittingRatings.arm)}</div>
                       <div class="chip-label">ARM</div>
                     </div>
                   </div>
                 </div>
               </a>
             `:l``}
-
             ${s.showPitcher&&s.firstBase?l`
-              <a href="${n?n(s.firstBase):"#"}" class="defender firstBase defense-player" data-pos="1B" style="color: ${P(s.firstBase)};">
+              <a href="${n?n(s.firstBase):"#"}" class="defender firstBase defense-player" data-pos="1B" style="color: ${R(s.firstBase)};">
                 <div class="wrapper">
                   <div class="text">${s.firstBase.displayName??s.firstBase.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.firstBase.hittingRatings.defense)}">${I(s.firstBase.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.firstBase.hittingRatings.defense)}">${T(s.firstBase.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
                 </div>
-
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.firstBase)}" />
@@ -411,19 +385,17 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 `:l``}
               </a>
             `:l``}
-
             ${s.showPitcher&&s.secondBase?l`
-              <a href="${n?n(s.secondBase):"#"}" class="defender secondBase defense-player" data-pos="2B" style="color: ${P(s.secondBase)};">
+              <a href="${n?n(s.secondBase):"#"}" class="defender secondBase defense-player" data-pos="2B" style="color: ${R(s.secondBase)};">
                 <div class="wrapper">
                   <div class="text">${s.secondBase.displayName??s.secondBase.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.secondBase.hittingRatings.defense)}">${I(s.secondBase.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.secondBase.hittingRatings.defense)}">${T(s.secondBase.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
                 </div>
-
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.secondBase)}" />
@@ -431,19 +403,17 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 `:l``}
               </a>
             `:l``}
-
             ${s.showPitcher&&s.thirdBase?l`
-              <a href="${n?n(s.thirdBase):"#"}" class="defender thirdBase defense-player" data-pos="3B" style="color: ${P(s.thirdBase)};">
+              <a href="${n?n(s.thirdBase):"#"}" class="defender thirdBase defense-player" data-pos="3B" style="color: ${R(s.thirdBase)};">
                 <div class="wrapper">
                   <div class="text">${s.thirdBase.displayName??s.thirdBase.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.thirdBase.hittingRatings.defense)}">${I(s.thirdBase.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.thirdBase.hittingRatings.defense)}">${T(s.thirdBase.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
                 </div>
-
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.thirdBase)}" />
@@ -451,19 +421,17 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 `:l``}
               </a>
             `:l``}
-
             ${s.showPitcher&&s.shortstop?l`
-              <a href="${n?n(s.shortstop):"#"}" class="defender ss defense-player" data-pos="SS" style="color: ${P(s.shortstop)};">
+              <a href="${n?n(s.shortstop):"#"}" class="defender ss defense-player" data-pos="SS" style="color: ${R(s.shortstop)};">
                 <div class="wrapper">
                   <div class="text">${s.shortstop.displayName??s.shortstop.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.shortstop.hittingRatings.defense)}">${I(s.shortstop.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.shortstop.hittingRatings.defense)}">${T(s.shortstop.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
                 </div>
-
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.shortstop)}" />
@@ -471,19 +439,17 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 `:l``}
               </a>
             `:l``}
-
             ${s.showPitcher&&s.leftField?l`
-              <a href="${n?n(s.leftField):"#"}" class="defender lf defense-player" data-pos="LF" style="color: ${P(s.leftField)};">
+              <a href="${n?n(s.leftField):"#"}" class="defender lf defense-player" data-pos="LF" style="color: ${R(s.leftField)};">
                 <div class="wrapper">
                   <div class="text">${s.leftField.displayName??s.leftField.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.leftField.hittingRatings.defense)}">${I(s.leftField.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.leftField.hittingRatings.defense)}">${T(s.leftField.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
                 </div>
-
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.leftField)}" />
@@ -491,19 +457,17 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 `:l``}
               </a>
             `:l``}
-
             ${s.showPitcher&&s.centerField?l`
-              <a href="${n?n(s.centerField):"#"}" class="defender cf defense-player" data-pos="CF" style="color: ${P(s.centerField)};">
+              <a href="${n?n(s.centerField):"#"}" class="defender cf defense-player" data-pos="CF" style="color: ${R(s.centerField)};">
                 <div class="wrapper">
                   <div class="text">${s.centerField.displayName??s.centerField.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.centerField.hittingRatings.defense)}">${I(s.centerField.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.centerField.hittingRatings.defense)}">${T(s.centerField.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
                 </div>
-
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.centerField)}" />
@@ -511,19 +475,17 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 `:l``}
               </a>
             `:l``}
-
             ${s.showPitcher&&s.rightField?l`
-              <a href="${n?n(s.rightField):"#"}" class="defender rf defense-player" data-pos="RF" style="color: ${P(s.rightField)};">
+              <a href="${n?n(s.rightField):"#"}" class="defender rf defense-player" data-pos="RF" style="color: ${R(s.rightField)};">
                 <div class="wrapper">
                   <div class="text">${s.rightField.displayName??s.rightField.fullName}</div>
                   <div class="game-stats">
                     <div class="chip">
-                      <div class="chip-media bg-${R(s.rightField.hittingRatings.defense)}">${I(s.rightField.hittingRatings.defense)}</div>
+                      <div class="chip-media bg-${I(s.rightField.hittingRatings.defense)}">${T(s.rightField.hittingRatings.defense)}</div>
                       <div class="chip-label">DEF</div>
                     </div>
                   </div>
                 </div>
-
                 ${r?l`
                   <div class="image">
                     <img src="${r(s.rightField)}" />
@@ -531,7 +493,6 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 `:l``}
               </a>
             `:l``}
-
             <div class="at-bat-ended">
               <div class="card">
                 <div class="card-content">
@@ -544,14 +505,12 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
           </div>
         </div>
       </div>
-
       <div class="right">
         <div class="content">
           <div class="card card-raised ${s.atBatBoxscore.team._id===s.homeBoxscore.team._id?"card-atbat":"card-notatbat"}">
-            <div class="card-header" style="background-color: ${$}; color: ${y};">
+            <div class="card-header" style="background-color: ${v}; color: ${b};">
               ${s.homeBoxscore.team.name??s.homeBoxscore.team.abbrev}
             </div>
-
             <div class="card-content card-content-padding">
               <table class="lineup">
                 <thead>
@@ -564,18 +523,15 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                     <th class="stats">Today</th>
                   </tr>
                 </thead>
-
                 <tbody>
-                  ${b(s.homeBoxscore.team).map((e,t)=>l`
+                  ${P(s.homeBoxscore.team).map((e,t)=>l`
                     <tr class="${s.atBatBoxscore.team._id===s.homeBoxscore.team._id&&s.homeBoxscore.team.currentHitterIndex===t?"at-bat":""}">
                       <td class="num order">${t+1}</td>
-
                       <td class="image">
                         ${r?l`
                           <img src="${r(e)}" />
                         `:l``}
                       </td>
-
                       <td class="name">
                         ${n?l`
                           <a href="${n(e)}">${e.displayName??e.fullName}</a>
@@ -583,7 +539,6 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                           ${e.displayName??e.fullName}
                         `}
                       </td>
-
                       <td>${e.hits}</td>
                       <td class="pos">${e.currentPosition}</td>
                       <td class="stats">${i.getHitterGameStatsShort(e)}</td>
@@ -596,19 +551,16 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
         </div>
       </div>
     </div>
-
     <div class="bottom-bar">
       <div class="matchup">
-        <div class="matchup-detail away" style="background-color: ${f}; color: ${v};">
+        <div class="matchup-detail away" style="background-color: ${$}; color: ${y};">
           ${s.awayPlayer?l`
             ${r?l`
               <span class="icon">
                 <img src="${r(s.awayPlayer)}" />
               </span>
             `:l``}
-
             <div class="label">${s.awayPlayer._id===s.pitcher?._id?"Pitching":"At Bat"}</div>
-
             <div class="player">
               ${n?l`
                 <a href="${n(s.awayPlayer)}" style="color: inherit;">${s.awayPlayer.displayName??s.awayPlayer.fullName}</a>
@@ -616,23 +568,19 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 ${s.awayPlayer.displayName??s.awayPlayer.fullName}
               `}
             </div>
-
             <div class="game-stats">
               ${s.awayPlayer._id===s.pitcher?._id?i.getPitcherGameStats(s.awayPlayer):i.getHitterGameStats(s.awayPlayer)}
             </div>
           `:l``}
         </div>
-
-        <div class="matchup-detail" style="background-color: ${$}; color: ${y};">
+        <div class="matchup-detail" style="background-color: ${v}; color: ${b};">
           ${s.homePlayer?l`
             ${r?l`
               <span class="icon">
                 <img src="${r(s.homePlayer)}" />
               </span>
             `:l``}
-
             <div class="label">${s.homePlayer._id===s.pitcher?._id?"Pitching":"At Bat"}</div>
-
             <div class="player">
               ${n?l`
                 <a href="${n(s.homePlayer)}" style="color: inherit;">${s.homePlayer.displayName??s.homePlayer.fullName}</a>
@@ -640,22 +588,18 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
                 ${s.homePlayer.displayName??s.homePlayer.fullName}
               `}
             </div>
-
             <div class="game-stats">
               ${s.homePlayer._id===s.pitcher?._id?i.getPitcherGameStats(s.homePlayer):i.getHitterGameStats(s.homePlayer)}
             </div>
           `:l``}
         </div>
       </div>
-
       <div class="page-content messages-content">
         <div class="messages messages-init game-messages"></div>
       </div>
-
       <a href="#" class="messages-action button button-fill popover-open" data-popover=".popover-game-info">
         <i class="f7-icons">info</i>
       </a>
-
       <div class="popover popover-game-info">
         <div class="popover-angle"></div>
         <div class="popover-inner">
@@ -663,25 +607,27 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
             <ul>
               <li>
                 ${!0===e.paused?l`
-                  <a href="#" class="list-button popover-close" @click=${E}>Resume</a>
+                  <a href="#" class="list-button popover-close" @click=${w}>Resume</a>
                 `:l`
-                  <a href="#" class="list-button popover-close" @click=${S}>Pause</a>
+                  <a href="#" class="list-button popover-close" @click=${E}>Pause</a>
                 `}
               </li>
-
               ${!0===e.paused?l`
                 <li>
-                  <a href="#" class="list-button popover-close" @click=${T}>Next Pitch</a>
+                  <a href="#" class="list-button popover-close" @click=${S}>Next Pitch</a>
                 </li>
               `:l``}
-
               <li>
-                <a href="#" class="list-button popover-close" @click=${w}>Sim to End</a>
+                <a href="#" class="list-button popover-close" @click=${B}>Sim to End</a>
               </li>
-
               ${o?l`
                 <li>
                   <a href="${o(s.game)}" class="list-button popover-close">Box Score</a>
+                </li>
+              `:l``}
+              ${e.copylinkcallback?l`
+                <li>
+                  <a href="#" class="list-button popover-close" @click=${x}>Copy Link</a>
                 </li>
               `:l``}
             </ul>
@@ -690,7 +636,7 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
       </div>
     </div>
   </div>
-`}}K.id="8f43287c17",K.style="\n\n";const q=K;function V(e){let t=e.vm,s=e.substitutions??[],i=e.boxscoreservice,a=e.getplayerimageurl,r=e.getplayerhref,n=e.teamcolor??"var(--f7-theme-color)",o=e.teamtextcolor??"#ffffff";const l=i.getBoxscoreInfo(s,t),c=e=>e.map(e=>`${e.name}${e.value>1?` ${e.value}`:""}`).join("; ");return function(e){e.$;var s=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,s`
+`}}K.id="1f96b414f7",K.style="\n";const q=K;function V(e){let t=e.vm,s=e.substitutions??[],i=e.boxscoreservice,a=e.getplayerimageurl,r=e.getplayerhref,n=e.teamcolor??"var(--f7-theme-color)",o=e.teamtextcolor??"#ffffff";const l=i.getBoxscoreInfo(s,t),c=e=>e.map(e=>`${e.name}${e.value>1?` ${e.value}`:""}`).join("; ");return function(e){e.$;var s=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,s`
 
   <div class="block block-outline block-strong game-boxscore-card">
 
@@ -867,98 +813,69 @@ var e,t,s,i,a,r,n,o,l,c,d,h,u,p,m,g,f,$,v,y,b,P,R,I={31:function(e,t,s){var i;!f
 
   </div>
 
-`}}V.id="c2a1b520bb",V.style="\n\n\n";const z=V,Z=new x;function Q(e,{$onMounted:t,$onUpdated:s,$onBeforeUnmount:i,$:a,$f7:r,$update:n}){let o,l=e.gamewebservice,c=e.gameviewservice,d=e.gamemessageservice,h=e.game,u=e.fieldimageurl,p=e.getplayerimageurl,m=e.getplayerhref,g=e.getboxscorehref,f=!0===e.paused,$=e.advancecallback,v=e.pausecallback,y=e.resumecallback,b=e.simtoendcallback,P=e.registerpageafterincallback,R=h?l.getGameViewModel(h):void 0,I=0,T=Promise.resolve(),S=[".at-bat-ended"],E=h;const w=()=>{if(!h)return void(R=void 0);const e=l.getGameViewModel(h);R?Object.assign(R,e):R=e},B=()=>{for(const e of S)a(e).hide()},x=()=>{o&&o.scroll(0)},N=async e=>{if(!h)return;const t=l.getCurrentDescriptions(h),s=(e=>c.getMessagesFromPlayDescriptions(e))(t);((e,t)=>{if("ENDED"===e){const e=t.find(e=>"RESULT"===e.type)?.text??"";return a(".at-bat-ended .result").text(e),void(e=>{for(const t of S)t!==e&&a(t).hide();a(e).css("display","flex")})(".at-bat-ended")}B()})(l.getAtBatState(h),t),await(async(e,t)=>{if(!o)return;const s=o.messages??[],i=d.getSync(s,e);I++;const a=I;T=T.then(async()=>{if(a===I)if(i.clear&&o.clear(),t)for(const e of i.messages){if(a!==I)return;if(o.showTyping(),await D(500),a!==I)return;o.addMessage(e),o.hideTyping()}else o.addMessages(i.messages)}),await T,x()})(s,e)},D=e=>new Promise(t=>setTimeout(t,e));return t(async()=>{h&&(w(),await n(),o=(()=>{const e=r.messages?.get(".game-messages");return e||r.messages?.create({el:".game-messages",scrollMessages:!0,scrollMessagesOnEdge:!0})})(),P&&P(x),await N(!1))}),s(async()=>{await(async()=>{f=!0===e.paused,$=e.advancecallback,v=e.pausecallback,y=e.resumecallback,b=e.simtoendcallback,P=e.registerpageafterincallback,e.game!==E&&(h=e.game,E=e.game,w(),await N(!1))})()}),i(()=>{I++,P&&P(void 0),B()}),function(e){e.$;var t=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,t`
+`}}V.id="60ca1108bb",V.style="\n\n\n";const z=V,Z=new x;function Q(e,{$onMounted:t,$onUpdated:s,$onBeforeUnmount:i,$:a,$f7:r,$update:n}){let o,l=e.gamewebservice,c=e.gameviewservice,d=e.gamemessageservice,h=e.game,u=e.fieldimageurl,p=e.getplayerimageurl,m=e.getplayerhref,g=e.getboxscorehref,f=!0===e.paused,$=e.advancecallback,v=e.pausecallback,y=e.resumecallback,b=e.simtoendcallback,P=e.copylinkcallback,R=e.registerpageafterincallback,I=h?l.getGameViewModel(h):void 0,T=0,S=Promise.resolve(),E=[".at-bat-ended"],w=h;const B=()=>{if(!h)return void(I=void 0);const e=l.getGameViewModel(h);I?Object.assign(I,e):I=e},x=()=>{for(const e of E)a(e).hide()},N=()=>{o&&o.scroll(0)},D=async e=>{if(!h)return;const t=l.getCurrentDescriptions(h),s=(e=>c.getMessagesFromPlayDescriptions(e))(t);((e,t)=>{if("ENDED"===e){const e=t.find(e=>"RESULT"===e.type)?.text??"";return a(".at-bat-ended .result").text(e),void(e=>{for(const t of E)t!==e&&a(t).hide();a(e).css("display","flex")})(".at-bat-ended")}x()})(l.getAtBatState(h),t),await(async(e,t)=>{if(!o)return;const s=o.messages??[],i=d.getSync(s,e);T++;const a=T;S=S.then(async()=>{if(a===T)if(i.clear&&o.clear(),t)for(const e of i.messages){if(a!==T)return;if(o.showTyping(),await _(500),a!==T)return;o.addMessage(e),o.hideTyping()}else o.addMessages(i.messages)}),await S,N()})(s,e)},_=e=>new Promise(t=>setTimeout(t,e));return t(async()=>{h&&(B(),await n(),o=(()=>{const e=r.messages?.get(".game-messages");return e||r.messages?.create({el:".game-messages",scrollMessages:!0,scrollMessagesOnEdge:!0})})(),R&&R(N),await D(!1))}),s(async()=>{await(async()=>{f=!0===e.paused,$=e.advancecallback,v=e.pausecallback,y=e.resumecallback,b=e.simtoendcallback,P=e.copylinkcallback,R=e.registerpageafterincallback,e.game!==w&&(h=e.game,w=e.game,B(),await D(!1))})()}),i(()=>{T++,R&&R(void 0),x()}),function(e){e.$;var t=e.$h;return e.$root,e.$f7,e.$f7route,e.$f7router,e.$theme,e.$update,e.$store,t`
+    <div class="game-page">
+        ${I?.game?t`
+            <${q}
+                vm=${I}
+                gameviewservice=${c}
+                fieldimageurl=${u}
+                getplayerimageurl=${p}
+                getplayerhref=${m}
+                getboxscorehref=${g}
+                paused=${f}
+                advancecallback=${$}
+                pausecallback=${v}
+                resumecallback=${y}
+                simtoendcallback=${b}
+                copylinkcallback=${P}
+            />
 
-  <div class="game-page">
+            <div class="popup box-score-popup popup-tablet-fullscreen">
+                <div class="view">
+                    <div class="page">
+                        <div class="navbar">
+                            <div class="navbar-bg"></div>
+                            <div class="navbar-inner">
+                                <div class="title">Box Score</div>
+                                <div class="right">
+                                    <a class="link popup-close">Close</a>
+                                </div>
+                            </div>
+                        </div>
 
-    ${R?.game?t`
+                        <div class="page-content">
+                            <div class="game-banner">
+                                <div class="linescore-wrapper">
+                                    <${W}
+                                        vm=${I.linescore}
+                                    />
+                                </div>
+                            </div>
 
-      <${q}
-        vm=${R}
-        gameviewservice=${c}
-        fieldimageurl=${u}
-        getplayerimageurl=${p}
-        getplayerhref=${m}
-        getboxscorehref=${g}
-        paused=${f}
-        advancecallback=${$}
-        pausecallback=${v}
-        resumecallback=${y}
-        simtoendcallback=${b}
-      />
+                            <div class="grid grid-cols-1 large-grid-cols-2">
+                                <${z}
+                                    substitutions=${I.game.substitutions??[]}
+                                    vm=${I.awayBoxscore}
+                                    boxscoreservice=${Z}
+                                    getplayerimageurl=${p}
+                                    getplayerhref=${m}
+                                />
 
-      <div class="popup box-score-popup popup-tablet-fullscreen">
-
-        <div class="view">
-
-          <div class="page">
-
-            <div class="navbar">
-
-              <div class="navbar-bg"></div>
-
-              <div class="navbar-inner">
-
-                <div class="title">Box Score</div>
-
-                <div class="right">
-
-                  <a class="link popup-close">Close</a>
-
+                                <${z}
+                                    substitutions=${I.game.substitutions??[]}
+                                    vm=${I.homeBoxscore}
+                                    boxscoreservice=${Z}
+                                    getplayerimageurl=${p}
+                                    getplayerhref=${m}
+                                />
+                            </div>
+                        </div>
+                    </div>
                 </div>
-
-              </div>
-
             </div>
-
-            <div class="page-content">
-
-              <div class="game-banner">
-
-                <div class="linescore-wrapper">
-
-                  <${W}
-                    vm=${R.linescore}
-                  />
-
-                </div>
-
-              </div>
-
-              <div class="grid grid-cols-1 large-grid-cols-2">
-
-                <${z}
-                  substitutions=${R.game.substitutions??[]}
-                  vm=${R.awayBoxscore}
-                  boxscoreservice=${Z}
-                  getplayerimageurl=${p}
-                  getplayerhref=${m}
-                />
-
-                <${z}
-                  substitutions=${R.game.substitutions??[]}
-                  vm=${R.homeBoxscore}
-                  boxscoreservice=${Z}
-                  getplayerimageurl=${p}
-                  getplayerhref=${m}
-                />
-
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
-
-    `:t`
-
-      <div class="block">No game found.</div>
-
-    `}
-
-  </div>
-
-`}}Q.id="5c89e540c1",Q.style="\n\n\n\n";const X=Q,J=new E,ee=new w(J),te=new B(J),se=new N,ie=new x,ae=new G;export{R as AtBatState,z as BoxscoreComponent,x as BoxscoreService,X as GameInProgressComponent,j as GameLogComponent,N as GameMessageService,U as GamePlaybackService,q as GameStateComponent,B as GameViewService,w as GameWebService,W as LineScoreComponent,E as PlayByPlayService,P as PlayDescriptionType,G as TeamComponentService,ie as boxscoreService,se as gameMessageService,te as gameViewService,ee as gameWebService,J as playByPlayService,ae as teamComponentService};
+        `:t`
+            <div class="block">No game found.</div>
+        `}
+    </div>
+`}}Q.id="6ca9e54640",Q.style="\n";const X=Q,J=new E,ee=new w(J),te=new B(J),se=new N,ie=new x,ae=new G;export{R as AtBatState,z as BoxscoreComponent,x as BoxscoreService,X as GameInProgressComponent,j as GameLogComponent,N as GameMessageService,U as GamePlaybackService,q as GameStateComponent,B as GameViewService,w as GameWebService,W as LineScoreComponent,E as PlayByPlayService,P as PlayDescriptionType,G as TeamComponentService,ie as boxscoreService,se as gameMessageService,te as gameViewService,ee as gameWebService,J as playByPlayService,ae as teamComponentService};

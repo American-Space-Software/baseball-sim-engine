@@ -451,6 +451,7 @@ class PlayerRatingInputRepositoryTestHarness {
                 exitVelocity: {
                     count: 1,
                     totalExitVelo: 90,
+                    totalExitVeloSquared: 8100,
                     avgExitVelo: 90
                 }
             },
@@ -484,19 +485,29 @@ class PlayerRatingInputRepositoryTestHarness {
                     FF: {
                         count: 1,
                         totalMph: 95,
+                        totalMphSquared: 9025,
+                        horizontalBreakCount: 1,
+                        verticalBreakCount: 1,
                         avgMph: 95,
                         totalHorizontalBreak: 5,
+                        totalHorizontalBreakSquared: 25,
                         avgHorizontalBreak: 5,
                         totalVerticalBreak: 12,
+                        totalVerticalBreakSquared: 144,
                         avgVerticalBreak: 12
                     },
                     SL: {
                         count: 1,
                         totalMph: 86,
+                        totalMphSquared: 7396,
+                        horizontalBreakCount: 1,
+                        verticalBreakCount: 1,
                         avgMph: 86,
                         totalHorizontalBreak: 8,
+                        totalHorizontalBreakSquared: 64,
                         avgHorizontalBreak: 8,
                         totalVerticalBreak: 4,
+                        totalVerticalBreakSquared: 16,
                         avgVerticalBreak: 4
                     }
                 }
@@ -1414,6 +1425,7 @@ describe("PlayerRatingInputRepository", function () {
             {
                 count: 2,
                 totalExitVelo: 205,
+                totalExitVeloSquared: 21025,
                 avgExitVelo: 102.5
             }
         )
@@ -1621,6 +1633,44 @@ describe("PlayerRatingInputRepository", function () {
         )
     })
 
+})
+
+describe("PlayerRatingInputRepository physics variance", function () {
+    let harness: PlayerRatingInputRepositoryTestHarness
+    beforeEach(function () { harness = new PlayerRatingInputRepositoryTestHarness() })
+    afterEach(function () { harness.close() })
+
+    it("materializes pitch squared totals from individual pitch observations", function () {
+        const result = harness.repository.getByGame(1).find(input => input.playerId === "101")!
+        assert.equal(result.pitching.pitchTypes.FF?.count, 2)
+        assert.equal(result.pitching.pitchTypes.FF?.totalMphSquared, 18434)
+        assert.equal(result.pitching.pitchTypes.FF?.totalHorizontalBreakSquared, 52)
+        assert.equal(result.pitching.pitchTypes.FF?.totalVerticalBreakSquared, 244)
+        assert.equal(result.pitching.pitchTypes.FF?.horizontalBreakCount, 2)
+        assert.equal(result.pitching.pitchTypes.FF?.verticalBreakCount, 2)
+        assert.equal(result.hitting.exitVelocity.totalExitVeloSquared, 10000)
+    })
+
+    it("preserves squared totals across career game aggregation", function () {
+        const result = harness.repository.getCareer("2026-06-01", new Set(["101"]))[0]
+        assert.ok(result)
+        assert.equal(result.pitching.pitchTypes.FF?.count, 3)
+        assert.equal(result.pitching.pitchTypes.FF?.totalMphSquared, 28038)
+        assert.equal(result.pitching.pitchTypes.FF?.totalHorizontalBreakSquared, 101)
+        assert.equal(result.pitching.pitchTypes.FF?.totalVerticalBreakSquared, 365)
+        assert.equal(result.hitting.exitVelocity.totalExitVeloSquared, 21025)
+    })
+
+    it("counts missing pitch movement observations independently", function () {
+        harness.database.prepare(`UPDATE pitches SET break_horizontal = NULL WHERE game_pk = 1 AND event_index = 0`).run()
+        harness.repository.create(1)
+        const result = harness.repository.getByGame(1).find(input => input.playerId === "101")!
+        assert.equal(result.pitching.pitchTypes.FF?.count, 2)
+        assert.equal(result.pitching.pitchTypes.FF?.horizontalBreakCount, 1)
+        assert.equal(result.pitching.pitchTypes.FF?.verticalBreakCount, 2)
+        assert.equal(result.pitching.pitchTypes.FF?.totalHorizontalBreakSquared, 36)
+        assert.equal(result.pitching.pitchTypes.FF?.avgHorizontalBreak, 6)
+    })
 })
 
 describe("PlayerRatingInputRepository performance diagnostics", function () {
