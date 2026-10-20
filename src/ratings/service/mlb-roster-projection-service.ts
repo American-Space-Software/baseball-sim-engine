@@ -517,38 +517,7 @@ class MlbRosterProjectionService {
             if (roster.length === rosterSize) {
                 return roster
             }
-            if (roster.length < rosterSize) {
-                continue
-            }
-            const gamePk = (
-                date.games ?? []
-            ).find(game =>
-                Number(
-                    game?.teams?.away?.team?.id
-                ) === team.id ||
-                Number(
-                    game?.teams?.home?.team?.id
-                ) === team.id
-            )?.gamePk
-            try {
-                const projection = this.projectRoster(
-                    date.date,
-                    team,
-                    roster,
-                    gamePk
-                        ? Number(
-                            gamePk
-                        )
-                        : undefined
-                )
-                if (
-                    projection.players.length === rosterSize
-                ) {
-                    return projection.players
-                }
-            } catch {
-                continue
-            }
+
         }
         return []
     }

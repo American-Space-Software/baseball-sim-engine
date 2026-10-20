@@ -127,17 +127,19 @@ const createGame = (gamePk: number, batters: number[] = [], pitchers: number[] =
 const mockDatabase = (
     dates: ScheduleGame[] = [],
     rosters: Record<string, MlbRosterEntry[]> = {},
-    games: Record<number, ReturnType<typeof createGame>> = {}
+    games: Record<number, ReturnType<typeof createGame>> = {},
+    onRosterRead?: (date: string) => void
 ): void => {
     mock.method(queries, "getSchedule", () =>
         createSchedule(dates)
     )
-    mock.method(queries, "getRoster", (date: string) =>
-        (rosters[date] ?? []).map(entry => ({
+    mock.method(queries, "getRoster", (date: string) => {
+        onRosterRead?.(date)
+        return (rosters[date] ?? []).map(entry => ({
             playerId: Number(entry.playerId),
             position: entry.position
         }))
-    )
+    })
     mock.method(queries, "getGame", (gamePk: number) =>
         games[gamePk]
     )
@@ -468,6 +470,80 @@ describe("MlbRosterProjectionService", () => {
             new Set(playerIds(result.players)),
             new Set(playerIds(earlierRoster))
         )
+    })
+    it("reads each oversized historical roster only once before finding an exact-size reference", () => {
+        const roster = createRoster(19, 20)
+        const exact = createRoster(13, 13)
+        const dates = [
+            { date: "2026-07-27", gamePk: 100 },
+            { date: "2026-07-28", gamePk: 101 },
+            { date: "2026-07-29", gamePk: 102 },
+            { date: "2026-07-30", gamePk: 103 },
+            { date: GAME_DATE, gamePk: GAME_PK }
+        ]
+        const reads: string[] = []
+        mockDatabase(dates, {
+            "2026-07-27": exact,
+            "2026-07-28": roster,
+            "2026-07-29": roster,
+            "2026-07-30": roster
+        }, {}, date => reads.push(date))
+        const result = service.project(GAME_DATE, team, roster)
+        assert.equal(result.players.length, 26)
+        assert.deepEqual(reads, ["2026-07-30", "2026-07-29", "2026-07-28", "2026-07-27"])
+        assert.deepEqual(new Set(playerIds(result.players)), new Set(playerIds(exact)))
+    })
+    it("uses recent appearances when all previous rosters are oversized", () => {
+        const roster = createRoster(19, 20)
+        const recentHitter = roster.find(player => player.playerId === "3017")!
+        const recentPitcher = roster.find(player => player.playerId === "1018")!
+        const dates = [
+            { date: "2026-07-28", gamePk: 100 },
+            { date: "2026-07-29", gamePk: 101 },
+            { date: PREVIOUS_DATE, gamePk: 102 },
+            { date: GAME_DATE, gamePk: GAME_PK }
+        ]
+        const reads: string[] = []
+        mockDatabase(dates, {
+            "2026-07-28": roster,
+            "2026-07-29": roster,
+            [PREVIOUS_DATE]: roster
+        }, {
+            102: createGame(102, [Number(recentHitter.playerId)], [Number(recentPitcher.playerId)])
+        }, date => reads.push(date))
+        const result = service.project(GAME_DATE, team, roster)
+        assert.equal(result.players.length, 26)
+        assert.ok(playerIds(result.players).includes(recentHitter.playerId))
+        assert.ok(playerIds(result.players).includes(recentPitcher.playerId))
+        assert.deepEqual(reads, [PREVIOUS_DATE, "2026-07-29", "2026-07-28"])
+    })
+    it("does not perform recursive historical searches across sixty oversized rosters", () => {
+        const roster = createRoster(19, 20)
+        const gameDate = "2009-05-20"
+        const dates = Array.from({ length: 60 }, (_, index) => {
+            const date = new Date(`${gameDate}T12:00:00Z`)
+            date.setUTCDate(date.getUTCDate() - index - 1)
+            return { date: date.toISOString().slice(0, 10), gamePk: 100 + index }
+        })
+        const rosters = Object.fromEntries(dates.map(date => [date.date, roster]))
+        let reads = 0
+        mockDatabase([...dates, { date: gameDate, gamePk: GAME_PK }], rosters, {}, () => {
+            reads++
+            if (reads > 120) throw new Error("Recursive roster search exceeded 120 reads.")
+        })
+        const result = service.project(gameDate, team, roster)
+        assert.equal(result.players.length, 25)
+        assert.equal(reads, 60)
+    })
+    it("preserves the 26-player roster allowance for historical doubleheaders", () => {
+        const date = "2009-05-20"
+        mockDatabase([
+            { date, gamePk: 200 },
+            { date, gamePk: 201 }
+        ])
+        const result = service.project(date, team, createRoster(15, 15), 200)
+        assert.equal(result.players.length, 26)
+        assert.equal(result.projected, true)
     })
     it("uses a 25-player historical roster as the previous roster reference", () => {
         const roster = createRoster(19, 20)

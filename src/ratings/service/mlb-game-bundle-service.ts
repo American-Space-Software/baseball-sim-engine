@@ -32,6 +32,14 @@ class MlbGameBundleService {
     ) {}
 
     public async build(gameDate: string): Promise<MlbDailyBundle> {
+        const bundleStartedAt = performance.now()
+        let stageStartedAt = bundleStartedAt
+        const checkpoint = (stage: string): void => {
+            const now = performance.now()
+            // console.log(`[BUNDLE PERF] ${gameDate} ${stage}: ${(now - stageStartedAt).toFixed(0)}ms stage, ${(now - bundleStartedAt).toFixed(0)}ms total.`)
+            stageStartedAt = now
+        }
+        // console.log(`[BUNDLE PERF] ${gameDate} START ${new Date().toISOString()}`)
         this.validateGameDate(gameDate)
         const season = Number(gameDate.slice(0, 4))
         const schedule = queries.getSchedule(season)
@@ -39,17 +47,34 @@ class MlbGameBundleService {
             throw new Error(`MLB schedule not found for season ${season}.`)
         }
         const scheduleDate = (schedule.data.dates ?? []).find(date => String(date?.date ?? "") === gameDate)
+        checkpoint("schedule")
         await this.mlbRosterService.syncRosters(gameDate)
+        checkpoint("roster synchronization")
+        const sharedLoadStartedAt = performance.now()
         const [teams, activeRosters, pitchEnvironmentTarget, teamRatings] = await Promise.all([
-            this.mlbRosterService.getTeams(season),
-            this.mlbRosterService.getRosters(gameDate),
-            this.getPitchEnvironmentTarget(season),
-            this.teamRatingService.getRatingsForDate(gameDate)
+            this.mlbRosterService.getTeams(season).then(value => {
+                // console.log(`[BUNDLE PERF] ${gameDate} getTeams: ${(performance.now() - sharedLoadStartedAt).toFixed(0)}ms elapsed.`)
+                return value
+            }),
+            this.mlbRosterService.getRosters(gameDate).then(value => {
+                // console.log(`[BUNDLE PERF] ${gameDate} getRosters: ${(performance.now() - sharedLoadStartedAt).toFixed(0)}ms elapsed.`)
+                return value
+            }),
+            this.getPitchEnvironmentTarget(season).then(value => {
+                // console.log(`[BUNDLE PERF] ${gameDate} pitch environment: ${(performance.now() - sharedLoadStartedAt).toFixed(0)}ms elapsed.`)
+                return value
+            }),
+            this.teamRatingService.getRatingsForDate(gameDate).then(value => {
+                // console.log(`[BUNDLE PERF] ${gameDate} team ratings: ${(performance.now() - sharedLoadStartedAt).toFixed(0)}ms elapsed.`)
+                return value
+            })
         ])
+        checkpoint("shared data loading")
         const stadiumEnvironments = await this.baseballSavantService.getStadiumEnvironments(
             season,
             teams
         )
+        checkpoint("stadium environments")
         const games = (scheduleDate?.games ?? []).map(scheduledGame => {
             const gamePk = Number(scheduledGame?.gamePk)
             const awayTeamId = Number(scheduledGame?.teams?.away?.team?.id)
@@ -110,6 +135,8 @@ class MlbGameBundleService {
         const inactiveRosters = activeRosters.filter(roster =>
             !scheduledTeamIds.has(roster.team.id)
         )
+        checkpoint("scheduled game lookup")
+        // console.log(`[BUNDLE PERF] ${gameDate} game roster projections START`)
         const rosterEntries = await Promise.all(
             games.flatMap(game => {
                 const allowPreviousRoster =
@@ -121,6 +148,7 @@ class MlbGameBundleService {
                 ]
             })
         )
+        checkpoint("game roster projections")
         const playerIds = new Set([
             ...activeRosters.flatMap(roster =>
                 roster.players.map(player => String(player.playerId))
@@ -129,30 +157,29 @@ class MlbGameBundleService {
                 roster.entries.map(player => String(player.playerId))
             )
         ])
-        const ratingsStartedAt = Date.now()
+        checkpoint("player ID collection")
+        // console.log(`[BUNDLE PERF] ${gameDate} player ratings START (${playerIds.size} IDs)`)
         const ratings = await this.playerRatingService.buildPlayerRatingsForDate(
             season,
             gameDate,
             pitchEnvironmentTarget,
             playerIds
         )
-        // console.log(
-        //     `[BUNDLE PERF] player ratings: ${ratings.size} players in ${Date.now() - ratingsStartedAt}ms.`
-        // )
-        // const statsStartedAt = Date.now()
+        checkpoint(`player ratings (${ratings.size} players)`)
+        // console.log(`[BUNDLE PERF] ${gameDate} player stats START`)
         const statsByPlayerId = this.playerStatService.getStats(
             gameDate,
             playerIds
         )
-        // console.log(
-        //     `[BUNDLE PERF] player stats: ${statsByPlayerId.size} players in ${Date.now() - statsStartedAt}ms.`
-        // )
+        checkpoint(`player stats (${statsByPlayerId.size} players)`)
         const rosters = new Map(
             rosterEntries.map(roster => [
                 this.getRosterKey(roster.gamePk, roster.team.id),
                 roster.entries
             ])
         )
+        checkpoint("game roster map")
+        // console.log(`[BUNDLE PERF] ${gameDate} scheduled game lineups START`)
         const bundles = await Promise.all(
             games.map(async game => {
                 const awayRoster = rosters.get(this.getRosterKey(game.gamePk, game.awayTeam.id))
@@ -191,6 +218,8 @@ class MlbGameBundleService {
                 }
             })
         )
+        checkpoint(`scheduled game lineups (${bundles.length} games)`)
+        // console.log(`[BUNDLE PERF] ${gameDate} inactive team lineups START`)
         const inactiveTeams = await Promise.all(
             inactiveRosters.map(async roster => {
                 const bundle = await this.gameLineupService.build(
@@ -206,12 +235,15 @@ class MlbGameBundleService {
                 )
             })
         )
+        checkpoint(`inactive team lineups (${inactiveTeams.length} teams)`)
         bundles.sort((a, b) =>
             new Date(a.gameDate).getTime() - new Date(b.gameDate).getTime()
         )
         inactiveTeams.sort((a, b) =>
             a.team.name.localeCompare(b.team.name)
         )
+        checkpoint("sorting")
+        // console.log(`[BUNDLE PERF] ${gameDate} BUILD COMPLETE: ${(performance.now() - bundleStartedAt).toFixed(0)}ms total ${new Date().toISOString()}`)
         return {
             date: gameDate,
             pitchEnvironmentTarget,
